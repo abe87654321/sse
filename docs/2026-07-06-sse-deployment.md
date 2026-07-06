@@ -26,27 +26,35 @@ pnpm install
 ### 2.2 启动基础设施
 
 ```bash
-docker-compose up -d
+# 注意：用 "docker compose"（空格，v2版本），不是 "docker-compose"（横杠，v1版本）
+sudo docker compose up -d
 ```
 
-启动 PostgreSQL (端口 5432) 和 MinIO (API: 9000, Console: 9001)。
+启动 PostgreSQL（宿主机端口 5433 → 容器 5432）和 MinIO（API: 9002, Console: 9003）。
 
 ### 2.3 初始化数据库
 
 ```bash
-pnpm build          # 编译所有包
-pnpm migrate        # 执行数据库迁移
+# 编译所有包（首次或改代码后需要）
+pnpm build
+
+# 创建 .env（从模板复制，首次需要）
+cp .env.example .env
+
+# 执行数据库迁移
+DB_PORT=5433 pnpm migrate
 ```
+
+> **说明**：`.env.example` 中 `DB_PORT` 已设为 5433，但 migrate 脚本未加载 dotenv，首次迁移前需手动传 `DB_PORT=5433`。配置 `.env` 后启动 API 时自动读取。
 
 ### 2.4 配置 MinIO
 
-1. 打开 http://localhost:9001（账号 minioadmin / minioadmin）
-2. 创建存储桶 `invoices`
-3. 生成 Access Key / Secret Key
+1. 浏览器打开 `http://<server-ip>:9003`（账号 minioadmin / minioadmin）
+2. 创建存储桶 `invoices`（Bucket Name 填 `invoices`，点 Create Bucket）
 
 ### 2.5 配置环境变量
 
-创建 `.env` 文件：
+确保 `.env` 文件存在（已从 `.env.example` 复制）：
 
 ```env
 # 数据库
@@ -74,15 +82,17 @@ EMAIL_PROVIDER=log
 ### 2.6 启动服务
 
 ```bash
-# 启动 API 服务 (端口 3000)
+# 启动 API 服务（默认端口 3000）
 pnpm --filter @sse/api dev
 
-# 启动前端开发服务 (端口 5173)
-pnpm --filter @sse/web dev
+# 启动前端开发服务（另开终端，--host 允许外部访问）
+pnpm --filter @sse/web dev -- --host
 
 # 或同时启动
 pnpm dev
 ```
+
+> **关键**：前端必须加 `--host` 参数才能从其他机器访问，否则仅监听 `localhost`。
 
 ### 2.7 启动 MCP Server（如需 Agent 调用）
 
@@ -260,9 +270,43 @@ pnpm migrate
 
 **Q: MinIO 控制台无法访问**
 
-浏览器打开 `http://<server>:9003`（不是 9001），账号 minioadmin / minioadmin。
+浏览器打开 `http://<server>:9003`（不是 9001），账号 minioadmin / minioadmin。首次使用需创建存储桶 `invoices`。
 
-首次使用需创建存储桶 `invoices`，并生成 Access Key。
+### 前端相关
+
+**Q: 前端无法从其他机器访问（只显示 localhost:5173）**
+
+Vite 默认只监听本地。启动时加 `--host`：
+
+```bash
+pnpm --filter @sse/web dev -- --host
+```
+
+### 数据库相关
+
+**Q: migrate 报错 `ECONNREFUSED 127.0.0.1:5432`**
+
+默认端口已改为 5433。首次迁移时手动指定：
+
+```bash
+DB_PORT=5433 pnpm migrate
+```
+
+后续启动 API 时会从 `.env` 自动读取。
+
+**Q: migrate 报错 `ENOENT: .../dist/migrations/001_initial.sql`**
+
+TS 编译不复制 `.sql` 文件。确认 `migrate.ts` 的路径指向 `src/migrations/`：
+
+```typescript
+// 正确路径
+join(__dirname, '..', 'src', 'migrations', '001_initial.sql')
+
+// 错误路径（dist 下没有）
+join(__dirname, 'migrations', '001_initial.sql')
+```
+
+重新 `pnpm --filter @sse/db build` 后再 migrate。
 
 ---
 
