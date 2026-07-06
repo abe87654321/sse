@@ -77,11 +77,11 @@ async function handleLogin() {
   loading.value = true
   try {
     const res = await authApi.login({ phone: form.phone, password: form.password })
-    auth.setAuth(res.data.token, res.data.user)
+    auth.setAuth(res.data.accessToken, res.data.user)
     router.push('/dashboard')
-  } catch {
-    auth.setAuth('dev-token', { id: '1', name: '张主管', phone: form.phone, role: 'admin' })
-    router.push('/dashboard')
+  } catch (err: any) {
+    const msg = err?.response?.data?.error?.message || '登录失败'
+    errors.phone = msg
   } finally {
     loading.value = false
   }
