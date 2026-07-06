@@ -115,6 +115,9 @@ importers:
       '@sse/core':
         specifier: workspace:*
         version: link:../core
+      '@sse/shared':
+        specifier: workspace:*
+        version: link:../shared
       pg:
         specifier: ^8.11
         version: 8.22.0
