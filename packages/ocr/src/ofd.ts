@@ -139,10 +139,7 @@ function parseOfdXml(xml: string): Partial<OcrResult> {
     extractXmlValue(xml, 'fp:InvoiceDate') ||
     extractXmlValue(xml, 'InvoiceDate');
   if (invoiceDate) {
-    const d = new Date(invoiceDate);
-    if (!isNaN(d.getTime())) {
-      result.invoiceDate = d;
-    }
+    result.invoiceDate = invoiceDate;
   }
 
   const sellerName =
