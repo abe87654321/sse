@@ -5,9 +5,32 @@ import { requireRole } from '../middleware/rbac';
 import { UserRole } from '@sse/shared';
 import { AppError } from '../middleware/error';
 
+import { LocalProvider, SmartFillEngine, InvoiceOCREngine } from '@sse/ai';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { join } from 'path';
+
 const router = Router();
 const userRepo = new PgUserRepo();
 const ruleRepo = new PgApprovalRuleRepo();
+
+const CONFIG_PATH = join(process.cwd(), 'ai-config.json');
+
+function loadAiConfig(): { endpoint: string; model: string; enabled: boolean } {
+  try {
+    if (existsSync(CONFIG_PATH)) {
+      return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+    }
+  } catch { /* use defaults */ }
+  return {
+    endpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
+    model: process.env.AI_MODEL || 'llama3.2-vision',
+    enabled: true,
+  };
+}
+
+function saveAiConfig(config: { endpoint: string; model: string; enabled: boolean }) {
+  writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+}
 
 function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -237,6 +260,64 @@ router.delete(
 
     await ruleRepo.delete(id);
     res.json({ message: '规则已删除' });
+  })
+);
+
+// ========== AI 模型配置 ==========
+
+router.get(
+  '/ai-config',
+  asyncWrap(async (_req, res) => {
+    res.json(loadAiConfig());
+  })
+);
+
+router.put(
+  '/ai-config',
+  asyncWrap(async (req, res) => {
+    const { endpoint, model, enabled } = req.body;
+    const config = loadAiConfig();
+    if (endpoint !== undefined) config.endpoint = endpoint;
+    if (model !== undefined) config.model = model;
+    if (enabled !== undefined) config.enabled = enabled;
+    saveAiConfig(config);
+    res.json(config);
+  })
+);
+
+router.post(
+  '/ai-test',
+  asyncWrap(async (req, res) => {
+    const { type } = req.body; // 'text' | 'ocr'
+    const config = loadAiConfig();
+
+    let provider: any;
+    let result: string;
+    try {
+      provider = new LocalProvider({ endpoint: config.endpoint, modelName: config.model });
+      const start = Date.now();
+
+      if (type === 'ocr') {
+        const engine = new InvoiceOCREngine(provider);
+        // 用一个最小的 1x1 透明 PNG 做测试
+        const testPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+        const ocrResult = await engine.parseInvoice(testPng, 'test.png');
+        result = '图像OCR接口连通，模型正常响应';
+      } else {
+        const engine = new SmartFillEngine(provider);
+        const items = await engine.parseFromText('测试：打车50元');
+        const elapsed = Date.now() - start;
+        if (items.length > 0) {
+          result = `文字识别成功（${elapsed}ms），解析到 ${items.length} 条费用`;
+        } else {
+          result = `模型响应但未解析到结构化数据（${elapsed}ms），请检查模型能力`;
+        }
+      }
+    } catch (e: any) {
+      result = `连接失败: ${e.message}`;
+    }
+
+    res.json({ success: !result.startsWith('连接失败'), message: result });
   })
 );
 
