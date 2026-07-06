@@ -5,6 +5,7 @@ import { expenseRoutes } from './routes/expenses';
 import { approvalRoutes } from './routes/approvals';
 import { statisticsRoutes } from './routes/statistics';
 import { adminRoutes } from './routes/admin';
+import { aiRoutes } from './routes/ai';
 import { errorHandler } from './middleware/error';
 
 const app = express();
@@ -18,6 +19,7 @@ app.use('/expenses', expenseRoutes);
 app.use('/approvals', approvalRoutes);
 app.use('/statistics', statisticsRoutes);
 app.use('/admin', adminRoutes);
+app.use('/ai', aiRoutes);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

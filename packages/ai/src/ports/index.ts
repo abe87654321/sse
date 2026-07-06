@@ -1,0 +1,1 @@
+export { IAIProvider, AIProviderConfig, ParsedExpenseItem, IInvoiceOCREngine, ISmartFillEngine } from './iai-provider';

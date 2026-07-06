@@ -10,6 +10,54 @@
     </div>
 
     <div class="form-body">
+      <div class="card ai-card">
+        <div class="ai-card-header" @click="showAI = !showAI">
+          <div class="ai-label">
+            <span class="ai-icon">🤖</span>
+            <span class="font-heading">AI 智能填单</span>
+            <span class="ai-badge">Beta</span>
+          </div>
+          <svg class="ai-arrow" :class="{ open: showAI }" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+        <div v-show="showAI" class="ai-card-body">
+          <p class="ai-hint">粘贴截图、发票照片或文字描述，AI 自动识别费用明细</p>
+          <div class="ai-input-row">
+            <textarea
+              v-model="aiInput"
+              placeholder="例如：打车去机场85元，酒店两晚600&#10;或直接 Ctrl+V 粘贴截图"
+              rows="3"
+              @paste="handlePaste"
+            ></textarea>
+          </div>
+          <button class="btn-ai" @click="handleAIParse" :disabled="aiLoading || !aiInput.trim()">
+            <template v-if="aiLoading">
+              <span class="spinner"></span> AI 识别中...
+            </template>
+            <template v-else>
+              ✨ AI 识别
+            </template>
+          </button>
+          <div v-if="aiResult.length > 0" class="ai-result">
+            <p class="ai-result-title">识别结果（可修改后确认）</p>
+            <div v-for="(item, i) in aiResult" :key="i" class="ai-result-item">
+              <select v-model="item.categoryName">
+                <option v-for="c in categories" :key="c.id" :value="c.name">{{ c.name }}</option>
+              </select>
+              <input v-model.number="item.amount" type="number" min="0" step="0.01" />
+              <input v-model="item.expenseDate" type="date" />
+              <input v-model="item.description" type="text" placeholder="说明" />
+              <button class="btn-remove" @click="aiResult.splice(i, 1)">✕</button>
+            </div>
+            <div class="ai-result-actions">
+              <button class="btn-secondary btn-sm" @click="aiInput=''; aiResult=[]">清空</button>
+              <button class="btn-primary btn-sm" @click="applyAIResult">✅ 填入表单</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="card">
         <h3 class="form-section-title font-heading">基本信息</h3>
         <div class="form-grid">
@@ -90,6 +138,11 @@ const router = useRouter()
 const saving = ref(false)
 const error = ref('')
 
+const showAI = ref(false)
+const aiInput = ref('')
+const aiLoading = ref(false)
+const aiResult = ref<Array<{ categoryName: string; amount: number; expenseDate: string; description: string }>>([])
+
 interface Category { id: string; name: string }
 const categories = ref<Category[]>([])
 
@@ -103,6 +156,55 @@ const form = reactive({
 const totalAmount = computed(() =>
   form.items.reduce((sum, item) => sum + (item.amount || 0), 0)
 )
+
+function handlePaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items
+  if (items) {
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const blob = item.getAsFile()
+        if (blob) {
+          const reader = new FileReader()
+          reader.onload = () => {
+            aiInput.value = reader.result as string
+          }
+          reader.readAsDataURL(blob)
+        }
+        break
+      }
+    }
+  }
+}
+
+async function handleAIParse() {
+  if (!aiInput.value.trim()) return
+  aiLoading.value = true
+  try {
+    const isBase64 = aiInput.value.startsWith('data:image')
+    const payload = isBase64 ? { image: aiInput.value } : { text: aiInput.value }
+    const res = await api.post('/ai/parse', payload)
+    aiResult.value = res.data.items || []
+  } catch (e: any) {
+    error.value = e?.response?.data?.error?.message || 'AI 识别失败，请重试'
+  } finally {
+    aiLoading.value = false
+  }
+}
+
+function applyAIResult() {
+  form.items = aiResult.value.map(item => {
+    const cat = categories.value.find(c => c.name === item.categoryName)
+    return {
+      categoryId: cat?.id || 'c0000000-0000-0000-0000-000000000008',
+      amount: item.amount,
+      expenseDate: item.expenseDate,
+      description: item.description
+    }
+  })
+  aiResult.value = []
+  aiInput.value = ''
+  showAI.value = false
+}
 
 onMounted(async () => {
   try {
@@ -259,6 +361,87 @@ async function handleSubmit() {
 .btn-remove:disabled { opacity: 0.3; cursor: not-allowed; }
 
 .form-footer { display: flex; gap: 12px; justify-content: flex-end; padding-top: 8px; }
+
+.error-msg {
+  color: var(--accent-coral);
+  background: var(--accent-coral-bg);
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+}
+
+/* AI Card */
+.ai-card { border: 1px dashed var(--accent-orange); background: var(--accent-orange-bg); }
+.ai-card-header { display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 4px 0; }
+.ai-label { display: flex; align-items: center; gap: 8px; }
+.ai-icon { font-size: 1.3rem; }
+.ai-badge { font-size: 0.7rem; background: var(--accent-orange); color: #fff; padding: 2px 8px; border-radius: 10px; }
+.ai-arrow { transition: transform 0.2s; color: var(--text-secondary); }
+.ai-arrow.open { transform: rotate(180deg); }
+.ai-card-body { margin-top: 12px; }
+.ai-hint { font-size: 0.825rem; color: var(--text-secondary); margin-bottom: 10px; }
+.ai-input-row textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--accent-orange);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  resize: vertical;
+}
+.btn-ai {
+  margin-top: 10px;
+  padding: 10px 24px;
+  background: linear-gradient(135deg, var(--accent-orange), var(--accent-coral));
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-full);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity 0.2s;
+}
+.btn-ai:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-ai:hover:not(:disabled) { opacity: 0.9; }
+
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.ai-result { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.ai-result-title { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 10px; }
+.ai-result-item {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+.ai-result-item select,
+.ai-result-item input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  flex: 1;
+}
+.ai-result-item input[type="number"] { flex: 0 0 90px; }
+.ai-result-item input[type="date"] { flex: 0 0 130px; }
+.ai-result-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+
 
 .error-msg {
   color: var(--accent-coral);

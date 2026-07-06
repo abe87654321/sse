@@ -3,7 +3,7 @@ export type OcrResult = {
   amount?: number;
   taxAmount?: number;
   totalAmount?: number;
-  invoiceDate?: Date;
+  invoiceDate?: string;
   sellerName?: string;
   buyerName?: string;
   status: string;
