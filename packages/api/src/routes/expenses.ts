@@ -6,7 +6,8 @@ import {
   PgApprovalRecordRepo,
   pool,
 } from '@sse/db';
-import { ReportService, ReportStatus, InvoiceFormat, UserRole } from '@sse/shared';
+import { ReportService } from '@sse/core';
+import { ReportStatus, InvoiceFormat, UserRole } from '@sse/shared';
 import type { ExpenseQuery } from '@sse/core';
 import { authMiddleware } from '@sse/auth';
 import { uploadInvoice } from '../middleware/upload';
