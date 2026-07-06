@@ -4,6 +4,6 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": { "build": "tsc" },
-  "dependencies": { "@sse/core": "workspace:*", "@sse/db": "workspace:*" },
-  "devDependencies": { "typescript": "^5.3" }
+  "dependencies": { "@sse/core": "workspace:*", "@sse/db": "workspace:*", "@sse/shared": "workspace:*" },
+  "devDependencies": { "@types/node": "^26.1.0", "typescript": "^5.3" }
 }

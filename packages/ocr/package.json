@@ -4,6 +4,6 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": { "build": "tsc", "test": "jest" },
-  "dependencies": { "@sse/core": "workspace:*", "minio": "^7.1" },
-  "devDependencies": { "typescript": "^5.3", "jest": "^29", "ts-jest": "^29" }
+  "dependencies": { "@sse/core": "workspace:*", "@sse/shared": "workspace:*" },
+  "devDependencies": { "@types/node": "^26.1.0", "typescript": "^5.3", "jest": "^29", "ts-jest": "^29" }
 }
