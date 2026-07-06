@@ -146,6 +146,9 @@ importers:
       '@sse/db':
         specifier: workspace:*
         version: link:../db
+      '@sse/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       typescript:
         specifier: ^5.3

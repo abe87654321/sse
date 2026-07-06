@@ -1,9 +1,10 @@
 {
   "name": "@sse/mcp",
   "version": "0.1.0",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": { "build": "tsc" },
-  "dependencies": { "@sse/core": "workspace:*", "@sse/db": "workspace:*", "@modelcontextprotocol/sdk": "^0.5" },
+  "dependencies": { "@sse/core": "workspace:*", "@sse/db": "workspace:*", "@sse/auth": "workspace:*", "@sse/shared": "workspace:*", "@modelcontextprotocol/sdk": "^0.5" },
   "devDependencies": { "typescript": "^5.3" }
 }
