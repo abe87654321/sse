@@ -15,7 +15,7 @@ const ruleRepo = new PgApprovalRuleRepo();
 
 const CONFIG_PATH = join(process.cwd(), 'ai-config.json');
 
-function loadAiConfig(): { endpoint: string; model: string; enabled: boolean } {
+function loadAiConfig(): { endpoint: string; model: string; enabled: boolean; apiKey?: string } {
   try {
     if (existsSync(CONFIG_PATH)) {
       return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
@@ -25,10 +25,11 @@ function loadAiConfig(): { endpoint: string; model: string; enabled: boolean } {
     endpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
     model: process.env.AI_MODEL || 'llama3.2-vision',
     enabled: true,
+    apiKey: process.env.AI_API_KEY || undefined,
   };
 }
 
-function saveAiConfig(config: { endpoint: string; model: string; enabled: boolean }) {
+function saveAiConfig(config: { endpoint: string; model: string; enabled: boolean; apiKey?: string }) {
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
 }
 
@@ -264,6 +265,44 @@ router.delete(
 );
 
 // ========== AI 模型配置 ==========
+
+const RECOMMENDED_MODELS = ['llama3.1:8b', 'deepseek-r1:8b', 'qwen2.5-vl:7b'];
+
+interface ModelInfo {
+  id: string; name: string; recommended: boolean; reason: string;
+}
+
+router.get(
+  '/ai-models',
+  asyncWrap(async (_req, res) => {
+    const config = loadAiConfig();
+    let models: ModelInfo[] = [];
+
+    try {
+      const resp = await fetch(config.endpoint.replace('/chat/completions', '/models'), {
+        headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
+      });
+      if (resp.ok) {
+        const data: any = await resp.json();
+        const rawModels = data.data || data.models || [];
+        models = rawModels.map((m: any) => {
+          const name = m.id || m.name || '';
+          const isRecommended = RECOMMENDED_MODELS.some(r => name.includes(r));
+          const reason = isRecommended
+            ? '推荐：中文支持好，速度与精度均衡'
+            : '';
+          return { id: name, name, recommended: isRecommended, reason };
+        });
+      }
+    } catch {
+      models = RECOMMENDED_MODELS.map(name => ({
+        id: name, name, recommended: true, reason: '推荐',
+      }));
+    }
+
+    res.json({ models });
+  })
+);
 
 router.get(
   '/ai-config',

@@ -15,7 +15,22 @@
         </div>
         <div class="field">
           <label>模型名称</label>
-          <input v-model="aiConfig.model" type="text" placeholder="llama3.2-vision" />
+          <div class="model-select-row">
+            <select v-model="aiConfig.model" :disabled="!aiModels.length">
+              <option value="" disabled>请先刷新模型列表</option>
+              <option v-for="m in aiModels" :key="m.id" :value="m.id">
+                {{ m.name }}{{ m.recommended ? ' ★推荐' : '' }}
+              </option>
+            </select>
+            <button class="btn-secondary btn-sm" @click="fetchModels" :disabled="modelsLoading">
+              {{ modelsLoading ? '加载中...' : '🔄 刷新' }}
+            </button>
+          </div>
+          <span v-if="aiModels.length" class="hint">
+            <template v-for="m in aiModels.filter(x => x.recommended)" :key="m.id">
+              {{ m.name }}：{{ m.reason }}
+            </template>
+          </span>
         </div>
       </div>
 
@@ -86,6 +101,8 @@ const aiSaving = ref(false)
 const aiTesting = ref<string | false>(false)
 const aiTestResult = ref('')
 const aiTestSuccess = ref(false)
+const aiModels = ref<Array<{ id: string; name: string; recommended: boolean; reason: string }>>([])
+const modelsLoading = ref(false)
 
 const users = ref<any[]>([])
 
@@ -98,7 +115,20 @@ onMounted(async () => {
     Object.assign(aiConfig, configRes.data)
     users.value = usersRes.data || []
   } catch { /* silent */ }
+  fetchModels()
 })
+
+async function fetchModels() {
+  modelsLoading.value = true
+  try {
+    const res = await api.get('/admin/ai-models')
+    aiModels.value = res.data.models || []
+  } catch {
+    aiModels.value = []
+  } finally {
+    modelsLoading.value = false
+  }
+}
 
 function roleLabel(role: string) {
   const map: Record<string, string> = { admin: '管理员', dept_approver: '部门审批人', finance: '财务', employee: '员工' }
@@ -180,4 +210,17 @@ async function testAI(type: 'text' | 'ocr') {
 }
 .ai-test-result.success { background: var(--accent-mint-bg); color: #2b7a3d; }
 .ai-test-result.fail { background: var(--accent-coral-bg); color: var(--accent-coral); }
+
+.model-select-row { display: flex; gap: 8px; align-items: center; }
+.model-select-row select {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+}
+.hint { display: block; margin-top: 6px; font-size: 0.75rem; color: var(--accent-orange); }
 </style>
