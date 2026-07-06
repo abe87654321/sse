@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT) || 5432,
+  port: Number(process.env.DB_PORT) || 5433,
   database: process.env.DB_NAME || 'sse',
   user: process.env.DB_USER || 'sse',
   password: process.env.DB_PASSWORD || 'sse_dev',
