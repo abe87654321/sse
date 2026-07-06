@@ -1,0 +1,13 @@
+{
+  "name": "sse",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @sse/api dev & pnpm --filter @sse/web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "migrate": "pnpm --filter @sse/db migrate",
+    "migrate:rollback": "pnpm --filter @sse/db migrate:rollback"
+  },
+  "engines": { "node": ">=18" }
+}

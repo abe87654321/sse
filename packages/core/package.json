@@ -1,0 +1,9 @@
+{
+  "name": "@sse/core",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": { "build": "tsc", "test": "jest" },
+  "dependencies": { "@sse/shared": "workspace:*" },
+  "devDependencies": { "typescript": "^5.3", "jest": "^29", "ts-jest": "^29" }
+}
