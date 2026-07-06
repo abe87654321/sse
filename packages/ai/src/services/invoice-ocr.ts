@@ -18,7 +18,9 @@ export class InvoiceOCREngine implements IInvoiceOCREngine {
 
     const base64 = fileBuffer.toString('base64');
     const prompt = buildInvoicePrompt();
-    const result = await this.provider.analyzeImage(base64, prompt);
+    const mimeMap: Record<string, string> = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
+    const mimeType = mimeMap[ext || ''] || 'image/jpeg';
+    const result = await this.provider.analyzeImage(base64, prompt, mimeType);
 
     try {
       const jsonMatch = result.match(/\{[\s\S]*\}/);

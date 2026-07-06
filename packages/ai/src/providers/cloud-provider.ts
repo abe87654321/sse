@@ -11,23 +11,24 @@ export class CloudProvider implements IAIProvider {
     };
   }
 
-  async analyzeImage(imageBase64: string, prompt: string): Promise<string> {
-    return this.callModel(prompt, imageBase64);
+  async analyzeImage(imageBase64: string, prompt: string, mimeType?: string): Promise<string> {
+    return this.callModel(prompt, imageBase64, mimeType);
   }
 
   async analyzeText(text: string, prompt: string): Promise<string> {
     return this.callModel(`${prompt}\n\n内容：\n${text}`);
   }
 
-  private async callModel(userPrompt: string, imageBase64?: string): Promise<string> {
+  private async callModel(userPrompt: string, imageBase64?: string, mimeType?: string): Promise<string> {
     const messages: any[] = [];
 
     if (imageBase64) {
+      const mime = mimeType || 'image/jpeg';
       messages.push({
         role: 'user',
         content: [
           { type: 'text', text: userPrompt },
-          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${imageBase64}` } },
         ],
       });
     } else {

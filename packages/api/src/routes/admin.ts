@@ -338,10 +338,19 @@ router.post(
 
       if (type === 'ocr') {
         const engine = new InvoiceOCREngine(provider);
-        // 用一个最小的 1x1 透明 PNG 做测试
-        const testPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
-        const ocrResult = await engine.parseInvoice(testPng, 'test.png');
-        result = '图像OCR接口连通，模型正常响应';
+        const pdfPath = join(process.cwd(), 'docs', 'dzfp_25362000000115126055_深圳市数恒纪元信息技术咨询企业（个人独资）_20251106105357.pdf');
+        if (!existsSync(pdfPath)) {
+          result = `测试失败: 发票样例文件不存在 ${pdfPath}`;
+        } else {
+          const pdfBuffer = readFileSync(pdfPath);
+          const ocrResult = await engine.parseInvoice(pdfBuffer, 'sample.pdf');
+          const elapsed = Date.now() - start;
+          if (ocrResult.invoiceNo || ocrResult.amount) {
+            result = `发票OCR成功（${elapsed}ms）：发票号 ${ocrResult.invoiceNo || 'N/A'}，金额 ${ocrResult.amount || ocrResult.totalAmount || 'N/A'}`;
+          } else {
+            result = `图像OCR接口连通（${elapsed}ms），但未识别到发票信息，请检查模型视觉能力`;
+          }
+        }
       } else {
         const engine = new SmartFillEngine(provider);
         const items = await engine.parseFromText('测试：打车50元');

@@ -8,7 +8,7 @@ export interface AIProviderConfig {
 }
 
 export interface IAIProvider {
-  analyzeImage(imageBase64: string, prompt: string): Promise<string>;
+  analyzeImage(imageBase64: string, prompt: string, mimeType?: string): Promise<string>;
   analyzeText(text: string, prompt: string): Promise<string>;
 }
 
