@@ -5,3 +5,10 @@
     </transition>
   </router-view>
 </template>
+
+<style global>
+#app {
+  min-height: 100vh;
+  background: var(--bg-warm);
+}
+</style>

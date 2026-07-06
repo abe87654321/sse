@@ -1,35 +1,21 @@
 <template>
   <div class="expense-list-page">
-    <div class="page-toolbar">
-      <div class="filter-group">
-        <el-select v-model="filters.status" placeholder="全部状态" size="default" clearable>
-          <el-option label="草稿" value="draft" />
-          <el-option label="待审批" value="pending" />
-          <el-option label="已通过" value="approved" />
-          <el-option label="已驳回" value="rejected" />
-          <el-option label="已付款" value="paid" />
-        </el-select>
-        <el-date-picker
-          v-model="filters.dateRange"
-          type="daterange"
-          range-separator="至"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
-          size="default"
-        />
-        <el-input
-          v-model="filters.keyword"
-          placeholder="搜索编号或标题..."
-          size="default"
-          clearable
-          class="search-input"
-        />
-      </div>
-      <button class="btn-new-expense" @click="$router.push('/expenses/new')">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <div class="toolbar">
+      <select v-model="filters.status" class="filter-select">
+        <option value="">全部状态</option>
+        <option value="draft">草稿</option>
+        <option value="pending">待审批</option>
+        <option value="approved">已通过</option>
+        <option value="rejected">已驳回</option>
+        <option value="paid">已付款</option>
+      </select>
+      <input v-model="filters.keyword" type="text" placeholder="搜索编号或标题..." class="search-input" />
+      <div class="toolbar-spacer"></div>
+      <button class="btn-primary" @click="$router.push('/expenses/new')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
         </svg>
-        <span>新建报销</span>
+        新建报销
       </button>
     </div>
 
@@ -43,177 +29,85 @@
             <th>状态</th>
             <th>类别</th>
             <th class="text-right">日期</th>
-            <th>操作</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(item, i) in expenses" :key="item.id" class="data-row" :style="{ animationDelay: `${i * 0.04}s` }">
-            <td class="font-mono text-muted">{{ item.serialNo }}</td>
+          <tr v-for="item in filteredExpenses" :key="item.id" @click="$router.push(`/expenses/${item.id}`)">
+            <td class="text-muted" style="font-size:0.8rem;">{{ item.serialNo }}</td>
             <td class="title-cell">{{ item.title }}</td>
-            <td class="text-right font-mono">&yen;{{ item.amount.toLocaleString() }}</td>
+            <td class="text-right">&yen;{{ item.amount.toLocaleString() }}</td>
             <td><span class="badge" :class="`badge-${item.status}`">{{ statusLabels[item.status] }}</span></td>
-            <td class="text-muted">{{ item.category }}</td>
-            <td class="text-right text-muted">{{ item.date }}</td>
-            <td>
-              <button class="row-action" @click="$router.push(`/expenses/${item.id}`)">查看</button>
+            <td class="text-secondary">{{ item.category }}</td>
+            <td class="text-right text-muted" style="font-size:0.82rem;">{{ item.date }}</td>
+            <td class="col-action">
+              <span class="table-link" @click.stop="$router.push(`/expenses/${item.id}`)">查看</span>
             </td>
           </tr>
-          <tr v-if="expenses.length === 0">
-            <td colspan="7" class="empty-cell">暂无报销记录</td>
+          <tr v-if="filteredExpenses.length === 0">
+            <td colspan="7">
+              <div class="empty-state">
+                <div class="empty-state-icon">&#128203;</div>
+                <div class="empty-state-text">暂无报销记录</div>
+              </div>
+            </td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <div class="pagination-row">
-      <span class="pagination-info">共 {{ total }} 条记录</span>
-      <el-pagination
-        v-model:current-page="page"
-        :page-size="pageSize"
-        :total="total"
-        background
-        layout="prev, pager, next"
-      />
+    <div class="pagination">
+      <span class="pagination-info">共 {{ filteredExpenses.length }} 条记录</span>
+      <div class="pagination-pages">
+        <button class="pagination-btn" :disabled="page <= 1" @click="page--">&lt;</button>
+        <button class="pagination-btn" :class="{ active: page === 1 }" @click="page = 1">1</button>
+        <button class="pagination-btn active">1</button>
+        <button class="pagination-btn" @click="page++">&gt;</button>
+      </div>
     </div>
+
+    <button class="fab" @click="$router.push('/expenses/new')" title="新建报销">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+    </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 
-const statusLabels: Record<string, string> = { draft: '草稿', pending: '待审批', approved: '已通过', rejected: '已驳回', paid: '已付款' }
+const statusLabels: Record<string, string> = {
+  draft: '草稿', pending: '待审批', approved: '已通过', rejected: '已驳回', paid: '已付款'
+}
 
-const filters = reactive({ status: '', dateRange: null as any, keyword: '' })
+const filters = reactive({ status: '', keyword: '' })
 const page = ref(1)
-const pageSize = ref(10)
-const total = ref(5)
 
-const expenses = [
+const allExpenses = [
   { id: '1', serialNo: 'SSE-20240701-001', title: '差旅费报销-北京出差', amount: 3850, status: 'approved', category: '差旅费', date: '2024-07-01' },
   { id: '2', serialNo: 'SSE-20240703-002', title: '办公用品采购', amount: 1260, status: 'paid', category: '办公费', date: '2024-07-03' },
   { id: '3', serialNo: 'SSE-20240704-003', title: '招待费-客户用餐', amount: 890, status: 'pending', category: '招待费', date: '2024-07-04' },
   { id: '4', serialNo: 'SSE-20240703-004', title: '交通费报销', amount: 345, status: 'approved', category: '交通费', date: '2024-07-03' },
   { id: '5', serialNo: 'SSE-20240702-005', title: '培训费-技术峰会门票', amount: 2800, status: 'rejected', category: '培训费', date: '2024-07-02' },
 ]
+
+const filteredExpenses = computed(() => {
+  let list = allExpenses
+  if (filters.status) list = list.filter(e => e.status === filters.status)
+  if (filters.keyword) {
+    const kw = filters.keyword.toLowerCase()
+    list = list.filter(e => e.serialNo.toLowerCase().includes(kw) || e.title.toLowerCase().includes(kw))
+  }
+  return list
+})
 </script>
 
 <style scoped>
-.page-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-  gap: 12px;
+.filter-select {
+  width: auto;
+  min-width: 130px;
 }
-.filter-group {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.filter-group :deep(.el-input__wrapper),
-.filter-group :deep(.el-select .el-input__wrapper) {
-  background: var(--bg-card) !important;
-  border: 1px solid var(--border) !important;
-  box-shadow: none !important;
-  border-radius: var(--radius) !important;
-  transition: border-color var(--transition);
-}
-.filter-group :deep(.el-input__wrapper:hover),
-.filter-group :deep(.el-select .el-input__wrapper:hover) {
-  border-color: var(--border-light) !important;
-}
-.filter-group :deep(.el-input__inner) { color: var(--text-primary) !important; }
-.filter-group :deep(.el-input__inner::placeholder) { color: var(--text-muted) !important; }
 .search-input { width: 220px; }
-
-.btn-new-expense {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 18px;
-  background: var(--accent-amber);
-  color: #0f1117;
-  font-weight: 600;
-  font-size: 0.9rem;
-  border-radius: var(--radius);
-  transition: all var(--transition);
-}
-.btn-new-expense:hover { background: var(--accent-amber-dark); }
-
-.table-wrap {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.data-table th {
-  padding: 14px 16px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-}
-.data-table td {
-  padding: 14px 16px;
-  font-size: 0.9rem;
-  border-bottom: 1px solid var(--border);
-}
-.data-row {
-  animation: fadeSlideIn 0.4s ease both;
-  cursor: pointer;
-  transition: background var(--transition);
-}
-.data-row:hover { background: rgba(255, 255, 255, 0.03); }
-.data-row:last-child td { border-bottom: none; }
-@keyframes fadeSlideIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.text-right { text-align: right; }
-.empty-cell { text-align: center; color: var(--text-muted); padding: 48px 16px !important; }
-.title-cell { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.row-action {
-  padding: 4px 12px;
-  background: transparent;
-  color: var(--accent-amber);
-  font-size: 0.85rem;
-  border-radius: var(--radius);
-  transition: all var(--transition);
-}
-.row-action:hover { background: rgba(240, 185, 11, 0.1); }
-
-.pagination-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 20px;
-}
-.pagination-info { font-size: 0.85rem; color: var(--text-muted); }
-.pagination-row :deep(.el-pager li) {
-  background: var(--bg-card) !important;
-  color: var(--text-secondary) !important;
-  border: 1px solid var(--border) !important;
-}
-.pagination-row :deep(.el-pager li.is-active) {
-  background: var(--accent-amber) !important;
-  color: #0f1117 !important;
-  border-color: var(--accent-amber) !important;
-}
-.pagination-row :deep(.btn-prev),
-.pagination-row :deep(.btn-next) {
-  background: var(--bg-card) !important;
-  color: var(--text-secondary) !important;
-  border: 1px solid var(--border) !important;
-}
+.title-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

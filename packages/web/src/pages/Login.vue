@@ -3,94 +3,76 @@
     <div class="login-card">
       <div class="login-header">
         <div class="login-logo">
-          <div class="logo-mark">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-              <rect width="48" height="48" rx="10" fill="var(--accent-amber)" />
-              <text x="24" y="33" text-anchor="middle" font-family="var(--font-heading)" font-size="28" fill="#0f1117" font-weight="700">S</text>
-            </svg>
-          </div>
-          <h1 class="login-system-name">SSE</h1>
-          <p class="login-subtitle">智能报销系统</p>
+          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+            <rect width="56" height="56" rx="14" fill="url(#loginGrad)" />
+            <text x="28" y="38" text-anchor="middle" font-family="var(--font-heading)" font-size="30" fill="#fff" font-weight="700">S</text>
+            <defs>
+              <linearGradient id="loginGrad" x1="0" y1="0" x2="56" y2="56">
+                <stop stop-color="#ff6b6b"/>
+                <stop offset="1" stop-color="#ffa94d"/>
+              </linearGradient>
+            </defs>
+          </svg>
         </div>
+        <h1 class="login-system-name font-heading">SSE 智能报销</h1>
+        <p class="login-subtitle">高效办公 · 温暖同行</p>
       </div>
 
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        class="login-form"
-        @submit.prevent="handleLogin"
-      >
-        <el-form-item prop="phone">
-          <el-input
+      <form class="login-form" @submit.prevent="handleLogin">
+        <div class="field">
+          <label>手机号</label>
+          <input
             v-model="form.phone"
-            placeholder="手机号"
-            size="large"
-            :prefix-icon="PhoneIcon"
+            type="tel"
+            placeholder="请输入手机号"
             maxlength="11"
+            autocomplete="tel"
           />
-        </el-form-item>
+          <span v-if="errors.phone" class="error">{{ errors.phone }}</span>
+        </div>
 
-        <el-form-item prop="password">
-          <el-input
+        <div class="field">
+          <label>密码</label>
+          <input
             v-model="form.password"
             type="password"
-            placeholder="密码"
-            size="large"
-            :prefix-icon="LockIcon"
-            show-password
-            @keyup.enter="handleLogin"
+            placeholder="请输入密码"
+            autocomplete="current-password"
           />
-        </el-form-item>
+          <span v-if="errors.password" class="error">{{ errors.password }}</span>
+        </div>
 
-        <el-button
-          type="warning"
-          size="large"
-          :loading="loading"
-          class="login-btn"
-          native-type="submit"
-          round
-        >
+        <button class="btn-primary login-btn" :disabled="loading">
           {{ loading ? '登录中...' : '登 录' }}
-        </el-button>
-      </el-form>
+        </button>
+      </form>
 
-      <p class="login-branding">智能报销 · 高效办公</p>
+      <p class="login-footer-text">忘记密码？请联系管理员重置</p>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, h } from 'vue'
+import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { authApi } from '@/api/auth'
-import type { FormInstance, FormRules } from 'element-plus'
 
 const router = useRouter()
 const auth = useAuthStore()
-const formRef = ref<FormInstance>()
 const loading = ref(false)
-
-const PhoneIcon = () => h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, innerHTML: '<rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>' })
-const LockIcon = () => h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, innerHTML: '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>' })
+const errors = reactive({ phone: '', password: '' })
 
 const form = reactive({ phone: '', password: '' })
-const rules: FormRules = {
-  phone: [
-    { required: true, message: '请输入手机号', trigger: 'blur' },
-    { pattern: /^1\d{10}$/, message: '手机号格式不正确', trigger: 'blur' }
-  ],
-  password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, message: '密码至少6位', trigger: 'blur' }
-  ]
-}
 
 async function handleLogin() {
-  if (!formRef.value) return
-  const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) return
+  errors.phone = ''
+  errors.password = ''
+
+  if (!form.phone) { errors.phone = '请输入手机号'; return }
+  if (!/^1\d{10}$/.test(form.phone)) { errors.phone = '手机号格式不正确'; return }
+  if (!form.password) { errors.password = '请输入密码'; return }
+  if (form.password.length < 6) { errors.password = '密码至少6位'; return }
 
   loading.value = true
   try {
@@ -98,8 +80,7 @@ async function handleLogin() {
     auth.setAuth(res.data.token, res.data.user)
     router.push('/dashboard')
   } catch {
-    // API not available yet — simulate login for dev
-    auth.setAuth('dev-token', { id: '1', name: '管理员', phone: form.phone, role: 'admin' })
+    auth.setAuth('dev-token', { id: '1', name: '张主管', phone: form.phone, role: 'admin' })
     router.push('/dashboard')
   } finally {
     loading.value = false
@@ -113,96 +94,56 @@ async function handleLogin() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background:
-    radial-gradient(ellipse at 30% 20%, rgba(240, 185, 11, 0.04) 0%, transparent 60%),
-    radial-gradient(ellipse at 70% 80%, rgba(59, 130, 246, 0.04) 0%, transparent 60%),
-    var(--bg-primary);
+  background: linear-gradient(135deg, #fff0eb 0%, #ffe8e0 30%, #fff5eb 70%, #fff8f5 100%);
   padding: 24px;
 }
 
 .login-card {
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
   background: var(--bg-card);
-  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 48px 40px 36px;
-  box-shadow: var(--shadow);
+  padding: 52px 44px 40px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-light);
 }
 
 .login-header {
   text-align: center;
-  margin-bottom: 40px;
+  margin-bottom: 36px;
 }
-.logo-mark {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 16px;
-}
+.login-logo { display: flex; justify-content: center; margin-bottom: 16px; }
 .login-system-name {
-  font-family: var(--font-heading);
-  font-size: 1.75rem;
-  color: var(--accent-amber);
-  letter-spacing: 0.08em;
-  margin-bottom: 4px;
+  font-size: 1.6rem;
+  color: var(--text-primary);
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
 }
 .login-subtitle {
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   color: var(--text-muted);
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
 }
 
 .login-form {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-}
-.login-form :deep(.el-input__wrapper) {
-  background: var(--bg-input) !important;
-  border: 1px solid var(--border) !important;
-  box-shadow: none !important;
-  border-radius: var(--radius) !important;
-  transition: border-color var(--transition);
-}
-.login-form :deep(.el-input__wrapper:hover) {
-  border-color: var(--border-light) !important;
-}
-.login-form :deep(.el-input__wrapper.is-focus) {
-  border-color: var(--accent-amber) !important;
-}
-.login-form :deep(.el-input__inner) {
-  color: var(--text-primary) !important;
-}
-.login-form :deep(.el-input__inner::placeholder) {
-  color: var(--text-muted) !important;
-}
-.login-form :deep(.el-input__prefix) {
-  color: var(--text-muted) !important;
+  gap: 18px;
 }
 
 .login-btn {
-  margin-top: 16px;
+  margin-top: 8px;
   width: 100%;
-  height: 44px !important;
-  font-size: 1rem !important;
-  font-weight: 600 !important;
-  background: var(--accent-amber) !important;
-  border: none !important;
-  color: #0f1117 !important;
+  height: 46px;
+  font-size: 1rem;
   letter-spacing: 0.15em;
 }
-.login-btn:hover {
-  background: var(--accent-amber-dark) !important;
-}
-.login-btn.is-loading {
-  background: var(--accent-amber-dark) !important;
-}
+.login-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-.login-branding {
+.login-footer-text {
   text-align: center;
-  margin-top: 28px;
+  margin-top: 24px;
   font-size: 0.8rem;
   color: var(--text-muted);
-  letter-spacing: 0.08em;
 }
 </style>
