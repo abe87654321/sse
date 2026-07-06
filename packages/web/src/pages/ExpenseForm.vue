@@ -13,20 +13,9 @@
       <div class="card">
         <h3 class="form-section-title font-heading">基本信息</h3>
         <div class="form-grid">
-          <div class="field">
-            <label>标题 <span class="required">*</span></label>
-            <input v-model="form.title" type="text" placeholder="请输入报销标题" />
-          </div>
-          <div class="field">
-            <label>类别 <span class="required">*</span></label>
-            <select v-model="form.category">
-              <option value="">选择类别</option>
-              <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
-            </select>
-          </div>
           <div class="field full">
-            <label>说明</label>
-            <textarea v-model="form.description" placeholder="补充说明..." rows="3"></textarea>
+            <label>标题 <span class="required">*</span></label>
+            <input v-model="form.title" type="text" placeholder="例如：6月出差报销" />
           </div>
         </div>
       </div>
@@ -45,19 +34,24 @@
         <table class="items-table">
           <thead>
             <tr>
-              <th>项目名称</th>
-              <th style="width:90px;">数量</th>
-              <th style="width:90px;">单位</th>
-              <th style="width:130px;">金额</th>
+              <th>类别</th>
+              <th>日期</th>
+              <th>金额</th>
+              <th>说明</th>
               <th style="width:50px;"></th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(item, i) in form.items" :key="i">
-              <td><input v-model="item.name" type="text" placeholder="项目名称" /></td>
-              <td><input v-model.number="item.quantity" type="number" min="0" /></td>
-              <td><input v-model="item.unit" type="text" placeholder="例如：张" /></td>
+              <td>
+                <select v-model="item.categoryId">
+                  <option value="">选择类别</option>
+                  <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
+                </select>
+              </td>
+              <td><input v-model="item.expenseDate" type="date" /></td>
               <td><input v-model.number="item.amount" type="number" min="0" step="0.01" placeholder="0.00" /></td>
+              <td><input v-model="item.description" type="text" placeholder="用途说明" /></td>
               <td>
                 <button class="btn-remove" @click="removeItem(i)" :disabled="form.items.length <= 1">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -69,43 +63,124 @@
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="3" class="text-right total-label">合计</td>
-              <td class="text-right total-value">&#165;{{ totalAmount.toLocaleString() }}</td>
-              <td></td>
+              <td colspan="2" class="text-right total-label">合计</td>
+              <td class="text-right total-value">&yen;{{ totalAmount.toFixed(2) }}</td>
+              <td colspan="2"></td>
             </tr>
           </tfoot>
         </table>
       </div>
 
+      <div v-if="error" class="error-msg">{{ error }}</div>
+
       <div class="form-footer">
-        <button class="btn-secondary" @click="handleSave('draft')">保存草稿</button>
-        <button class="btn-primary" @click="handleSave('pending')">提交审批</button>
+        <button class="btn-secondary" @click="handleSave" :disabled="saving">保存草稿</button>
+        <button class="btn-primary" @click="handleSubmit" :disabled="saving">{{ saving ? '提交中...' : '提交审批' }}</button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, computed } from 'vue'
+import { reactive, computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import api from '../api/index'
 
 const router = useRouter()
-const categories = ['差旅费', '办公费', '招待费', '交通费', '培训费', '通讯费', '其他']
+const saving = ref(false)
+const error = ref('')
+
+interface Category { id: string; name: string }
+const categories = ref<Category[]>([])
 
 const form = reactive({
   title: '',
-  category: '',
-  description: '',
-  items: [{ name: '', quantity: 1, unit: '个', amount: 0 }]
+  items: [{ categoryId: '', amount: 0, expenseDate: new Date().toISOString().slice(0, 10), description: '' } as {
+    categoryId: string; amount: number; expenseDate: string; description: string
+  }]
 })
 
 const totalAmount = computed(() =>
-  form.items.reduce((sum, item) => sum + (item.amount || 0) * (item.quantity || 1), 0)
+  form.items.reduce((sum, item) => sum + (item.amount || 0), 0)
 )
 
-function addItem() { form.items.push({ name: '', quantity: 1, unit: '个', amount: 0 }) }
+onMounted(async () => {
+  try {
+    const res = await api.get('/admin/categories')
+    categories.value = res.data || []
+  } catch { /* use defaults below */ }
+  if (categories.value.length === 0) {
+    categories.value = [
+      { id: 'c0000000-0000-0000-0000-000000000001', name: '交通' },
+      { id: 'c0000000-0000-0000-0000-000000000002', name: '住宿' },
+      { id: 'c0000000-0000-0000-0000-000000000003', name: '餐饮' },
+      { id: 'c0000000-0000-0000-0000-000000000004', name: '招待' },
+      { id: 'c0000000-0000-0000-0000-000000000005', name: '办公用品' },
+      { id: 'c0000000-0000-0000-0000-000000000006', name: '通讯' },
+      { id: 'c0000000-0000-0000-0000-000000000007', name: '培训' },
+      { id: 'c0000000-0000-0000-0000-000000000008', name: '其他' },
+    ]
+  }
+})
+
+function addItem() {
+  form.items.push({ categoryId: '', amount: 0, expenseDate: new Date().toISOString().slice(0, 10), description: '' })
+}
 function removeItem(index: number) { if (form.items.length > 1) form.items.splice(index, 1) }
-function handleSave(_status: string) { router.push('/expenses') }
+
+async function handleSave() {
+  error.value = ''
+  if (!form.title.trim()) { error.value = '请输入标题'; return }
+
+  const validItems = form.items.filter(i => i.categoryId && i.amount > 0)
+  if (validItems.length === 0) { error.value = '请至少填写一条费用明细'; return }
+
+  saving.value = true
+  try {
+    // 保存为草稿：先创建（自动提交），后续需加草稿模式
+    // 当前提交给 API
+    await api.post('/expenses', {
+      title: form.title.trim(),
+      items: validItems.map(i => ({
+        categoryId: i.categoryId,
+        amount: i.amount,
+        expenseDate: i.expenseDate,
+        description: i.description || ''
+      }))
+    })
+    router.push('/expenses')
+  } catch (e: any) {
+    error.value = e?.response?.data?.error?.message || e?.message || '保存失败'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function handleSubmit() {
+  error.value = ''
+  if (!form.title.trim()) { error.value = '请输入标题'; return }
+
+  const validItems = form.items.filter(i => i.categoryId && i.amount > 0)
+  if (validItems.length === 0) { error.value = '请至少填写一条费用明细'; return }
+
+  saving.value = true
+  try {
+    await api.post('/expenses', {
+      title: form.title.trim(),
+      items: validItems.map(i => ({
+        categoryId: i.categoryId,
+        amount: i.amount,
+        expenseDate: i.expenseDate,
+        description: i.description || ''
+      }))
+    })
+    router.push('/expenses')
+  } catch (e: any) {
+    error.value = e?.response?.data?.error?.message || e?.message || '提交失败'
+  } finally {
+    saving.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -148,6 +223,27 @@ function handleSave(_status: string) { router.push('/expenses') }
 .total-label { font-weight: 600; color: var(--text-primary); }
 .total-value { font-weight: 700; color: var(--accent-coral); font-size: 1.1rem; }
 
+.items-table select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+.items-table input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+
 .btn-remove {
   width: 32px;
   height: 32px;
@@ -163,4 +259,12 @@ function handleSave(_status: string) { router.push('/expenses') }
 .btn-remove:disabled { opacity: 0.3; cursor: not-allowed; }
 
 .form-footer { display: flex; gap: 12px; justify-content: flex-end; padding-top: 8px; }
+
+.error-msg {
+  color: var(--accent-coral);
+  background: var(--accent-coral-bg);
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+}
 </style>
