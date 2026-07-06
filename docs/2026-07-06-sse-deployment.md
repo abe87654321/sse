@@ -52,7 +52,54 @@ DB_PORT=5433 pnpm migrate
 1. 浏览器打开 `http://<server-ip>:9003`（账号 minioadmin / minioadmin）
 2. 创建存储桶 `invoices`（Bucket Name 填 `invoices`，点 Create Bucket）
 
-### 2.5 配置环境变量
+### 2.5 部署 AI 模型（OCR + 智能填单）
+
+SSE 的发票 OCR 和智能填单功能依赖本地大语言模型。
+
+#### 2.5.1 安装 Ollama
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+#### 2.5.2 拉取视觉模型
+
+```bash
+# 推荐 llama3.2-vision（同时支持文字和图像识别）
+ollama pull llama3.2-vision:11b
+
+# 或使用其他兼容 OpenAI API 的视觉模型
+```
+
+#### 2.5.3 验证模型可用
+
+```bash
+ollama list
+curl http://localhost:11434/v1/models
+```
+
+#### 2.5.4 在管理后台配置
+
+1. 打开 SSE 管理后台 → **AI 模型配置**
+2. 默认端点：`http://localhost:11434/v1/chat/completions`
+3. 默认模型：`llama3.2-vision`
+4. 点击「💾 保存配置」
+5. 点击「📝 检验文字识别」→ 应返回识别成功
+6. 点击「🖼️ 检验图像OCR」→ 应返回接口连通
+
+#### 2.5.5 环境变量（可选）
+
+`.env` 中可预置 AI 默认值（首次部署后可在后台修改）：
+
+```env
+# AI 模型
+AI_ENDPOINT=http://localhost:11434/v1/chat/completions
+AI_MODEL=llama3.2-vision
+```
+
+> **说明**：配置文件保存在项目根目录 `ai-config.json`，后台修改后即时生效，无需重启服务。也可以通过环境变量 `AI_ENDPOINT` 和 `AI_MODEL` 预设初始值。
+
+### 2.6 配置环境变量
 
 确保 `.env` 文件存在（已从 `.env.example` 复制）：
 
@@ -265,6 +312,47 @@ pnpm migrate
 **Q: Web 构建失败**
 
 确认 `vue-tsc` 版本 ≥ 2.0（最新代码已修复）。
+
+### AI / OCR 相关
+
+**Q: AI 检验按钮报"连接失败"**
+
+确认 Ollama 服务已启动：
+
+```bash
+ollama serve                # 前台启动
+# 或
+systemctl start ollama      # systemd 启动
+```
+
+检查端口：
+
+```bash
+curl http://localhost:11434/v1/models
+```
+
+**Q: 智能填单返回"未解析到结构化数据"**
+
+模型已连接但识别能力不足。尝试：
+
+1. 更换更强的视觉模型（如 `llama3.2-vision:90b`，需更多显存）
+2. 检查输入文字是否包含可识别的金额信息
+3. 在管理后台调整模型名称并重新检验
+
+**Q: 没有 GPU 能跑吗**
+
+可以。Ollama 支持纯 CPU 运行，但速度较慢（每条识别 5-30 秒）。推荐至少 8GB 内存。
+
+**Q: 想用云端 API 替代本地模型**
+
+在管理后台将端点改为 OpenAI 兼容地址即可：
+
+```
+端点: https://api.openai.com/v1/chat/completions
+模型: gpt-4o
+```
+
+需在 `.env` 中设置 `OPENAI_API_KEY`，或后台增加 API Key 配置（后续版本支持）。
 
 ### MinIO 相关
 
