@@ -9,5 +9,6 @@
     "migrate": "pnpm --filter @sse/db migrate",
     "migrate:rollback": "pnpm --filter @sse/db migrate:rollback"
   },
+  "packageManager": "pnpm@9.15.0",
   "engines": { "node": ">=18" }
 }

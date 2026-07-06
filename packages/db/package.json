@@ -1,6 +1,8 @@
 {
   "name": "@sse/db",
   "version": "0.1.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": { "build": "tsc", "migrate": "node dist/migrate.js up", "migrate:rollback": "node dist/migrate.js down" },
   "dependencies": { "@sse/core": "workspace:*", "pg": "^8.11" },
   "devDependencies": { "@types/pg": "^8.10", "typescript": "^5.3" }

@@ -1,6 +1,8 @@
 {
   "name": "@sse/notifications",
   "version": "0.1.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": { "build": "tsc" },
   "dependencies": { "@sse/core": "workspace:*", "@sse/db": "workspace:*" },
   "devDependencies": { "typescript": "^5.3" }
