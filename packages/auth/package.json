@@ -4,6 +4,6 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": { "build": "tsc", "test": "jest" },
-  "dependencies": { "@sse/core": "workspace:*", "jsonwebtoken": "^9.0", "bcrypt": "^5.1" },
-  "devDependencies": { "@types/jsonwebtoken": "^9.0", "@types/bcrypt": "^5.0", "typescript": "^5.3", "jest": "^29", "ts-jest": "^29" }
+  "dependencies": { "@sse/core": "workspace:*", "@sse/shared": "workspace:*", "jsonwebtoken": "^9.0", "bcrypt": "^5.1", "express": "^4" },
+  "devDependencies": { "@types/jsonwebtoken": "^9.0", "@types/bcrypt": "^5.0", "@types/express": "^4", "@types/jest": "^29", "typescript": "^5.3", "jest": "^29", "ts-jest": "^29" }
 }
