@@ -35,15 +35,19 @@
           </div>
           <div class="field">
             <label>手机号</label>
-            <input v-model="profileForm.phone" type="tel" placeholder="请输入手机号" disabled />
+            <input v-model="profileForm.phone" type="tel" placeholder="请输入手机号" />
           </div>
           <div class="field full">
             <label>邮箱</label>
             <input v-model="profileForm.email" type="email" placeholder="请输入邮箱" />
           </div>
         </div>
+        <div v-if="profileError" class="error-msg">{{ profileError }}</div>
+        <div v-if="profileSuccess" class="success-msg">{{ profileSuccess }}</div>
         <div style="margin-top: 18px;">
-          <button class="btn-primary btn-sm">保存修改</button>
+          <button class="btn-primary btn-sm" @click="handleUpdateProfile" :disabled="profileLoading">
+            {{ profileLoading ? '保存中...' : '保存修改' }}
+          </button>
         </div>
       </div>
 
@@ -63,8 +67,12 @@
             <input v-model="passwordForm.confirmPassword" type="password" placeholder="请再次输入新密码" />
           </div>
         </div>
+        <div v-if="passwordError" class="error-msg">{{ passwordError }}</div>
+        <div v-if="passwordSuccess" class="success-msg">{{ passwordSuccess }}</div>
         <div style="margin-top: 18px;">
-          <button class="btn-primary btn-sm">更新密码</button>
+          <button class="btn-primary btn-sm" @click="handleChangePassword" :disabled="passwordLoading">
+            {{ passwordLoading ? '更新中...' : '更新密码' }}
+          </button>
         </div>
       </div>
     </div>
@@ -72,8 +80,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { authApi } from '@/api/auth'
 
 const auth = useAuthStore()
 const userInitial = computed(() => auth.user?.name?.charAt(0)?.toUpperCase() || 'U')
@@ -85,11 +94,82 @@ const profileForm = reactive({
   email: '',
 })
 
+const profileLoading = ref(false)
+const profileError = ref('')
+const profileSuccess = ref('')
+
 const passwordForm = reactive({
   oldPassword: '',
   newPassword: '',
   confirmPassword: '',
 })
+
+const passwordLoading = ref(false)
+const passwordError = ref('')
+const passwordSuccess = ref('')
+
+async function handleUpdateProfile() {
+  profileError.value = ''
+  profileSuccess.value = ''
+
+  if (!profileForm.name.trim()) {
+    profileError.value = '请输入姓名'
+    return
+  }
+
+  profileLoading.value = true
+  try {
+    await authApi.updateProfile({ name: profileForm.name.trim() })
+    if (auth.user) {
+      const updated = { ...auth.user, name: profileForm.name.trim() }
+      auth.user = updated
+      localStorage.setItem('user', JSON.stringify(updated))
+    }
+    profileSuccess.value = '信息修改成功'
+  } catch (e: any) {
+    profileError.value = e?.response?.data?.error?.message || '保存失败'
+  } finally {
+    profileLoading.value = false
+  }
+}
+
+async function handleChangePassword() {
+  passwordError.value = ''
+  passwordSuccess.value = ''
+
+  if (!passwordForm.oldPassword) {
+    passwordError.value = '请输入当前密码'
+    return
+  }
+  if (!passwordForm.newPassword) {
+    passwordError.value = '请输入新密码'
+    return
+  }
+  if (passwordForm.newPassword.length < 6) {
+    passwordError.value = '新密码至少6位'
+    return
+  }
+  if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+    passwordError.value = '两次输入的密码不一致'
+    return
+  }
+
+  passwordLoading.value = true
+  try {
+    await authApi.changePassword({
+      oldPassword: passwordForm.oldPassword,
+      newPassword: passwordForm.newPassword,
+    })
+    passwordForm.oldPassword = ''
+    passwordForm.newPassword = ''
+    passwordForm.confirmPassword = ''
+    passwordSuccess.value = '密码修改成功'
+  } catch (e: any) {
+    passwordError.value = e?.response?.data?.error?.message || '修改密码失败'
+  } finally {
+    passwordLoading.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -120,6 +200,24 @@ const passwordForm = reactive({
   margin-bottom: 16px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border-light);
+}
+
+.error-msg {
+  color: var(--accent-coral);
+  background: var(--accent-coral-bg);
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  margin-bottom: 8px;
+}
+
+.success-msg {
+  color: #2b7a3d;
+  background: var(--accent-mint-bg);
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  margin-bottom: 8px;
 }
 
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
