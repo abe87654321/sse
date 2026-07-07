@@ -12,6 +12,7 @@ import type { ExpenseQuery } from '@sse/core';
 import { authMiddleware } from '@sse/auth';
 import { uploadInvoice } from '../middleware/upload';
 import { AppError } from '../middleware/error';
+import { MinioStorage } from '../storage/minio-storage';
 
 const router = Router();
 const expenseRepo = new PgExpenseRepo();
@@ -19,6 +20,7 @@ const ruleRepo = new PgApprovalRuleRepo();
 const recordRepo = new PgApprovalRecordRepo();
 const invoiceRepo = new PgInvoiceRepo();
 const reportService = new ReportService(expenseRepo, ruleRepo, recordRepo);
+const minio = new MinioStorage();
 
 function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -281,9 +283,11 @@ router.post(
     }
 
     const crypto = await import('crypto');
-    const checksum = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+    const checksum = minio.calculateChecksum(req.file.buffer);
     const ext = req.file.originalname.split('.').pop()?.toLowerCase() || 'pdf';
     const storageKey = `invoices/${req.params.id}/${itemId}_${Date.now()}.${ext}`;
+
+    await minio.upload(storageKey, 'invoices', req.file.buffer, ext === 'pdf' ? 'application/pdf' : 'application/ofd');
 
     const invoice = await invoiceRepo.create({
       itemId,
@@ -291,11 +295,22 @@ router.post(
       fileFormat: ext,
       fileSize: req.file.size,
       storageKey,
-      storageBucket: 'local',
+      storageBucket: 'invoices',
       checksum,
     });
 
     res.status(201).json(invoice);
+  })
+);
+
+router.get(
+  '/:id/items/:itemId/invoice/:invoiceId/download',
+  asyncWrap(async (req, res) => {
+    const inv = await invoiceRepo.findById(req.params.invoiceId);
+    if (!inv) throw new AppError(404, 'NOT_FOUND', '发票不存在');
+
+    const url = await minio.getSignedUrl(inv.storageKey, inv.storageBucket, 3600);
+    res.json({ url });
   })
 );
 
