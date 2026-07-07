@@ -1,7 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { PgUserRepo } from '@sse/db';
-import { signToken, signRefreshToken, verifyRefreshToken } from '@sse/auth';
+import { signToken, signRefreshToken, verifyRefreshToken, authMiddleware } from '@sse/auth';
 import { AppError } from '../middleware/error';
+import { pool } from '@sse/db';
 
 const router = Router();
 const userRepo = new PgUserRepo();
@@ -78,6 +79,43 @@ router.post(
     });
 
     res.json({ accessToken });
+  })
+);
+
+router.use(authMiddleware);
+
+router.get(
+  '/profile',
+  asyncWrap(async (req, res) => {
+    const user = await userRepo.findById(req.user!.userId);
+    if (!user) throw new AppError(404, 'NOT_FOUND', '用户不存在');
+    res.json({ id: user.id, name: user.name, phone: user.phone, email: user.email, department: user.department, role: user.role });
+  })
+);
+
+router.put(
+  '/profile',
+  asyncWrap(async (req, res) => {
+    const { name, email } = req.body;
+    const updates: string[] = [];
+    const values: any[] = [];
+    let i = 1;
+    if (name !== undefined) { updates.push(`name = $${i++}`); values.push(name); }
+    if (email !== undefined) { updates.push(`email = $${i++}`); values.push(email); }
+    if (updates.length === 0) throw new AppError(400, 'INVALID_PARAMS', '无可修改的字段');
+    values.push(req.user!.userId);
+    await pool.query(`UPDATE users SET ${updates.join(', ')} WHERE id = $${i}`, values);
+    res.json({ message: '更新成功' });
+  })
+);
+
+router.put(
+  '/password',
+  asyncWrap(async (req, res) => {
+    const { oldPassword, newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6) throw new AppError(400, 'INVALID_PARAMS', '新密码至少6位');
+    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newPassword, req.user!.userId]);
+    res.json({ message: '密码修改成功' });
   })
 );
 
