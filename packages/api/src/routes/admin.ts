@@ -6,6 +6,7 @@ import { UserRole } from '@sse/shared';
 import { AppError } from '../middleware/error';
 
 import { LocalProvider, SmartFillEngine, InvoiceOCREngine, MinerUProvider, PaddleProvider, VisionOCRProvider } from '@sse/ai';
+import { MinioStorage } from '../storage/minio-storage';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
@@ -54,7 +55,7 @@ function loadAiConfig() {
     },
     ocrEngine: {
       provider: 'mineru' as 'mineru' | 'paddle' | 'vision',
-      mineruEndpoint: process.env.MINERU_ENDPOINT || 'http://localhost:8888',
+      mineruEndpoint: process.env.MINERU_ENDPOINT || 'https://mineru.net',
       paddleEndpoint: process.env.PADDLE_ENDPOINT || 'http://localhost:8899',
       visionEndpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
       visionModel: process.env.AI_VISION_MODEL || 'glm-ocr',
@@ -472,8 +473,12 @@ router.post(
           const pdfBuffer = readFileSync(pdfPath);
 
           if (ocrCfg.provider === 'mineru') {
-            const engine = new InvoiceOCREngine(new MinerUProvider({ endpoint: ocrCfg.mineruEndpoint }));
-            const ocrResult = await engine.parseInvoice(pdfBuffer, 'sample.pdf');
+            const storage = new MinioStorage();
+            const key = `_test_invoice_${Date.now()}.pdf`;
+            await storage.upload(key, 'invoices', pdfBuffer, 'application/pdf');
+            const fileUrl = await storage.getSignedUrl(key, 'invoices', 600);
+            const engine = new InvoiceOCREngine(new MinerUProvider({ endpoint: ocrCfg.mineruEndpoint, apiKey: process.env.MINERU_TOKEN }));
+            const ocrResult = await engine.parseInvoice(pdfBuffer, 'sample.pdf', fileUrl);
             result = formatOcrResult(ocrResult, Date.now() - start, 'MinerU');
             success = !!(ocrResult.invoiceNo || ocrResult.amount);
           } else if (ocrCfg.provider === 'paddle') {
