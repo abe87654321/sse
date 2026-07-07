@@ -90,24 +90,35 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(item, i) in form.items" :key="i">
-              <td>
-                <select v-model="item.categoryId">
-                  <option value="">选择类别</option>
-                  <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
-                </select>
-              </td>
-              <td><input v-model="item.expenseDate" type="date" /></td>
-              <td><input v-model.number="item.amount" type="number" min="0" step="0.01" placeholder="0.00" /></td>
-              <td><input v-model="item.description" type="text" placeholder="用途说明" /></td>
-              <td>
-                <button class="btn-remove" @click="removeItem(i)" :disabled="form.items.length <= 1">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                  </svg>
-                </button>
-              </td>
-            </tr>
+            <template v-for="(item, i) in form.items" :key="i">
+              <tr>
+                <td>
+                  <select v-model="item.categoryId">
+                    <option value="">选择类别</option>
+                    <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
+                  </select>
+                </td>
+                <td><input v-model="item.expenseDate" type="date" /></td>
+                <td><input v-model.number="item.amount" type="number" min="0" step="0.01" placeholder="0.00" /></td>
+                <td><input v-model="item.description" type="text" placeholder="用途说明" /></td>
+                <td>
+                  <button class="btn-remove" @click="removeItem(i)" :disabled="form.items.length <= 1">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                </td>
+              </tr>
+              <tr class="invoice-row">
+                <td colspan="5" v-if="item.uploadedInvoice">
+                  &#x1f4ce; {{ item.uploadedInvoice.fileName }} &mdash;
+                  <span class="table-link" @click="downloadInvoice(item.uploadedInvoice)">下载</span>
+                </td>
+                <td colspan="5" v-else>
+                  <input type="file" accept=".pdf,.ofd" @change="(e:any) => uploadInvoiceForItem(i, e)" style="font-size:12px" />
+                </td>
+              </tr>
+            </template>
           </tbody>
           <tfoot>
             <tr>
@@ -137,6 +148,7 @@ import api from '../api/index'
 const router = useRouter()
 const saving = ref(false)
 const error = ref('')
+const expenseId = ref<string | null>(null)
 
 const showAI = ref(false)
 const aiInput = ref('')
@@ -146,11 +158,25 @@ const aiResult = ref<Array<{ categoryName: string; amount: number; expenseDate: 
 interface Category { id: string; name: string }
 const categories = ref<Category[]>([])
 
+interface InvoiceInfo {
+  id: string
+  fileName: string
+  _expenseId?: string
+  _itemId?: string
+}
+
+interface FormItem {
+  categoryId: string
+  amount: number
+  expenseDate: string
+  description: string
+  id?: string
+  uploadedInvoice?: InvoiceInfo
+}
+
 const form = reactive({
   title: '',
-  items: [{ categoryId: '', amount: 0, expenseDate: new Date().toISOString().slice(0, 10), description: '' } as {
-    categoryId: string; amount: number; expenseDate: string; description: string
-  }]
+  items: [{ categoryId: '', amount: 0, expenseDate: new Date().toISOString().slice(0, 10), description: '' } as FormItem]
 })
 
 const totalAmount = computed(() =>
@@ -230,6 +256,35 @@ function addItem() {
 }
 function removeItem(index: number) { if (form.items.length > 1) form.items.splice(index, 1) }
 
+async function uploadInvoiceForItem(index: number, event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  const item = form.items[index]
+  if (!expenseId.value || !item.id) {
+    error.value = '请先保存草稿后再上传发票'
+    return
+  }
+  const formData = new FormData()
+  formData.append('file', file)
+  try {
+    const res = await api.post(`/expenses/${expenseId.value}/items/${item.id}/invoice`, formData)
+    item.uploadedInvoice = { ...res.data, _expenseId: expenseId.value, _itemId: item.id }
+    input.value = ''
+  } catch (e: any) {
+    error.value = e?.response?.data?.error?.message || '上传失败'
+  }
+}
+
+async function downloadInvoice(invoice: InvoiceInfo) {
+  try {
+    const res = await api.get(`/expenses/${invoice._expenseId}/items/${invoice._itemId}/invoice/${invoice.id}/download`)
+    window.open(res.data.url, '_blank')
+  } catch (e: any) {
+    error.value = e?.response?.data?.error?.message || '下载失败'
+  }
+}
+
 async function handleSave() {
   error.value = ''
   if (!form.title.trim()) { error.value = '请输入标题'; return }
@@ -239,18 +294,32 @@ async function handleSave() {
 
   saving.value = true
   try {
-    // 保存为草稿：先创建（自动提交），后续需加草稿模式
-    // 当前提交给 API
-    await api.post('/expenses', {
-      title: form.title.trim(),
-      items: validItems.map(i => ({
-        categoryId: i.categoryId,
-        amount: i.amount,
-        expenseDate: i.expenseDate,
-        description: i.description || ''
+    if (expenseId.value) {
+      await api.put(`/expenses/${expenseId.value}`, {
+        title: form.title.trim(),
+        items: validItems.map(i => ({
+          categoryId: i.categoryId,
+          amount: i.amount,
+          expenseDate: i.expenseDate,
+          description: i.description || ''
+        }))
+      })
+    } else {
+      const res = await api.post('/expenses', {
+        title: form.title.trim(),
+        items: validItems.map(i => ({
+          categoryId: i.categoryId,
+          amount: i.amount,
+          expenseDate: i.expenseDate,
+          description: i.description || ''
+        }))
+      })
+      expenseId.value = res.data.id
+      form.items = form.items.map((item, idx) => ({
+        ...item,
+        id: res.data.items?.[idx]?.id || item.id,
       }))
-    })
-    router.push('/expenses')
+    }
   } catch (e: any) {
     error.value = e?.response?.data?.error?.message || e?.message || '保存失败'
   } finally {
@@ -267,15 +336,27 @@ async function handleSubmit() {
 
   saving.value = true
   try {
-    await api.post('/expenses', {
-      title: form.title.trim(),
-      items: validItems.map(i => ({
-        categoryId: i.categoryId,
-        amount: i.amount,
-        expenseDate: i.expenseDate,
-        description: i.description || ''
-      }))
-    })
+    if (expenseId.value) {
+      await api.put(`/expenses/${expenseId.value}`, {
+        title: form.title.trim(),
+        items: validItems.map(i => ({
+          categoryId: i.categoryId,
+          amount: i.amount,
+          expenseDate: i.expenseDate,
+          description: i.description || ''
+        }))
+      })
+    } else {
+      await api.post('/expenses', {
+        title: form.title.trim(),
+        items: validItems.map(i => ({
+          categoryId: i.categoryId,
+          amount: i.amount,
+          expenseDate: i.expenseDate,
+          description: i.description || ''
+        }))
+      })
+    }
     router.push('/expenses')
   } catch (e: any) {
     error.value = e?.response?.data?.error?.message || e?.message || '提交失败'
@@ -443,11 +524,19 @@ async function handleSubmit() {
 .ai-result-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
 
 
-.error-msg {
-  color: var(--accent-coral);
-  background: var(--accent-coral-bg);
-  padding: 10px 16px;
-  border-radius: var(--radius-sm);
-  font-size: 0.875rem;
+.invoice-row td {
+  padding-top: 0;
+  padding-bottom: 12px;
+  border-bottom-width: 2px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }
+
+.table-link {
+  color: var(--accent-coral);
+  cursor: pointer;
+  text-decoration: underline;
+  transition: opacity 0.15s;
+}
+.table-link:hover { opacity: 0.75; }
 </style>
