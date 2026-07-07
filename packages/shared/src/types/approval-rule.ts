@@ -1,6 +1,8 @@
 export type ApprovalChainStep = {
   step: number;
-  role: string;
+  role?: string;
+  assigneeId?: string;
+  assigneeName?: string;
   label: string;
   reminderAfterHours?: number;
   escalateAfterHours?: number;
