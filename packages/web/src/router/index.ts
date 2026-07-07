@@ -67,6 +67,12 @@ const routes: RouteRecordRaw[] = [
         name: 'Admin',
         component: () => import('@/pages/Admin.vue'),
         meta: { title: '系统管理', icon: 'Setting' }
+      },
+      {
+        path: 'admin/departments',
+        name: 'AdminDepartments',
+        component: () => import('@/pages/AdminDepartments.vue'),
+        meta: { title: '部门管理' }
       }
     ]
   }
