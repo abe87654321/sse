@@ -13,6 +13,36 @@ const router = Router();
 const userRepo = new PgUserRepo();
 const ruleRepo = new PgApprovalRuleRepo();
 
+const USER_COLUMNS = 'id, name, phone, email, department, role, parent_id, status, created_at, updated_at';
+
+// ========== 简易内存限流 ==========
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 5;
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT_MAX) {
+    return false;
+  }
+  entry.count++;
+  return true;
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitMap) {
+    if (now > entry.resetAt) {
+      rateLimitMap.delete(ip);
+    }
+  }
+}, RATE_LIMIT_WINDOW_MS);
+
 const CONFIG_PATH = join(process.cwd(), 'ai-config.json');
 
 function loadAiConfig() {
@@ -83,7 +113,7 @@ router.post(
     const { rows } = await pool.query(
       `INSERT INTO users (name, phone, email, department, role, status)
        VALUES ($1, $2, $3, $4, $5, 'active')
-       RETURNING *`,
+       RETURNING ${USER_COLUMNS}`,
       [name, phone, email || null, department, role]
     );
 
@@ -155,7 +185,7 @@ router.get(
   '/categories',
   asyncWrap(async (_req, res) => {
     const { rows } = await pool.query(
-      'SELECT * FROM expense_categories ORDER BY name'
+      'SELECT id, name, parent_id, sort_order, is_active, created_at FROM expense_categories ORDER BY name'
     );
     res.json(
       rows.map((r: any) => ({
@@ -278,6 +308,63 @@ router.delete(
   })
 );
 
+// ========== 角色校验 ==========
+
+router.get(
+  '/users/validate',
+  asyncWrap(async (_req, res) => {
+    const { rows } = await pool.query(
+      "SELECT role, COUNT(*)::int as count FROM users WHERE status = 'active' GROUP BY role"
+    );
+    const result: Record<string, number> = {
+      employee: 0,
+      dept_approver: 0,
+      finance: 0,
+      admin: 0,
+    };
+    for (const row of rows) {
+      if (result.hasOwnProperty(row.role)) {
+        result[row.role] = row.count;
+      }
+    }
+    res.json(result);
+  })
+);
+
+// ========== 部门管理 ==========
+
+router.get(
+  '/departments',
+  asyncWrap(async (_req, res) => {
+    const { rows } = await pool.query(
+      'SELECT department as name, COUNT(*)::int as user_count FROM users WHERE department IS NOT NULL GROUP BY department ORDER BY department'
+    );
+    res.json(rows);
+  })
+);
+
+router.post(
+  '/departments',
+  asyncWrap(async (req, res) => {
+    const { name } = req.body;
+
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      throw new AppError(400, 'INVALID_PARAMS', '部门名称不能为空');
+    }
+
+    const trimmed = name.trim();
+    const { rows } = await pool.query(
+      'SELECT COUNT(*)::int as count FROM users WHERE department = $1',
+      [trimmed]
+    );
+    if (rows[0].count > 0) {
+      throw new AppError(400, 'INVALID_PARAMS', '部门名称已存在');
+    }
+
+    res.status(201).json({ name: trimmed });
+  })
+);
+
 // ========== AI 模型配置 ==========
 
 const RECOMMENDED_MODELS = ['llama3.1:8b', 'deepseek-r1:8b', 'qwen2.5-vl:7b'];
@@ -351,6 +438,11 @@ router.put(
 router.post(
   '/ai-test',
   asyncWrap(async (req, res) => {
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+    if (!checkRateLimit(clientIp)) {
+      throw new AppError(429, 'RATE_LIMITED', '请求过于频繁，请稍后重试');
+    }
+
     const { type } = req.body;
     const config = loadAiConfig();
     const fillCfg = config.fillEngine;
