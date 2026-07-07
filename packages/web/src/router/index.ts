@@ -39,6 +39,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '报销详情', hidden: true }
       },
       {
+        path: 'expenses/:id/edit',
+        name: 'ExpenseEdit',
+        component: () => import('@/pages/ExpenseForm.vue'),
+        meta: { title: '编辑报销', hidden: true }
+      },
+      {
         path: 'approvals',
         name: 'Approvals',
         component: () => import('@/pages/Approvals.vue'),

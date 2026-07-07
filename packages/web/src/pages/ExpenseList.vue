@@ -41,7 +41,7 @@
             <td class="text-secondary">{{ item.category || '-' }}</td>
             <td class="text-right text-muted" style="font-size:0.82rem;">{{ (item.submittedAt || item.createdAt || '').slice(0, 10) }}</td>
             <td class="col-action">
-              <span v-if="item.status === 'draft'" class="table-link" @click.stop="$router.push(`/expenses/${item.id}`)">编辑</span>
+              <span v-if="item.status === 'draft'" class="table-link" @click.stop="$router.push(`/expenses/${item.id}/edit`)">编辑</span>
               <span v-else class="table-link" @click.stop="$router.push(`/expenses/${item.id}`)">查看</span>
             </td>
           </tr>

@@ -6,7 +6,7 @@
           <polyline points="15 18 9 12 15 6"/>
         </svg>
       </button>
-      <h2 class="page-header-title">新建报销</h2>
+      <h2 class="page-header-title">{{ route.name === 'ExpenseEdit' ? '编辑报销' : '新建报销' }}</h2>
     </div>
 
     <div class="form-body">
@@ -201,10 +201,11 @@
 
 <script setup lang="ts">
 import { reactive, computed, ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import api from '../api/index'
 
 const router = useRouter()
+const route = useRoute()
 const saving = ref(false)
 const error = ref('')
 const expenseId = ref<string | null>(null)
@@ -367,6 +368,30 @@ onMounted(async () => {
       { id: 'c0000000-0000-0000-0000-000000000007', name: '培训' },
       { id: 'c0000000-0000-0000-0000-000000000008', name: '其他' },
     ]
+  }
+
+  if (route.params.id) {
+    try {
+      const res = await api.get(`/expenses/${route.params.id}`)
+      const data = res.data
+      const report = data.report || data
+      form.title = report.title || ''
+      form.description = report.description || ''
+      form.items = (data.items || []).map((item: any) => ({
+        id: item.id,
+        categoryId: item.categoryId,
+        amount: item.amount,
+        expenseDate: item.expenseDate,
+        description: item.description || '',
+        uploadedInvoice: undefined,
+      }))
+      if (form.items.length === 0) {
+        form.items = [{ categoryId: '', amount: 0, expenseDate: new Date().toISOString().slice(0, 10), description: '' }]
+      }
+      expenseId.value = route.params.id as string
+    } catch (e: any) {
+      error.value = e?.response?.data?.error?.message || '加载报销数据失败'
+    }
   }
 })
 

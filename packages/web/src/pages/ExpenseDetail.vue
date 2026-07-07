@@ -16,7 +16,7 @@
       <div class="header-spacer"></div>
       <div class="header-actions">
         <template v-if="report?.status === 'draft'">
-          <button class="btn-secondary btn-sm" @click="$router.push('/expenses/new')">编辑</button>
+          <button class="btn-secondary btn-sm" @click="$router.push(`/expenses/${report.id}/edit`)">编辑</button>
           <button class="btn-danger-outline btn-sm" @click="handleDelete" :disabled="deleting">{{ deleting ? '删除中...' : '删除' }}</button>
           <button class="btn-primary btn-sm" @click="handleSubmit">提交审批</button>
         </template>
