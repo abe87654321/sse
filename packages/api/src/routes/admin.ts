@@ -152,7 +152,7 @@ router.put(
     values.push(id);
 
     const { rows } = await pool.query(
-      `UPDATE users SET ${fields.join(', ')} WHERE id = $${idx}`,
+      `UPDATE users SET ${fields.join(', ')} WHERE id = $${idx} RETURNING ${USER_COLUMNS}`,
       values
     );
 
