@@ -120,6 +120,10 @@
             <label>标题 <span class="required">*</span></label>
             <input v-model="form.title" type="text" placeholder="例如：6月出差报销" />
           </div>
+          <div class="field full">
+            <label>说明</label>
+            <textarea v-model="form.description" placeholder="报销原因、备注等..." rows="2"></textarea>
+          </div>
         </div>
       </div>
 
@@ -248,6 +252,7 @@ interface FormItem {
 
 const form = reactive({
   title: '',
+  description: '',
   items: [{ categoryId: '', amount: 0, expenseDate: new Date().toISOString().slice(0, 10), description: '' } as FormItem]
 })
 
@@ -411,6 +416,7 @@ async function handleSave() {
     if (expenseId.value) {
       await api.put(`/expenses/${expenseId.value}`, {
         title: form.title.trim(),
+        description: form.description.trim(),
         items: validItems.map(i => ({
           categoryId: i.categoryId,
           amount: i.amount,
@@ -421,6 +427,7 @@ async function handleSave() {
     } else {
       const res = await api.post('/expenses', {
         title: form.title.trim(),
+        description: form.description.trim(),
         items: validItems.map(i => ({
           categoryId: i.categoryId,
           amount: i.amount,
@@ -463,6 +470,7 @@ async function handleSubmit() {
     } else {
       await api.post('/expenses', {
         title: form.title.trim(),
+        description: form.description.trim(),
         items: validItems.map(i => ({
           categoryId: i.categoryId,
           amount: i.amount,

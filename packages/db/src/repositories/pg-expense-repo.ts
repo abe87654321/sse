@@ -13,6 +13,7 @@ function mapReport(row: any): ExpenseReport {
     currentStep: row.current_step,
     submittedAt: row.submitted_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
+    description: row.description ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -135,10 +136,9 @@ export class PgExpenseRepo implements IExpenseRepo {
       const totalAmount: number = dto.items.reduce((sum: number, item) => sum + item.amount, 0);
 
       const { rows: reportRows } = await client.query(
-        `INSERT INTO expense_reports (serial_no, user_id, title, total_amount, status, current_step)
-         VALUES ($1, $2, $3, $4, 'draft', 0)
-         RETURNING *`,
-        [serialNo, userId, dto.title, totalAmount]
+        `INSERT INTO expense_reports (serial_no, user_id, title, total_amount, description, status, current_step)
+         VALUES ($1, $2, $3, $4, $5, 'draft', 0)`,
+        [serialNo, userId, dto.title, totalAmount, dto.description || null]
       );
 
       const report = reportRows[0];

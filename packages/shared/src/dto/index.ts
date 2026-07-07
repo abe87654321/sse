@@ -23,6 +23,7 @@ export interface PaginatedResponse<T> {
 
 export interface CreateReportDto {
   title: string;
+  description?: string;
   items: Array<{
     categoryId: string;
     amount: number;

@@ -4,6 +4,7 @@ export type ExpenseReport = {
   userId: string;
   title: string;
   totalAmount: number;
+  description?: string;
   status: string;
   currentStep: number;
   submittedAt?: Date;
