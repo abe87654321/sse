@@ -22,16 +22,70 @@
           </svg>
         </div>
         <div v-show="showAI" class="ai-card-body">
-          <p class="ai-hint">粘贴截图、发票照片或文字描述，AI 自动识别费用明细</p>
-          <div class="ai-input-row">
+          <div class="ai-tabs">
+            <button
+              class="ai-tab"
+              :class="{ active: aiTab === 'text' }"
+              @click="aiTab = 'text'"
+            >📝 文字识别</button>
+            <button
+              class="ai-tab"
+              :class="{ active: aiTab === 'image' }"
+              @click="aiTab = 'image'"
+            >📸 截图识别</button>
+            <button
+              class="ai-tab"
+              :class="{ active: aiTab === 'invoice' }"
+              @click="aiTab = 'invoice'"
+            >📄 上传发票</button>
+          </div>
+
+          <p class="ai-hint">{{ aiTabHints[aiTab] }}</p>
+
+          <!-- 文字模式 -->
+          <div v-show="aiTab === 'text'" class="ai-input-row">
             <textarea
-              v-model="aiInput"
-              placeholder="例如：打车去机场85元，酒店两晚600&#10;或直接 Ctrl+V 粘贴截图"
+              v-model="aiTextInput"
+              placeholder="例如：打车去机场85元，酒店两晚600元"
               rows="3"
-              @paste="handlePaste"
             ></textarea>
           </div>
-          <button class="btn-ai" @click="handleAIParse" :disabled="aiLoading || !aiInput.trim()">
+
+          <!-- 截图模式 -->
+          <div v-show="aiTab === 'image'" class="ai-image-area" @click="($refs.imageInput as HTMLInputElement).click()" @paste="handlePaste">
+            <input
+              ref="imageInput"
+              type="file"
+              accept="image/*"
+              style="display:none"
+              @change="handleImageSelect"
+            />
+            <div v-if="aiImagePreview" class="ai-image-preview-wrapper">
+              <img :src="aiImagePreview" class="ai-image-preview" />
+              <button class="btn-remove ai-image-clear" @click.stop="aiImagePreview=''; aiImageBase64=''">✕</button>
+            </div>
+            <div v-else class="ai-image-placeholder">
+              <span class="ai-image-icon">🖼️</span>
+              <span>点击选择图片，或直接 Ctrl+V 粘贴截图</span>
+            </div>
+          </div>
+
+          <!-- 发票模式 -->
+          <div v-show="aiTab === 'invoice'" class="ai-file-row">
+            <label class="ai-file-label">
+              <input
+                type="file"
+                accept=".pdf,.ofd"
+                style="display:none"
+                @change="handleInvoiceSelect"
+              />
+              <span class="ai-file-btn">📎 选择文件</span>
+            </label>
+            <span v-if="aiInvoiceFile" class="ai-file-name">{{ aiInvoiceFile.name }}</span>
+            <span v-else class="ai-file-hint">支持 PDF / OFD 格式</span>
+          </div>
+
+          <button class="btn-ai" @click="handleAIParse" :disabled="aiLoading || !canAIParse">
             <template v-if="aiLoading">
               <span class="spinner"></span> AI 识别中...
             </template>
@@ -39,6 +93,7 @@
               ✨ AI 识别
             </template>
           </button>
+
           <div v-if="aiResult.length > 0" class="ai-result">
             <p class="ai-result-title">识别结果（可修改后确认）</p>
             <div v-for="(item, i) in aiResult" :key="i" class="ai-result-item">
@@ -51,7 +106,7 @@
               <button class="btn-remove" @click="aiResult.splice(i, 1)">✕</button>
             </div>
             <div class="ai-result-actions">
-              <button class="btn-secondary btn-sm" @click="aiInput=''; aiResult=[]">清空</button>
+              <button class="btn-secondary btn-sm" @click="clearAIResult">清空</button>
               <button class="btn-primary btn-sm" @click="applyAIResult">✅ 填入表单</button>
             </div>
           </div>
@@ -151,9 +206,26 @@ const error = ref('')
 const expenseId = ref<string | null>(null)
 
 const showAI = ref(false)
-const aiInput = ref('')
+const aiTab = ref<'text' | 'image' | 'invoice'>('text')
+const aiTextInput = ref('')
+const aiImagePreview = ref('')
+const aiImageBase64 = ref('')
+const aiInvoiceFile = ref<File | null>(null)
 const aiLoading = ref(false)
 const aiResult = ref<Array<{ categoryName: string; amount: number; expenseDate: string; description: string }>>([])
+
+const aiTabHints: Record<string, string> = {
+  text: '输入报销相关的文字描述，AI 自动解析费用明细',
+  image: '上传报销截图或微信/支付宝付款截图，AI 识别费用信息',
+  invoice: '上传 PDF 或 OFD 格式的电子发票，AI 提取发票内容',
+}
+
+const canAIParse = computed(() => {
+  if (aiTab.value === 'text') return aiTextInput.value.trim().length > 0
+  if (aiTab.value === 'image') return !!aiImageBase64.value
+  if (aiTab.value === 'invoice') return !!aiInvoiceFile.value
+  return false
+})
 
 interface Category { id: string; name: string }
 const categories = ref<Category[]>([])
@@ -184,6 +256,7 @@ const totalAmount = computed(() =>
 )
 
 function handlePaste(e: ClipboardEvent) {
+  if (aiTab.value !== 'image') return
   const items = e.clipboardData?.items
   if (items) {
     for (const item of items) {
@@ -192,7 +265,8 @@ function handlePaste(e: ClipboardEvent) {
         if (blob) {
           const reader = new FileReader()
           reader.onload = () => {
-            aiInput.value = reader.result as string
+            aiImagePreview.value = reader.result as string
+            aiImageBase64.value = reader.result as string
           }
           reader.readAsDataURL(blob)
         }
@@ -202,19 +276,60 @@ function handlePaste(e: ClipboardEvent) {
   }
 }
 
+function handleImageSelect(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  processImageFile(file)
+}
+
+function processImageFile(file: File) {
+  const reader = new FileReader()
+  reader.onload = () => {
+    aiImagePreview.value = reader.result as string
+    aiImageBase64.value = reader.result as string
+  }
+  reader.readAsDataURL(file)
+}
+
+function handleInvoiceSelect(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  aiInvoiceFile.value = file
+}
+
 async function handleAIParse() {
-  if (!aiInput.value.trim()) return
   aiLoading.value = true
+  error.value = ''
   try {
-    const isBase64 = aiInput.value.startsWith('data:image')
-    const payload = isBase64 ? { image: aiInput.value } : { text: aiInput.value }
-    const res = await api.post('/ai/parse', payload)
-    aiResult.value = res.data.items || []
+    if (aiTab.value === 'text') {
+      const res = await api.post('/ai/parse', { text: aiTextInput.value.trim() })
+      aiResult.value = res.data.items || []
+    } else if (aiTab.value === 'image') {
+      const res = await api.post('/ai/parse', { image: aiImageBase64.value })
+      aiResult.value = res.data.items || []
+    } else if (aiTab.value === 'invoice') {
+      const formData = new FormData()
+      formData.append('file', aiInvoiceFile.value!)
+      const res = await api.post('/ai/parse-invoice', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      aiResult.value = res.data.items || []
+    }
   } catch (e: any) {
     error.value = e?.response?.data?.error?.message || 'AI 识别失败，请重试'
   } finally {
     aiLoading.value = false
   }
+}
+
+function clearAIResult() {
+  aiTextInput.value = ''
+  aiImagePreview.value = ''
+  aiImageBase64.value = ''
+  aiInvoiceFile.value = null
+  aiResult.value = []
 }
 
 function applyAIResult() {
@@ -227,8 +342,7 @@ function applyAIResult() {
       description: item.description
     }
   })
-  aiResult.value = []
-  aiInput.value = ''
+  clearAIResult()
   showAI.value = false
 }
 
@@ -461,6 +575,35 @@ async function handleSubmit() {
 .ai-arrow.open { transform: rotate(180deg); }
 .ai-card-body { margin-top: 12px; }
 .ai-hint { font-size: 0.825rem; color: var(--text-secondary); margin-bottom: 10px; }
+
+.ai-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 14px;
+  border: 1px solid var(--accent-orange);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.ai-tab {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  font-family: var(--font-body);
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+.ai-tab + .ai-tab { border-left: 1px solid var(--accent-orange); }
+.ai-tab.active {
+  background: var(--accent-orange);
+  color: #fff;
+  font-weight: 600;
+}
+.ai-tab:hover:not(.active) { background: var(--accent-orange-bg); }
+
 .ai-input-row textarea {
   width: 100%;
   padding: 12px;
@@ -471,6 +614,82 @@ async function handleSubmit() {
   font-family: var(--font-body);
   font-size: 0.9rem;
   resize: vertical;
+}
+
+.ai-image-area {
+  border: 2px dashed var(--accent-orange);
+  border-radius: var(--radius-sm);
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.2s;
+  min-height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ai-image-area:hover { background: var(--accent-orange-bg); }
+.ai-image-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.ai-image-icon { font-size: 2rem; }
+.ai-image-preview-wrapper {
+  position: relative;
+  max-width: 100%;
+}
+.ai-image-preview {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+}
+.ai-image-clear {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 24px;
+  height: 24px;
+  background: var(--accent-coral);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 12px;
+}
+
+.ai-file-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ai-file-label { cursor: pointer; }
+.ai-file-btn {
+  display: inline-block;
+  padding: 8px 16px;
+  border: 1px solid var(--accent-orange);
+  border-radius: var(--radius-sm);
+  color: var(--accent-orange);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.ai-file-btn:hover { background: var(--accent-orange-bg); }
+.ai-file-name {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  font-weight: 500;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-file-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
 }
 .btn-ai {
   margin-top: 10px;
