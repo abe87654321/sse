@@ -75,10 +75,12 @@ function ocrToExpenseItems(ocr: any) {
   return items;
 }
 
-const aiEndpoint = process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions';
-const aiModel = process.env.AI_MODEL || 'llama3.2-vision';
-const aiProvider = new LocalProvider({ endpoint: aiEndpoint, modelName: aiModel });
-const smartFill = new SmartFillEngine(aiProvider);
+function getSmartFillEngine() {
+  const config = loadAiConfig();
+  const fillCfg = config.fillEngine;
+  const provider = new LocalProvider({ endpoint: fillCfg.endpoint, modelName: fillCfg.model });
+  return new SmartFillEngine(provider);
+}
 
 const uploadMemory = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
@@ -92,11 +94,12 @@ router.post(
     }
 
     let items;
+    const engine = getSmartFillEngine();
     if (image) {
       const base64 = image.replace(/^data:image\/\w+;base64,/, '');
-      items = await smartFill.parseFromImage(base64);
+      items = await engine.parseFromImage(base64);
     } else {
-      items = await smartFill.parseFromText(text);
+      items = await engine.parseFromText(text);
     }
 
     res.json({ items });
