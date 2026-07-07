@@ -22,8 +22,11 @@ export class ReportService {
     const totalAmount = dto.items.reduce((sum, item) => sum + item.amount, 0);
     const categoryIds = dto.items.map((item) => item.categoryId);
     const rule = await this.engine.matchRule(totalAmount, categoryIds);
-    if (rule) {
-      await this.engine.startApproval(report.id, rule);
+    if (rule && rule.approvalChain.length > 0) {
+      const firstStep = rule.approvalChain[0];
+      if (firstStep.role || firstStep.assigneeId) {
+        await this.engine.startApproval(report.id, rule);
+      }
     }
     return report;
   }
