@@ -34,16 +34,24 @@ export class InvoiceOCREngine implements IInvoiceOCREngine {
       const text = data.text;
 
       if (text && text.trim().length > 20) {
-        const prompt = buildInvoicePrompt() + '\n\n从以下发票文本中提取信息：\n' + text;
-        const result = await this.provider.analyzeText(text, prompt);
+        const result = await this.provider.analyzeText(
+          '从以下发票文本中提取信息，只返回JSON：' + text,
+          buildInvoicePrompt()
+        );
         return this.extractJson(result);
       }
-    } catch { /* fall through to image approach */ }
+    } catch { /* pdf-parse failed, try raw text extraction */ }
 
-    const base64 = buffer.toString('base64');
-    const prompt = buildInvoicePrompt();
-    const result = await this.provider.analyzeImage(base64, prompt, 'application/pdf');
-    return this.extractJson(result);
+    const rawText = buffer.toString('utf-8').replace(/[^\x20-\x7E\u4e00-\u9fff\u3400-\u4dbf\uff00-\uffef]/g, '');
+    if (rawText.trim().length > 30) {
+      const result = await this.provider.analyzeText(
+        '从以下发票文本中提取信息，只返回JSON：' + rawText,
+        buildInvoicePrompt()
+      );
+      return this.extractJson(result);
+    }
+
+    return { status: 'unverified' };
   }
 
   private extractJson(result: string): OcrResult {
