@@ -1,93 +1,64 @@
 <template>
   <div class="admin-page">
-    <div class="page-header">
-      <h2 class="page-header-title">系统管理</h2>
+    <div class="page-header"><h2 class="page-header-title">系统管理</h2></div>
+
+    <!-- 智能填单引擎 -->
+    <div class="card" style="margin-bottom:20px">
+      <h3 class="font-heading section-title">📝 智能填单引擎</h3>
+      <div class="form-grid">
+        <div class="field"><label>端点</label><input v-model="cfg.fillEngine.endpoint" /></div>
+        <div class="field model-field">
+          <label>模型</label>
+          <div class="model-select-row">
+            <select v-model="cfg.fillEngine.model"><option v-for="m in fillModels" :key="m.id" :value="m.id">{{ m.name }}{{ m.recommended ? ' ★' : '' }}</option></select>
+            <button class="btn-secondary btn-sm" @click="fetchModels" :disabled="modelsLoading">🔄</button>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button class="btn-primary btn-sm" @click="saveConfig" :disabled="saving">💾 保存</button>
+        <button class="btn-secondary btn-sm" @click="testAI('text')" :disabled="testing">{{ testing==='text'?'测试中...':'📝 检验文字识别' }}</button>
+        <label class="toggle-label"><input type="checkbox" v-model="cfg.fillEngine.enabled" @change="saveConfig" /><span>启用</span></label>
+      </div>
     </div>
 
-    <!-- AI 模型配置 -->
-    <div class="card" style="margin-bottom: 20px;">
-      <h3 class="font-heading section-title">🤖 AI 模型配置</h3>
-
+    <!-- 发票OCR引擎 -->
+    <div class="card" style="margin-bottom:20px">
+      <h3 class="font-heading section-title">🧾 发票OCR引擎</h3>
       <div class="form-grid">
         <div class="field">
-          <label>API 端点地址</label>
-          <input v-model="aiConfig.endpoint" type="text" placeholder="http://localhost:11434/v1/chat/completions" />
+          <label>引擎方案</label>
+          <select v-model="cfg.ocrEngine.provider" @change="saveConfig">
+            <option value="mineru">MinerU (文档智能解析)</option>
+            <option value="paddle">PaddleOCR (通用OCR)</option>
+            <option value="vision">视觉模型 (glm-ocr等)</option>
+          </select>
         </div>
-        <div class="field">
-          <label>模型名称</label>
-          <div class="model-select-row">
-            <select v-model="aiConfig.model" :disabled="!aiModels.length">
-              <option value="" disabled>请先刷新模型列表</option>
-              <option v-for="m in aiModels" :key="m.id" :value="m.id">
-                {{ m.name }}{{ m.recommended ? ' ★推荐' : '' }}
-              </option>
-            </select>
-            <button class="btn-secondary btn-sm" @click="fetchModels" :disabled="modelsLoading">
-              {{ modelsLoading ? '加载中...' : '🔄 刷新' }}
-            </button>
-          </div>
-          <span v-if="aiModels.length" class="hint">
-            <template v-for="m in aiModels.filter(x => x.recommended)" :key="m.id">
-              {{ m.name }}：{{ m.reason }}
-            </template>
-          </span>
-        </div>
+        <template v-if="cfg.ocrEngine.provider==='mineru'">
+          <div class="field full"><label>MinerU 端点</label><input v-model="cfg.ocrEngine.mineruEndpoint" /></div>
+        </template>
+        <template v-else-if="cfg.ocrEngine.provider==='paddle'">
+          <div class="field full"><label>PaddleOCR 端点</label><input v-model="cfg.ocrEngine.paddleEndpoint" /></div>
+        </template>
+        <template v-else>
+          <div class="field"><label>视觉模型端点</label><input v-model="cfg.ocrEngine.visionEndpoint" /></div>
+          <div class="field"><label>视觉模型名</label><input v-model="cfg.ocrEngine.visionModel" /></div>
+        </template>
       </div>
-
-      <div style="margin-top: 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-        <button class="btn-primary btn-sm" @click="saveAiConfig" :disabled="aiSaving">
-          {{ aiSaving ? '保存中...' : '💾 保存配置' }}
-        </button>
-        <button class="btn-secondary btn-sm" @click="testAI('text')" :disabled="aiTesting">
-          {{ aiTesting === 'text' ? '测试中...' : '📝 检验文字识别' }}
-        </button>
-        <button class="btn-secondary btn-sm" @click="testAI('ocr')" :disabled="aiTesting">
-          {{ aiTesting === 'ocr' ? '测试中...' : '🖼️ 检验图像OCR' }}
-        </button>
-        <label class="toggle-label">
-          <input type="checkbox" v-model="aiConfig.enabled" @change="saveAiConfig" />
-          <span>启用 AI</span>
-        </label>
-      </div>
-
-      <div v-if="aiTestResult" class="ai-test-result" :class="{ success: aiTestSuccess, fail: !aiTestSuccess }">
-        {{ aiTestResult }}
+      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button class="btn-primary btn-sm" @click="saveConfig" :disabled="saving">💾 保存</button>
+        <button class="btn-secondary btn-sm" @click="testAI('ocr')" :disabled="testing">{{ testing==='ocr'?'测试中...':'🧾 检验发票OCR' }}</button>
+        <label class="toggle-label"><input type="checkbox" v-model="cfg.ocrEngine.enabled" @change="saveConfig" /><span>启用</span></label>
       </div>
     </div>
 
-    <!-- 用户管理 -->
-    <div class="card" style="padding: 0; overflow: hidden;">
-      <div style="padding: 18px 24px; border-bottom: 1px solid var(--border-light); display: flex; align-items: center; justify-content: space-between;">
-        <h3 class="font-heading" style="font-size: 1rem; letter-spacing: 0.03em;">用户列表</h3>
-      </div>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>用户</th>
-            <th>手机号</th>
-            <th>角色</th>
-            <th>部门</th>
-            <th>状态</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="user in users" :key="user.id">
-            <td>
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <span>{{ user.name }}</span>
-              </div>
-            </td>
-            <td class="text-secondary">{{ user.phone || '-' }}</td>
-            <td>
-              <span class="badge" :class="user.role === 'admin' ? 'badge-approved' : user.role === 'finance' ? 'badge-draft' : 'badge-pending'">
-                {{ roleLabel(user.role) }}
-              </span>
-            </td>
-            <td class="text-secondary">{{ user.department || '-' }}</td>
-            <td><span class="badge" :class="user.status === 'active' ? 'badge-approved' : 'badge-draft'">{{ user.status === 'active' ? '启用' : '禁用' }}</span></td>
-          </tr>
-        </tbody>
-      </table>
+    <div v-if="result" class="ai-test-result" :class="{success:resultOk,fail:!resultOk}">{{ result }}</div>
+
+    <!-- 用户列表 -->
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border-light)"><h3 class="font-heading" style="font-size:1rem">用户列表</h3></div>
+      <table class="data-table"><thead><tr><th>用户</th><th>手机号</th><th>角色</th><th>部门</th><th>状态</th></tr></thead>
+        <tbody><tr v-for="u in users" :key="u.id"><td><span>{{ u.name }}</span></td><td class="text-secondary">{{ u.phone }}</td><td><span class="badge" :class="u.role==='admin'?'badge-approved':u.role==='finance'?'badge-draft':'badge-pending'">{{roleLabel(u.role)}}</span></td><td class="text-secondary">{{ u.department }}</td><td><span class="badge" :class="u.status==='active'?'badge-approved':'badge-draft'">{{u.status==='active'?'启用':'禁用'}}</span></td></tr></tbody></table>
     </div>
   </div>
 </template>
@@ -96,131 +67,57 @@
 import { ref, reactive, onMounted } from 'vue'
 import api from '../api/index'
 
-const aiConfig = reactive({ endpoint: '', model: '', enabled: true })
-const aiSaving = ref(false)
-const aiTesting = ref<string | false>(false)
-const aiTestResult = ref('')
-const aiTestSuccess = ref(false)
-const aiModels = ref<Array<{ id: string; name: string; recommended: boolean; reason: string }>>([])
+const cfg = reactive<any>({
+  fillEngine: { endpoint: '', model: '', enabled: true },
+  ocrEngine: { provider: 'mineru', mineruEndpoint: '', paddleEndpoint: '', visionEndpoint: '', visionModel: '', enabled: true },
+})
+const saving = ref(false)
+const testing = ref<string|false>(false)
+const result = ref('')
+const resultOk = ref(false)
+const fillModels = ref<any[]>([])
 const modelsLoading = ref(false)
-
 const users = ref<any[]>([])
 
 onMounted(async () => {
   try {
-    const [configRes, usersRes] = await Promise.all([
-      api.get('/admin/ai-config'),
-      api.get('/admin/users'),
-    ])
-    Object.assign(aiConfig, configRes.data)
-    users.value = usersRes.data || []
-  } catch { /* silent */ }
+    const [c, u] = await Promise.all([api.get('/admin/ai-config'), api.get('/admin/users')])
+    Object.assign(cfg, c.data)
+    users.value = u.data || []
+  } catch {}
   fetchModels()
 })
 
 async function fetchModels() {
   modelsLoading.value = true
-  try {
-    const res = await api.get('/admin/ai-models')
-    aiModels.value = res.data.models || []
-  } catch {
-    aiModels.value = []
-  } finally {
-    modelsLoading.value = false
-  }
+  try { const r = await api.get('/admin/ai-models'); fillModels.value = r.data.models || [] } catch { fillModels.value = [] } finally { modelsLoading.value = false }
 }
 
-function roleLabel(role: string) {
-  const map: Record<string, string> = { admin: '管理员', dept_approver: '部门审批人', finance: '财务', employee: '员工' }
-  return map[role] || role
+async function saveConfig() {
+  saving.value = true
+  try { await api.put('/admin/ai-config', { fillEngine: cfg.fillEngine, ocrEngine: cfg.ocrEngine }) } finally { saving.value = false }
 }
 
-async function saveAiConfig() {
-  aiSaving.value = true
-  try {
-    await api.put('/admin/ai-config', {
-      endpoint: aiConfig.endpoint,
-      model: aiConfig.model,
-      enabled: aiConfig.enabled,
-    })
-  } finally {
-    aiSaving.value = false
-  }
+async function testAI(type: string) {
+  testing.value = type; result.value = ''
+  try { const r = await api.post('/admin/ai-test', { type }); resultOk.value = r.data.success; result.value = r.data.message } catch (e: any) { resultOk.value = false; result.value = '失败: ' + (e?.message || '') } finally { testing.value = false }
 }
 
-async function testAI(type: 'text' | 'ocr') {
-  aiTesting.value = type
-  aiTestResult.value = ''
-  try {
-    const res = await api.post('/admin/ai-test', { type })
-    aiTestSuccess.value = res.data.success
-    aiTestResult.value = res.data.message
-  } catch (e: any) {
-    aiTestSuccess.value = false
-    aiTestResult.value = '请求失败: ' + (e?.message || '未知错误')
-  } finally {
-    aiTesting.value = false
-  }
-}
+function roleLabel(r: string) { const m: any = { admin: '管理员', dept_approver: '部门审批人', finance: '财务', employee: '员工' }; return m[r] || r }
 </script>
 
 <style scoped>
-.admin-page { max-width: 900px; }
-
-.section-title {
-  font-size: 1rem;
-  letter-spacing: 0.03em;
-  margin-bottom: 16px;
-}
-
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-@media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }
-
-.field label {
-  display: block;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
-.field input {
-  width: 100%;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font-family: var(--font-body);
-  font-size: 0.875rem;
-}
-
-.toggle-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.ai-test-result {
-  margin-top: 12px;
-  padding: 10px 16px;
-  border-radius: var(--radius-sm);
-  font-size: 0.85rem;
-}
-.ai-test-result.success { background: var(--accent-mint-bg); color: #2b7a3d; }
-.ai-test-result.fail { background: var(--accent-coral-bg); color: var(--accent-coral); }
-
-.model-select-row { display: flex; gap: 8px; align-items: center; }
-.model-select-row select {
-  flex: 1;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font-family: var(--font-body);
-  font-size: 0.875rem;
-}
-.hint { display: block; margin-top: 6px; font-size: 0.75rem; color: var(--accent-orange); }
+.admin-page { max-width: 900px }
+.section-title { font-size: 1rem; margin-bottom: 14px }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px }
+.field.full { grid-column: 1/-1 }
+.field label { display: block; font-size: .8rem; color: var(--text-muted); margin-bottom: 5px }
+.field input,.field select { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font-family: var(--font-body); font-size: .875rem }
+.model-select-row { display: flex; gap: 6px }
+.model-select-row select { flex: 1 }
+.toggle-label { display: flex; align-items: center; gap: 5px; font-size: .85rem; color: var(--text-secondary); cursor: pointer }
+.ai-test-result { margin-top: 0; margin-bottom: 20px; padding: 10px 16px; border-radius: var(--radius-sm); font-size: .85rem }
+.ai-test-result.success { background: var(--accent-mint-bg); color: #2b7a3d }
+.ai-test-result.fail { background: var(--accent-coral-bg); color: var(--accent-coral) }
+@media (max-width:600px) { .form-grid { grid-template-columns: 1fr } }
 </style>

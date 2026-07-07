@@ -5,7 +5,7 @@ import { requireRole } from '../middleware/rbac';
 import { UserRole } from '@sse/shared';
 import { AppError } from '../middleware/error';
 
-import { LocalProvider, SmartFillEngine, InvoiceOCREngine } from '@sse/ai';
+import { LocalProvider, SmartFillEngine, InvoiceOCREngine, MinerUProvider, PaddleProvider, VisionOCRProvider } from '@sse/ai';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
@@ -15,21 +15,35 @@ const ruleRepo = new PgApprovalRuleRepo();
 
 const CONFIG_PATH = join(process.cwd(), 'ai-config.json');
 
-function loadAiConfig(): { endpoint: string; model: string; enabled: boolean; apiKey?: string } {
+function loadAiConfig() {
+  const defaults = {
+    fillEngine: {
+      endpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
+      model: process.env.AI_MODEL || 'llama3.1:8b',
+      enabled: true,
+    },
+    ocrEngine: {
+      provider: 'mineru' as 'mineru' | 'paddle' | 'vision',
+      mineruEndpoint: process.env.MINERU_ENDPOINT || 'http://localhost:8888',
+      paddleEndpoint: process.env.PADDLE_ENDPOINT || 'http://localhost:8899',
+      visionEndpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
+      visionModel: process.env.AI_VISION_MODEL || 'glm-ocr',
+      enabled: true,
+    },
+  };
   try {
     if (existsSync(CONFIG_PATH)) {
-      return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+      const saved = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+      return { ...defaults, ...saved,
+        fillEngine: { ...defaults.fillEngine, ...(saved.fillEngine || {}) },
+        ocrEngine: { ...defaults.ocrEngine, ...(saved.ocrEngine || {}) },
+      };
     }
   } catch { /* use defaults */ }
-  return {
-    endpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
-    model: process.env.AI_MODEL || 'llama3.2-vision',
-    enabled: true,
-    apiKey: process.env.AI_API_KEY || undefined,
-  };
+  return defaults;
 }
 
-function saveAiConfig(config: { endpoint: string; model: string; enabled: boolean; apiKey?: string }) {
+function saveAiConfig(config: any) {
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
 }
 
@@ -314,11 +328,21 @@ router.get(
 router.put(
   '/ai-config',
   asyncWrap(async (req, res) => {
-    const { endpoint, model, enabled } = req.body;
     const config = loadAiConfig();
-    if (endpoint !== undefined) config.endpoint = endpoint;
-    if (model !== undefined) config.model = model;
-    if (enabled !== undefined) config.enabled = enabled;
+    const { fillEngine, ocrEngine } = req.body;
+    if (fillEngine) {
+      if (fillEngine.endpoint !== undefined) config.fillEngine.endpoint = fillEngine.endpoint;
+      if (fillEngine.model !== undefined) config.fillEngine.model = fillEngine.model;
+      if (fillEngine.enabled !== undefined) config.fillEngine.enabled = fillEngine.enabled;
+    }
+    if (ocrEngine) {
+      if (ocrEngine.provider !== undefined) config.ocrEngine.provider = ocrEngine.provider;
+      if (ocrEngine.mineruEndpoint !== undefined) config.ocrEngine.mineruEndpoint = ocrEngine.mineruEndpoint;
+      if (ocrEngine.paddleEndpoint !== undefined) config.ocrEngine.paddleEndpoint = ocrEngine.paddleEndpoint;
+      if (ocrEngine.visionEndpoint !== undefined) config.ocrEngine.visionEndpoint = ocrEngine.visionEndpoint;
+      if (ocrEngine.visionModel !== undefined) config.ocrEngine.visionModel = ocrEngine.visionModel;
+      if (ocrEngine.enabled !== undefined) config.ocrEngine.enabled = ocrEngine.enabled;
+    }
     saveAiConfig(config);
     res.json(config);
   })
@@ -327,47 +351,69 @@ router.put(
 router.post(
   '/ai-test',
   asyncWrap(async (req, res) => {
-    const { type } = req.body; // 'text' | 'ocr'
+    const { type } = req.body;
     const config = loadAiConfig();
+    const fillCfg = config.fillEngine;
+    const ocrCfg = config.ocrEngine;
 
-    let provider: any;
     let result: string;
+    let success = false;
     try {
-      provider = new LocalProvider({ endpoint: config.endpoint, modelName: config.model });
       const start = Date.now();
 
-      if (type === 'ocr') {
-        const engine = new InvoiceOCREngine(provider);
-        const pdfPath = join(process.cwd(), 'docs', 'dzfp_25362000000115126055_深圳市数恒纪元信息技术咨询企业（个人独资）_20251106105357.pdf');
-        if (!existsSync(pdfPath)) {
-          result = `测试失败: 发票样例文件不存在 ${pdfPath}`;
-        } else {
-          const pdfBuffer = readFileSync(pdfPath);
-          const ocrResult = await engine.parseInvoice(pdfBuffer, 'sample.pdf');
-          const elapsed = Date.now() - start;
-          if (ocrResult.invoiceNo || ocrResult.amount) {
-            result = `发票OCR成功（${elapsed}ms）：发票号 ${ocrResult.invoiceNo || 'N/A'}，金额 ${ocrResult.amount || ocrResult.totalAmount || 'N/A'}`;
-          } else {
-            result = `图像OCR接口连通（${elapsed}ms），但未识别到发票信息，请检查模型视觉能力`;
-          }
-        }
-      } else {
+      if (type === 'text') {
+        const provider = new LocalProvider({ endpoint: fillCfg.endpoint, modelName: fillCfg.model });
         const engine = new SmartFillEngine(provider);
         const items = await engine.parseFromText('测试：打车50元');
         const elapsed = Date.now() - start;
         if (items.length > 0) {
           result = `文字识别成功（${elapsed}ms），解析到 ${items.length} 条费用`;
+          success = true;
         } else {
-          result = `模型响应但未解析到结构化数据（${elapsed}ms），请检查模型能力`;
+          result = `模型响应但未解析到结构化数据（${elapsed}ms）`;
         }
+      } else if (type === 'ocr') {
+        const pdfPath = join(process.cwd(), 'docs', 'dzfp_25362000000115126055_深圳市数恒纪元信息技术咨询企业（个人独资）_20251106105357.pdf');
+        if (!existsSync(pdfPath)) {
+          result = `发票样例文件不存在: ${pdfPath}`;
+        } else {
+          const pdfBuffer = readFileSync(pdfPath);
+
+          if (ocrCfg.provider === 'mineru') {
+            const engine = new InvoiceOCREngine(new MinerUProvider({ endpoint: ocrCfg.mineruEndpoint }));
+            const ocrResult = await engine.parseInvoice(pdfBuffer, 'sample.pdf');
+            result = formatOcrResult(ocrResult, Date.now() - start, 'MinerU');
+            success = !!(ocrResult.invoiceNo || ocrResult.amount);
+          } else if (ocrCfg.provider === 'paddle') {
+            const engine = new InvoiceOCREngine(new PaddleProvider({ endpoint: ocrCfg.paddleEndpoint }));
+            const ocrResult = await engine.parseInvoice(pdfBuffer, 'sample.pdf');
+            result = formatOcrResult(ocrResult, Date.now() - start, 'PaddleOCR');
+            success = !!(ocrResult.invoiceNo || ocrResult.amount);
+          } else {
+            const provider = new LocalProvider({ endpoint: ocrCfg.visionEndpoint, modelName: ocrCfg.visionModel });
+            const engine = new InvoiceOCREngine(new VisionOCRProvider(provider));
+            const ocrResult = await engine.parseInvoice(pdfBuffer, 'sample.pdf');
+            result = formatOcrResult(ocrResult, Date.now() - start, '视觉模型');
+            success = !!(ocrResult.invoiceNo || ocrResult.amount);
+          }
+        }
+      } else {
+        result = '不支持的测试类型';
       }
     } catch (e: any) {
       result = `连接失败: ${e.message}`;
     }
 
-    res.json({ success: !result.startsWith('连接失败'), message: result });
+    res.json({ success, message: result });
   })
 );
+
+function formatOcrResult(r: any, elapsed: number, engine: string): string {
+  if (r.invoiceNo || r.amount) {
+    return `${engine}识别成功（${elapsed}ms）：发票号 ${r.invoiceNo || 'N/A'}，金额 ${r.amount || r.totalAmount || 'N/A'}`;
+  }
+  return `${engine}接口连通（${elapsed}ms），但未识别到发票信息`;
+}
 
 function mapUserRow(row: any) {
   return {
