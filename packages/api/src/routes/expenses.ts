@@ -327,6 +327,7 @@ function mapReportRow(row: any) {
     completedAt: row.completed_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    description: row.description ?? undefined,
   };
 }
 
