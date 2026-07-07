@@ -99,7 +99,93 @@ AI_MODEL=llama3.2-vision
 
 > **说明**：配置文件保存在项目根目录 `ai-config.json`，后台修改后即时生效，无需重启服务。也可以通过环境变量 `AI_ENDPOINT` 和 `AI_MODEL` 预设初始值。
 
-### 2.6 配置环境变量
+### 2.6 部署发票 OCR 引擎（可选，三选一）
+
+SSE 支持三种 OCR 引擎，在管理后台 `🧾 发票OCR引擎` 面板切换。
+
+#### 方案 A：MinerU（推荐）
+
+MinerU 擅长文档智能解析，PDF 发票直接输出结构化数据，中文支持好。
+
+**Linux 部署：**
+
+```bash
+pip install magic-pdf flask
+magic-pdf download_models
+
+cat > mineru_api.py << 'PYEOF'
+import json, os, tempfile
+from flask import Flask, request, jsonify
+from magic_pdf.pipe.UNIPipe import UNIPipe
+from magic_pdf.rw.DiskReaderWriter import DiskReaderWriter
+
+app = Flask(__name__)
+
+@app.route('/api/parse', methods=['POST'])
+def parse():
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'error': 'no file'}), 400
+    tmp = tempfile.mkdtemp()
+    path = os.path.join(tmp, f.filename)
+    f.save(path)
+    try:
+        rw = DiskReaderWriter(tmp)
+        pipe = UNIPipe(path, rw, None)
+        pipe.pipe_classify()
+        pipe.pipe_parse()
+        md = pipe.pipe_mk_markdown(tmp)
+        return jsonify({'markdown': md})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8888)
+PYEOF
+
+python mineru_api.py &
+```
+
+**Windows 部署（铭凡 S1-Max 等独立机器）：**
+
+```powershell
+pip install magic-pdf flask
+magic-pdf download_models
+python mineru_api.py
+```
+
+启动后在 SSE 管理后台配置：
+
+```
+引擎: MinerU
+端点: http://<mineru-ip>:8888
+```
+
+#### 方案 B：PaddleOCR
+
+```bash
+pip install paddlepaddle paddleocr flask
+# API 服务结构同 MinerU，端口 8899
+```
+
+配置：
+
+```
+引擎: PaddleOCR
+端点: http://<paddle-ip>:8899
+```
+
+#### 方案 C：视觉模型
+
+直接使用 Ollama 视觉模型（如 glm-ocr），无需额外部署。
+
+```
+引擎: 视觉模型
+端点: http://192.168.3.117:11434/v1/chat/completions
+模型: glm-ocr
+```
+
+### 2.7 配置环境变量
 
 确保 `.env` 文件存在（已从 `.env.example` 复制）：
 
