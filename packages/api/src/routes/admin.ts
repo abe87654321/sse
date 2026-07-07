@@ -111,8 +111,8 @@ router.post(
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO users (name, phone, email, department, role, status)
-       VALUES ($1, $2, $3, $4, $5, 'active')
+      `INSERT INTO users (name, phone, email, department, role, password_hash, status)
+       VALUES ($1, $2, $3, $4, $5, '', 'active')
        RETURNING ${USER_COLUMNS}`,
       [name, phone, email || null, department, role]
     );
