@@ -53,7 +53,6 @@ export class MinerUProvider implements IInvoiceOCRProvider {
     const putRes = await fetch(uploadUrl, {
       method: 'PUT',
       body: buffer,
-      headers: { 'Content-Type': 'application/octet-stream' },
     });
 
     if (!putRes.ok) throw new Error(`MinerU 文件上传失败 (${putRes.status})`);
