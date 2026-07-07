@@ -36,12 +36,13 @@
           <tr v-for="item in filteredExpenses" :key="item.id" @click="$router.push(`/expenses/${item.id}`)">
             <td class="text-muted" style="font-size:0.8rem;">{{ item.serialNo }}</td>
             <td class="title-cell">{{ item.title }}</td>
-            <td class="text-right">&yen;{{ item.amount.toLocaleString() }}</td>
+            <td class="text-right">&yen;{{ (item.totalAmount || 0).toLocaleString() }}</td>
             <td><span class="badge" :class="`badge-${item.status}`">{{ statusLabels[item.status] }}</span></td>
-            <td class="text-secondary">{{ item.category }}</td>
-            <td class="text-right text-muted" style="font-size:0.82rem;">{{ item.date }}</td>
+            <td class="text-secondary">{{ item.category || '-' }}</td>
+            <td class="text-right text-muted" style="font-size:0.82rem;">{{ (item.submittedAt || item.createdAt || '').slice(0, 10) }}</td>
             <td class="col-action">
-              <span class="table-link" @click.stop="$router.push(`/expenses/${item.id}`)">查看</span>
+              <span v-if="item.status === 'draft'" class="table-link" @click.stop="$router.push(`/expenses/${item.id}`)">编辑</span>
+              <span v-else class="table-link" @click.stop="$router.push(`/expenses/${item.id}`)">查看</span>
             </td>
           </tr>
           <tr v-if="filteredExpenses.length === 0">
@@ -75,7 +76,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
+import api from '../api/index'
 
 const statusLabels: Record<string, string> = {
   draft: '草稿', pending: '待审批', approved: '已通过', rejected: '已驳回', paid: '已付款'
@@ -83,21 +85,21 @@ const statusLabels: Record<string, string> = {
 
 const filters = reactive({ status: '', keyword: '' })
 const page = ref(1)
+const allExpenses = ref<any[]>([])
 
-const allExpenses = [
-  { id: '1', serialNo: 'SSE-20240701-001', title: '差旅费报销-北京出差', amount: 3850, status: 'approved', category: '差旅费', date: '2024-07-01' },
-  { id: '2', serialNo: 'SSE-20240703-002', title: '办公用品采购', amount: 1260, status: 'paid', category: '办公费', date: '2024-07-03' },
-  { id: '3', serialNo: 'SSE-20240704-003', title: '招待费-客户用餐', amount: 890, status: 'pending', category: '招待费', date: '2024-07-04' },
-  { id: '4', serialNo: 'SSE-20240703-004', title: '交通费报销', amount: 345, status: 'approved', category: '交通费', date: '2024-07-03' },
-  { id: '5', serialNo: 'SSE-20240702-005', title: '培训费-技术峰会门票', amount: 2800, status: 'rejected', category: '培训费', date: '2024-07-02' },
-]
+onMounted(async () => {
+  try {
+    const res = await api.get('/expenses')
+    allExpenses.value = res.data || []
+  } catch {}
+})
 
 const filteredExpenses = computed(() => {
-  let list = allExpenses
+  let list = allExpenses.value
   if (filters.status) list = list.filter(e => e.status === filters.status)
   if (filters.keyword) {
     const kw = filters.keyword.toLowerCase()
-    list = list.filter(e => e.serialNo.toLowerCase().includes(kw) || e.title.toLowerCase().includes(kw))
+    list = list.filter(e => (e.serialNo || '').toLowerCase().includes(kw) || e.title.toLowerCase().includes(kw))
   }
   return list
 })
