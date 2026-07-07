@@ -90,7 +90,7 @@ const allExpenses = ref<any[]>([])
 onMounted(async () => {
   try {
     const res = await api.get('/expenses')
-    allExpenses.value = res.data || []
+    allExpenses.value = res.data.results || []
   } catch {}
 })
 
