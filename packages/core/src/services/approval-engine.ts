@@ -30,7 +30,7 @@ export class ApprovalEngine {
     const record: Omit<ApprovalRecord, 'id'> = {
       reportId,
       step: firstStep.step,
-      approverId: firstStep.role,
+      approverId: firstStep.role || '',
       stepStartedAt: new Date(),
       result: ApprovalResult.PENDING,
     };
