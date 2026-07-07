@@ -33,16 +33,16 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '新建报销', icon: 'Plus' }
       },
       {
-        path: 'expenses/:id',
-        name: 'ExpenseDetail',
-        component: () => import('@/pages/ExpenseDetail.vue'),
-        meta: { title: '报销详情', hidden: true }
-      },
-      {
         path: 'expenses/:id/edit',
         name: 'ExpenseEdit',
         component: () => import('@/pages/ExpenseForm.vue'),
         meta: { title: '编辑报销', hidden: true }
+      },
+      {
+        path: 'expenses/:id',
+        name: 'ExpenseDetail',
+        component: () => import('@/pages/ExpenseDetail.vue'),
+        meta: { title: '报销详情', hidden: true }
       },
       {
         path: 'approvals',

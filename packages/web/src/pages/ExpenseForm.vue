@@ -389,9 +389,13 @@ onMounted(async () => {
         form.items = [{ categoryId: '', amount: 0, expenseDate: new Date().toISOString().slice(0, 10), description: '' }]
       }
       expenseId.value = route.params.id as string
-    } catch (e: any) {
+  } catch (e: any) {
+    if (e?.response?.status === 404) {
+      error.value = '报销单不存在或已被删除'
+    } else {
       error.value = e?.response?.data?.error?.message || '加载报销数据失败'
     }
+  }
   }
 })
 
@@ -485,6 +489,7 @@ async function handleSubmit() {
     if (expenseId.value) {
       await api.put(`/expenses/${expenseId.value}`, {
         title: form.title.trim(),
+        description: form.description.trim(),
         items: validItems.map(i => ({
           categoryId: i.categoryId,
           amount: i.amount,
