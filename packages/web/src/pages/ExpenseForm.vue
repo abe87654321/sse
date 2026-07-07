@@ -348,7 +348,7 @@ function applyAIResult() {
 
 onMounted(async () => {
   try {
-    const res = await api.get('/admin/categories')
+    const res = await api.get('/categories')
     categories.value = res.data || []
   } catch { /* use defaults below */ }
   if (categories.value.length === 0) {

@@ -24,6 +24,14 @@ app.use('/statistics', statisticsRoutes);
 app.use('/admin', adminRoutes);
 app.use('/ai', aiRoutes);
 
+app.get('/categories', async (_req, res, next) => {
+  try {
+    const { pool } = await import('@sse/db');
+    const { rows } = await pool.query('SELECT id, name FROM expense_categories ORDER BY name');
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
