@@ -8,7 +8,7 @@ export class MinioStorage implements IFileStorage {
   constructor(config?: { endpoint?: string; port?: number; accessKey?: string; secretKey?: string }) {
     this.client = new Minio.Client({
       endPoint: config?.endpoint || process.env.MINIO_ENDPOINT || 'localhost',
-      port: config?.port || Number(process.env.MINIO_PORT) || 9000,
+      port: config?.port || Number(process.env.MINIO_PORT) || 9002,
       useSSL: false,
       accessKey: config?.accessKey || process.env.MINIO_ACCESS_KEY || 'minioadmin',
       secretKey: config?.secretKey || process.env.MINIO_SECRET_KEY || 'minioadmin',
