@@ -213,14 +213,15 @@ async function handleSubmit() {
 
 onMounted(async () => {
   try {
-    const [expenseRes, catRes] = await Promise.all([
-      api.get(`/expenses/${route.params.id}`),
-      api.get('/categories'),
-    ])
+    const expenseRes = await api.get(`/expenses/${route.params.id}`)
     report.value = expenseRes.data
-    categories.value = catRes.data || []
 
-    if (report.value.status !== 'draft') {
+    try {
+      const catRes = await api.get('/categories')
+      categories.value = catRes.data || []
+    } catch { /* categories optional */ }
+
+    if (report.value && report.value.status !== 'draft') {
       try {
         const approvalRes = await api.get(`/expenses/${route.params.id}/approvals`)
         const records = approvalRes.data?.records || approvalRes.data || []
@@ -231,9 +232,10 @@ onMounted(async () => {
           done: r.result === 'approved',
           active: r.result === 'pending' || (i === arr.length - 1 && r.result !== 'rejected'),
         }))
-      } catch { /* approvals endpoint optional */ }
+      } catch { /* approvals optional */ }
     }
   } catch (e: any) {
+    console.error('ExpenseDetail error:', e)
     if (e?.response?.status === 404) {
       report.value = null
     }
