@@ -214,7 +214,14 @@ async function handleSubmit() {
 onMounted(async () => {
   try {
     const expenseRes = await api.get(`/expenses/${route.params.id}`)
-    report.value = expenseRes.data
+    const data = expenseRes.data
+    report.value = {
+      ...(data.report || data),
+      items: data.items || [],
+      invoices: data.invoices || [],
+      approvalRecords: data.approvalRecords || [],
+    }
+    report.value.totalAmount = report.value.totalAmount || report.value.items?.reduce((s: number, i: any) => s + (i.amount || 0), 0) || 0
 
     try {
       const catRes = await api.get('/categories')
