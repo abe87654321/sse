@@ -169,7 +169,7 @@ router.put(
   '/:id',
   asyncWrap(async (req, res) => {
     const { id } = req.params;
-    const { title, items } = req.body;
+    const { title, description, items } = req.body;
 
     const report = await expenseRepo.findById(id);
     if (!report) {
@@ -186,10 +186,25 @@ router.put(
     try {
       await client.query('BEGIN');
 
+      const setClauses: string[] = [];
+      const setValues: any[] = [];
+      let paramIdx = 1;
+
       if (title !== undefined) {
+        setClauses.push(`title = $${paramIdx++}`);
+        setValues.push(title);
+      }
+      if (description !== undefined) {
+        setClauses.push(`description = $${paramIdx++}`);
+        setValues.push(description);
+      }
+
+      if (setClauses.length > 0) {
+        setClauses.push('updated_at = NOW()');
+        setValues.push(id);
         await client.query(
-          'UPDATE expense_reports SET title = $1, updated_at = NOW() WHERE id = $2',
-          [title, id]
+          `UPDATE expense_reports SET ${setClauses.join(', ')} WHERE id = $${paramIdx}`,
+          setValues
         );
       }
 
