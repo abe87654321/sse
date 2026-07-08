@@ -157,7 +157,7 @@ router.get(
     }
 
     res.json({
-      report: mapReportRow({ ...report }),
+      report,
       items,
       invoices,
       approvalRecords: records,
