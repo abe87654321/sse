@@ -137,7 +137,8 @@ export class PgExpenseRepo implements IExpenseRepo {
 
       const { rows: reportRows } = await client.query(
         `INSERT INTO expense_reports (serial_no, user_id, title, total_amount, description, status, current_step)
-         VALUES ($1, $2, $3, $4, $5, 'draft', 0)`,
+         VALUES ($1, $2, $3, $4, $5, 'draft', 0)
+         RETURNING *`,
         [serialNo, userId, dto.title, totalAmount, dto.description || null]
       );
 
