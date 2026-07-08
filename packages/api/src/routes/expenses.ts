@@ -240,6 +240,24 @@ router.put(
   })
 );
 
+router.post(
+  '/:id/submit',
+  asyncWrap(async (req, res) => {
+    const { id } = req.params;
+
+    const report = await expenseRepo.findById(id);
+    if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
+    if (report.userId !== req.user!.userId) throw new AppError(403, 'UNAUTHORIZED', '无权操作');
+    if (report.status !== ReportStatus.DRAFT) throw new AppError(400, 'INVALID_PARAMS', '只能提交草稿状态的报销单');
+
+    await pool.query(
+      'UPDATE expense_reports SET status = $1, submitted_at = NOW(), updated_at = NOW() WHERE id = $2',
+      [ReportStatus.PENDING, id]
+    );
+    res.json({ message: '提交成功' });
+  })
+);
+
 router.delete(
   '/:id',
   asyncWrap(async (req, res) => {

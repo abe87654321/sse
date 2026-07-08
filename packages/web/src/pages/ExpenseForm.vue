@@ -486,8 +486,9 @@ async function handleSubmit() {
 
   saving.value = true
   try {
-    if (expenseId.value) {
-      await api.put(`/expenses/${expenseId.value}`, {
+    let reportId = expenseId.value
+    if (reportId) {
+      await api.put(`/expenses/${reportId}`, {
         title: form.title.trim(),
         description: form.description.trim(),
         items: validItems.map(i => ({
@@ -498,7 +499,7 @@ async function handleSubmit() {
         }))
       })
     } else {
-      await api.post('/expenses', {
+      const res = await api.post('/expenses', {
         title: form.title.trim(),
         description: form.description.trim(),
         items: validItems.map(i => ({
@@ -508,6 +509,10 @@ async function handleSubmit() {
           description: i.description || ''
         }))
       })
+      reportId = res.data.id || res.data.report?.id
+    }
+    if (reportId) {
+      await api.post(`/expenses/${reportId}/submit`)
     }
     router.push('/expenses')
   } catch (e: any) {
