@@ -74,8 +74,11 @@ export class ApprovalReminderScheduler {
   }
 
   private async findApproversForRecord(record: any, report: any): Promise<any[]> {
-    const user = await this.userRepo.findById(record.approverId);
-    if (user) return [user];
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidPattern.test(record.approverId)) {
+      const user = await this.userRepo.findById(record.approverId);
+      if (user) return [user];
+    }
 
     const reporter = await this.userRepo.findById(report.userId);
     const department = reporter?.department;
