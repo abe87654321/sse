@@ -26,13 +26,13 @@
           <span class="action-desc">快速提交费用申请</span>
         </div>
       </button>
-      <button class="action-card" @click="$router.push('/approvals')">
+      <button class="action-card" @click="$router.push('/approvals')" v-if="showApprovals">
         <span class="action-emoji">&#10003;</span>
         <div class="action-info">
           <span class="action-label">待审批</span>
           <span class="action-desc">{{ pendingCount }} 条待处理</span>
         </div>
-        <span class="action-count">{{ pendingCount }}</span>
+        <span class="action-count" v-if="pendingCount > 0">{{ pendingCount }}</span>
       </button>
       <button class="action-card" @click="$router.push('/expenses')">
         <span class="action-emoji">&#128196;</span>
@@ -63,9 +63,9 @@
           <tr v-for="item in recentExpenses" :key="item.id" @click="$router.push(`/expenses/${item.id}`)">
             <td class="text-muted" style="font-size:0.8rem;">{{ item.serialNo }}</td>
             <td>{{ item.title }}</td>
-            <td class="text-right">&yen;{{ item.amount.toLocaleString() }}</td>
-            <td><span class="badge" :class="`badge-${item.status}`">{{ statusLabels[item.status] }}</span></td>
-            <td class="text-right text-muted" style="font-size:0.82rem;">{{ item.date }}</td>
+            <td class="text-right">&yen;{{ (item.totalAmount || item.amount || 0).toLocaleString() }}</td>
+            <td><span class="badge" :class="`badge-${item.status}`">{{ statusLabels[item.status] || item.status }}</span></td>
+            <td class="text-right text-muted" style="font-size:0.82rem;">{{ formatDate(item.createdAt) }}</td>
           </tr>
           <tr v-if="recentExpenses.length === 0">
             <td colspan="5">
@@ -82,8 +82,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import api from '../api/index'
 
 const auth = useAuthStore()
 
@@ -97,22 +98,61 @@ const statusLabels: Record<string, string> = {
   draft: '草稿', pending: '待审批', approved: '已通过', rejected: '已驳回', paid: '已付款'
 }
 
-const pendingCount = 3
+const showApprovals = computed(() => {
+  const role = auth.user?.role
+  return role === 'dept_approver' || role === 'finance' || role === 'admin'
+})
 
-const stats = [
-  { label: '待审批', value: '3', emoji: '&#9200;', color: 'var(--accent-sky)', bg: 'var(--accent-sky-bg)' },
-  { label: '本月报销', value: '12', emoji: '&#128176;', color: 'var(--accent-orange)', bg: 'var(--accent-orange-bg)' },
-  { label: '已通过', value: '8', emoji: '&#9989;', color: 'var(--accent-mint)', bg: 'var(--accent-mint-bg)' },
-  { label: '已付款', value: '&#165;24.5k', emoji: '&#128179;', color: 'var(--accent-violet)', bg: 'var(--accent-violet-bg)' },
-]
+const pendingCount = ref(0)
+const recentExpenses = ref<any[]>([])
+const stats = ref([
+  { label: '待审批', value: '0', emoji: '&#9200;', color: 'var(--accent-sky)', bg: 'var(--accent-sky-bg)' },
+  { label: '本月报销', value: '0', emoji: '&#128176;', color: 'var(--accent-orange)', bg: 'var(--accent-orange-bg)' },
+  { label: '已通过', value: '0', emoji: '&#9989;', color: 'var(--accent-mint)', bg: 'var(--accent-mint-bg)' },
+  { label: '已付款', value: '&#165;0', emoji: '&#128179;', color: 'var(--accent-violet)', bg: 'var(--accent-violet-bg)' },
+])
 
-const recentExpenses = [
-  { id: '1', serialNo: 'SSE-20240701-001', title: '差旅费报销-北京出差', amount: 3850, status: 'approved', date: '07-01' },
-  { id: '2', serialNo: 'SSE-20240703-002', title: '办公用品采购', amount: 1260, status: 'paid', date: '07-03' },
-  { id: '3', serialNo: 'SSE-20240704-003', title: '招待费-客户用餐', amount: 890, status: 'pending', date: '07-04' },
-  { id: '4', serialNo: 'SSE-20240703-004', title: '交通费报销', amount: 345, status: 'approved', date: '07-03' },
-  { id: '5', serialNo: 'SSE-20240702-005', title: '培训费-技术峰会门票', amount: 2800, status: 'rejected', date: '07-02' },
-]
+function formatDate(dateStr: string) {
+  if (!dateStr) return '-'
+  return dateStr.slice(0, 10).replace(/^\d{4}-/, '').replace('-', '-')
+}
+
+onMounted(async () => {
+  try {
+    const res = await api.get('/expenses')
+    const items: any[] = res.data.results || []
+
+    recentExpenses.value = items.slice(0, 5)
+
+    const thisMonth = new Date().toISOString().slice(0, 7)
+    const pending = items.filter((e: any) => e.status === 'pending').length
+    const approved = items.filter((e: any) => e.status === 'approved').length
+    const thisMonthCount = items.filter((e: any) => (e.createdAt || '').startsWith(thisMonth)).length
+    const paidTotal = items
+      .filter((e: any) => e.status === 'paid')
+      .reduce((sum: number, e: any) => sum + (e.totalAmount || 0), 0)
+
+    stats.value = [
+      { label: '待审批', value: String(pending), emoji: '&#9200;', color: 'var(--accent-sky)', bg: 'var(--accent-sky-bg)' },
+      { label: '本月报销', value: String(thisMonthCount), emoji: '&#128176;', color: 'var(--accent-orange)', bg: 'var(--accent-orange-bg)' },
+      { label: '已通过', value: String(approved), emoji: '&#9989;', color: 'var(--accent-mint)', bg: 'var(--accent-mint-bg)' },
+      { label: '已付款', value: '&#165;' + formatAmount(paidTotal), emoji: '&#128179;', color: 'var(--accent-violet)', bg: 'var(--accent-violet-bg)' },
+    ]
+  } catch {}
+
+  if (showApprovals.value) {
+    try {
+      const res = await api.get('/approvals/pending')
+      pendingCount.value = (res.data || []).length
+    } catch {}
+  }
+})
+
+function formatAmount(n: number): string {
+  if (n >= 10000) return (n / 10000).toFixed(1) + 'w'
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
+  return String(n)
+}
 </script>
 
 <style scoped>

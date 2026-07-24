@@ -47,6 +47,16 @@ router.get(
        ORDER BY total_amount DESC`
     );
 
+    const { rows: monthlyStats } = await pool.query(
+      `SELECT TO_CHAR(er.created_at, 'YYYY-MM') as month,
+              COALESCE(SUM(er.total_amount), 0) as total_amount,
+              COUNT(*) as report_count
+       FROM expense_reports er
+       GROUP BY month
+       ORDER BY month ASC
+       LIMIT 12`
+    );
+
     res.json({
       overview: {
         totalAmount: Number(stats.total_amount),
@@ -65,6 +75,11 @@ router.get(
         totalAmount: Number(r.total_amount),
         reportCount: Number(r.report_count),
         approvedCount: Number(r.approved_count),
+      })),
+      monthly: monthlyStats.map((r: any) => ({
+        month: r.month,
+        totalAmount: Number(r.total_amount),
+        reportCount: Number(r.report_count),
       })),
     });
   })

@@ -14,9 +14,12 @@
 
     <div class="card" style="margin-top: 20px;">
       <h3 class="form-section-title font-heading" style="margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--border-light);">月度趋势</h3>
-      <div class="bar-chart">
+      <div v-if="months.length === 0" class="empty-state">
+        <div class="empty-state-text">暂无数据</div>
+      </div>
+      <div v-else class="bar-chart">
         <div class="bar-item" v-for="m in months" :key="m.label">
-          <div class="bar-value text-muted" style="margin-bottom:4px;">&#165;{{ m.amount.toLocaleString() }}</div>
+          <div class="bar-value text-muted" style="margin-bottom:4px;">&#165;{{ formatK(m.amount) }}</div>
           <div class="bar-track">
             <div
               class="bar-fill"
@@ -30,7 +33,10 @@
 
     <div class="card" style="margin-top: 20px;">
       <h3 class="form-section-title font-heading" style="margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--border-light);">类别分布</h3>
-      <div class="category-list">
+      <div v-if="categories.length === 0" class="empty-state">
+        <div class="empty-state-text">暂无数据</div>
+      </div>
+      <div v-else class="category-list">
         <div class="category-item" v-for="c in categories" :key="c.name">
           <div class="category-header">
             <span class="category-name">{{ c.name }}</span>
@@ -46,32 +52,73 @@
 </template>
 
 <script setup lang="ts">
-const summaries = [
-  { label: '本月总支出', value: '&#165;24,500', sub: '较上月 +12%', color: 'var(--accent-coral)' },
-  { label: '报销次数', value: '12', sub: '较上月 +2', color: 'var(--accent-sky)' },
-  { label: '平均金额', value: '&#165;2,042', sub: '每笔平均', color: 'var(--accent-orange)' },
-  { label: '审批通过率', value: '92%', sub: '12/13 已通过', color: 'var(--accent-mint)' },
+import { ref, onMounted } from 'vue'
+import api from '../api/index'
+
+const barColors = [
+  'var(--accent-coral)',
+  'var(--accent-orange)',
+  'var(--accent-sky)',
+  'var(--accent-violet)',
+  'var(--accent-mint)',
+  'var(--text-muted)',
 ]
 
-const months = [
-  { label: '1月', amount: 18000, color: 'var(--accent-coral)' },
-  { label: '2月', amount: 21000, color: 'var(--accent-orange)' },
-  { label: '3月', amount: 15500, color: 'var(--accent-sky)' },
-  { label: '4月', amount: 23500, color: 'var(--accent-violet)' },
-  { label: '5月', amount: 19000, color: 'var(--accent-mint)' },
-  { label: '6月', amount: 24500, color: 'var(--accent-coral)' },
-]
-const maxAmount = Math.max(...months.map(m => m.amount))
+const summaries = ref([
+  { label: '本月总支出', value: '¥0', sub: '', color: 'var(--accent-coral)' },
+  { label: '报销次数', value: '0', sub: '', color: 'var(--accent-sky)' },
+  { label: '审批通过率', value: '-', sub: '', color: 'var(--accent-mint)' },
+  { label: '待审批', value: '0', sub: '', color: 'var(--accent-orange)' },
+])
 
-const categories = [
-  { name: '差旅费', amount: 9800, color: 'linear-gradient(90deg, var(--accent-coral), var(--accent-coral-light))' },
-  { name: '办公费', amount: 5200, color: 'linear-gradient(90deg, var(--accent-sky), #74c0fc)' },
-  { name: '招待费', amount: 3600, color: 'linear-gradient(90deg, var(--accent-orange), #ffc078)' },
-  { name: '培训费', amount: 2800, color: 'linear-gradient(90deg, var(--accent-violet), #b197fc)' },
-  { name: '交通费', amount: 1800, color: 'linear-gradient(90deg, var(--accent-mint), #69db7c)' },
-  { name: '其他', amount: 1300, color: 'linear-gradient(90deg, var(--text-muted), var(--border))' },
-]
-const maxCatAmount = Math.max(...categories.map(c => c.amount))
+const months = ref<any[]>([])
+const categories = ref<any[]>([])
+const maxAmount = ref(1)
+const maxCatAmount = ref(1)
+
+function formatK(n: number): string {
+  if (n >= 10000) return (n / 10000).toFixed(1) + 'w'
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
+  return String(n)
+}
+
+function formatMonth(ym: string): string {
+  const parts = ym.split('-')
+  return String(parseInt(parts[1], 10)) + '月'
+}
+
+onMounted(async () => {
+  try {
+    const res = await api.get('/statistics')
+    const data = res.data
+
+    const { overview, byCategory, monthly } = data
+    const approvedCount = overview.approvedCount || 0
+    const totalCount = overview.totalCount || 0
+    const passRate = totalCount > 0 ? Math.round(approvedCount / (overview.approvedCount + overview.rejectedCount) * 100) : 0
+
+    summaries.value = [
+      { label: '总支出', value: '¥' + formatK(overview.totalAmount || 0), sub: `${totalCount} 笔报销`, color: 'var(--accent-coral)' },
+      { label: '已通过', value: String(approvedCount), sub: '笔', color: 'var(--accent-sky)' },
+      { label: '通过率', value: totalCount > 0 ? passRate + '%' : '-', sub: '', color: 'var(--accent-mint)' },
+      { label: '待审批', value: String(overview.pendingCount || 0), sub: '笔待处理', color: 'var(--accent-orange)' },
+    ]
+
+    months.value = (monthly || []).map((m: any, i: number) => ({
+      label: formatMonth(m.month),
+      amount: m.totalAmount,
+      color: barColors[i % barColors.length],
+    }))
+    maxAmount.value = Math.max(1, ...months.value.map((m: any) => m.amount))
+
+    categories.value = (byCategory || []).map((c: any, i: number) => ({
+      name: c.category,
+      amount: c.totalAmount,
+      color: `linear-gradient(90deg, ${barColors[i % barColors.length]}, ${barColors[(i + 3) % barColors.length]})`,
+    }))
+    maxCatAmount.value = Math.max(1, ...categories.value.map((c: any) => c.amount))
+  } catch {}
+})
 </script>
 
 <style scoped>
