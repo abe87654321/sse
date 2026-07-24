@@ -23,7 +23,43 @@ cd sse
 pnpm install
 ```
 
-### 2.2 启动基础设施
+### 2.2 更新代码并编译
+
+```bash
+# 拉取最新代码
+git pull origin master
+
+# 安装可能新增的依赖
+pnpm install
+```
+
+**全量编译（推荐，TypeScript 增量编译很快）：**
+
+```bash
+pnpm build
+```
+
+**增量编译（只编译改动的模块，按依赖顺序）：**
+
+```bash
+# 基础层（被其他包依赖，如有改动必须先编译）
+pnpm --filter @sse/shared build
+pnpm --filter @sse/core build
+
+# 实现层（依赖 core/shared）
+pnpm --filter @sse/db build
+pnpm --filter @sse/auth build
+pnpm --filter @sse/ocr build
+pnpm --filter @sse/notifications build
+
+# 应用层（依赖上面所有）
+pnpm --filter @sse/api build
+pnpm --filter @sse/web build
+```
+
+> **依赖关系**：`shared` → `core` → `db/auth/ocr/notifications` → `api/web/mcp`。上游包改动后，下游包必须重新编译。不确定时直接用 `pnpm build` 编译全部最省事。
+
+### 2.3 启动基础设施
 
 ```bash
 # 注意：用 "docker compose"（空格，v2版本），不是 "docker-compose"（横杠，v1版本）
@@ -32,7 +68,7 @@ sudo docker compose up -d
 
 启动 PostgreSQL（宿主机端口 5433 → 容器 5432）和 MinIO（API: 9002, Console: 9003）。
 
-### 2.3 初始化数据库
+### 2.4 初始化数据库
 
 ```bash
 # 编译所有包（首次或改代码后需要）
@@ -47,22 +83,22 @@ DB_PORT=5433 pnpm migrate
 
 > **说明**：`.env.example` 中 `DB_PORT` 已设为 5433，但 migrate 脚本未加载 dotenv，首次迁移前需手动传 `DB_PORT=5433`。配置 `.env` 后启动 API 时自动读取。
 
-### 2.4 配置 MinIO
+### 2.5 配置 MinIO
 
 1. 浏览器打开 `http://<server-ip>:9003`（账号 minioadmin / minioadmin）
 2. 创建存储桶 `invoices`（Bucket Name 填 `invoices`，点 Create Bucket）
 
-### 2.5 部署 AI 模型（OCR + 智能填单）
+### 2.6 部署 AI 模型（OCR + 智能填单）
 
 SSE 的发票 OCR 和智能填单功能依赖本地大语言模型。
 
-#### 2.5.1 安装 Ollama
+#### 2.6.1 安装 Ollama
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
 ```
 
-#### 2.5.2 拉取视觉模型
+#### 2.6.2 拉取视觉模型
 
 ```bash
 # 推荐 llama3.2-vision（同时支持文字和图像识别）
@@ -71,14 +107,14 @@ ollama pull llama3.2-vision:11b
 # 或使用其他兼容 OpenAI API 的视觉模型
 ```
 
-#### 2.5.3 验证模型可用
+#### 2.6.3 验证模型可用
 
 ```bash
 ollama list
 curl http://localhost:11434/v1/models
 ```
 
-#### 2.5.4 在管理后台配置
+#### 2.6.4 在管理后台配置
 
 1. 打开 SSE 管理后台 → **AI 模型配置**
 2. 默认端点：`http://localhost:11434/v1/chat/completions`
@@ -87,7 +123,7 @@ curl http://localhost:11434/v1/models
 5. 点击「📝 检验文字识别」→ 应返回识别成功
 6. 点击「🖼️ 检验图像OCR」→ 应返回接口连通
 
-#### 2.5.5 环境变量（可选）
+#### 2.6.5 环境变量（可选）
 
 `.env` 中可预置 AI 默认值（首次部署后可在后台修改）：
 
@@ -99,7 +135,7 @@ AI_MODEL=llama3.2-vision
 
 > **说明**：配置文件保存在项目根目录 `ai-config.json`，后台修改后即时生效，无需重启服务。也可以通过环境变量 `AI_ENDPOINT` 和 `AI_MODEL` 预设初始值。
 
-### 2.6 部署发票 OCR 引擎（可选，三选一）
+### 2.7 部署发票 OCR 引擎（可选，三选一）
 
 SSE 支持三种 OCR 引擎，在管理后台 `🧾 发票OCR引擎` 面板切换。
 
@@ -185,7 +221,7 @@ pip install paddlepaddle paddleocr flask
 模型: glm-ocr
 ```
 
-### 2.7 配置环境变量
+### 2.8 配置环境变量
 
 确保 `.env` 文件存在（已从 `.env.example` 复制）：
 
@@ -212,14 +248,14 @@ SMS_PROVIDER=log
 EMAIL_PROVIDER=log
 ```
 
-### 2.6 启动服务
+### 2.9 启动服务
 
 ```bash
 # 启动 API 服务（默认端口 3000）
 pnpm --filter @sse/api dev
 
 # 启动前端开发服务（另开终端，--host 允许外部访问）
-pnpm --filter @sse/web dev -- --host
+pnpm --filter @sse/web dev --host
 
 # 或同时启动
 pnpm dev
@@ -227,16 +263,19 @@ pnpm dev
 
 > **关键**：前端必须加 `--host` 参数才能从其他机器访问，否则仅监听 `localhost`。
 
-### 2.7 启动 MCP Server（如需 Agent 调用）
+### 2.10 启动 MCP Server（如需 Agent 调用）
 
 ```bash
 pnpm --filter @sse/mcp build
 node packages/mcp/dist/server.js
 ```
 
-### 2.8 启动通知调度器（如需审批提醒）
+### 2.11 启动通知调度器（现已自动启动）
+
+> **v2.1 更新**：审批提醒调度器现已集成到 API 服务中，`pnpm --filter @sse/api dev` 启动后自动运行，每 15 分钟扫描超时待审批记录并发送提醒。无需手动启动。
 
 ```bash
+# 如需独立调试调度器（可选）
 pnpm --filter @sse/notifications build
 node packages/notifications/dist/scheduler.js
 ```
@@ -453,7 +492,7 @@ curl http://localhost:11434/v1/models
 Vite 默认只监听本地。启动时加 `--host`：
 
 ```bash
-pnpm --filter @sse/web dev -- --host
+pnpm --filter @sse/web dev --host
 ```
 
 ### 数据库相关
