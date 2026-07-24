@@ -43,10 +43,10 @@ async function startScheduler() {
     const { PgApprovalRecordRepo, PgNotificationLogRepo, PgUserRepo, PgExpenseRepo, pool } = await import('@sse/db');
     const { NotificationService, ApprovalReminderScheduler } = await import('@sse/notifications');
 
-    const smsProvider = process.env.SMS_PROVIDER === 'dev' || !process.env.SMS_PROVIDER
+    const smsProvider = !process.env.SMS_PROVIDER || process.env.SMS_PROVIDER === 'dev' || process.env.SMS_PROVIDER === 'log'
       ? new (await import('@sse/notifications')).DevSmsProvider()
       : (await import('@sse/notifications')).createSmsProvider();
-    const emailProvider = process.env.EMAIL_PROVIDER === 'dev' || !process.env.EMAIL_PROVIDER
+    const emailProvider = !process.env.EMAIL_PROVIDER || process.env.EMAIL_PROVIDER === 'dev' || process.env.EMAIL_PROVIDER === 'log'
       ? new (await import('@sse/notifications')).DevEmailProvider()
       : (await import('@sse/notifications')).createEmailProvider();
 
