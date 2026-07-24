@@ -40,7 +40,6 @@ export class ApprovalEngine {
   async approveStep(
     reportId: string,
     step: number,
-    approverId: string,
     result: string,
     comment?: string,
   ): Promise<void> {
@@ -49,5 +48,29 @@ export class ApprovalEngine {
     if (record) {
       await this.recordRepo.updateResult(record.id, result, comment);
     }
+  }
+
+  async createNextStep(reportId: string, rule: ApprovalRule, currentStep: number): Promise<ApprovalRecord | null> {
+    const chain = rule.approvalChain;
+    const currentIndex = chain.findIndex((s) => s.step === currentStep);
+    if (currentIndex < 0 || currentIndex >= chain.length - 1) return null;
+
+    const nextStep = chain[currentIndex + 1];
+    if (!nextStep.role && !nextStep.assigneeId) return null;
+
+    const record: Omit<ApprovalRecord, 'id'> = {
+      reportId,
+      step: nextStep.step,
+      approverId: nextStep.role || nextStep.assigneeId || '',
+      stepStartedAt: new Date(),
+      result: ApprovalResult.PENDING,
+    };
+    return this.recordRepo.create(record);
+  }
+
+  isLastStep(rule: ApprovalRule, currentStep: number): boolean {
+    const chain = rule.approvalChain;
+    const currentIndex = chain.findIndex((s) => s.step === currentStep);
+    return currentIndex >= chain.length - 1;
   }
 }

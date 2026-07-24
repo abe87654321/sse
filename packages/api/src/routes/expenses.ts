@@ -250,11 +250,30 @@ router.post(
     if (report.userId !== req.user!.userId) throw new AppError(403, 'UNAUTHORIZED', '无权操作');
     if (report.status !== ReportStatus.DRAFT) throw new AppError(400, 'INVALID_PARAMS', '只能提交草稿状态的报销单');
 
-    await pool.query(
-      'UPDATE expense_reports SET status = $1, submitted_at = NOW(), updated_at = NOW() WHERE id = $2',
-      [ReportStatus.PENDING, id]
+    const { rows: items } = await pool.query(
+      'SELECT category_id FROM expense_items WHERE report_id = $1',
+      [id]
     );
-    res.json({ message: '提交成功' });
+    const categoryIds = items.map((r: any) => r.category_id);
+
+    const ApprovalEngine = (await import('@sse/core')).ApprovalEngine;
+    const engine = new ApprovalEngine(ruleRepo, recordRepo);
+    const matchedRule = await engine.matchRule(report.totalAmount, categoryIds);
+
+    let currentStep = 0;
+    if (matchedRule && matchedRule.approvalChain.length > 0) {
+      const firstStep = matchedRule.approvalChain[0];
+      if (firstStep.role || firstStep.assigneeId) {
+        const record = await engine.startApproval(id, matchedRule);
+        currentStep = record.step;
+      }
+    }
+
+    await pool.query(
+      'UPDATE expense_reports SET status = $1, current_step = $2, submitted_at = NOW(), updated_at = NOW() WHERE id = $3',
+      [ReportStatus.PENDING, currentStep, id]
+    );
+    res.json({ message: '提交成功', status: ReportStatus.PENDING });
   })
 );
 

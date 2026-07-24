@@ -32,32 +32,34 @@ export class ApprovalReminderScheduler {
 
     for (const record of overdueRecords) {
       try {
-        const approver = await this.userRepo.findById(record.approverId);
-        if (!approver) continue;
-
         const report = await this.expenseRepo.findById(record.reportId);
         if (!report) continue;
+
+        const approvers = await this.findApproversForRecord(record, report);
+        if (approvers.length === 0) continue;
 
         const isEscalation = record.reminderSentAt != null;
         const triggerType = isEscalation
           ? NotificationTriggerType.ESCALATION
           : NotificationTriggerType.APPROVAL_REMINDER;
 
-        const messages = isEscalation
-          ? escalationMessage(report.title, approver.name)
-          : reminderMessage(report.title, approver.name);
+        for (const approver of approvers) {
+          const messages = isEscalation
+            ? escalationMessage(report.title, approver.name)
+            : reminderMessage(report.title, approver.name);
 
-        await this.sendSmsAndLog(record.id, record.reportId, approver.phone, messages.sms, triggerType);
+          await this.sendSmsAndLog(record.id, record.reportId, approver.phone, messages.sms, triggerType);
 
-        if (approver.email) {
-          await this.sendEmailAndLog(
-            record.id,
-            record.reportId,
-            approver.email,
-            messages.email.subject,
-            messages.email.body,
-            triggerType,
-          );
+          if (approver.email) {
+            await this.sendEmailAndLog(
+              record.id,
+              record.reportId,
+              approver.email,
+              messages.email.subject,
+              messages.email.body,
+              triggerType,
+            );
+          }
         }
 
         if (isEscalation) {
@@ -69,6 +71,16 @@ export class ApprovalReminderScheduler {
         console.error(`[Scheduler] 处理审批记录 ${record.id} 失败:`, err);
       }
     }
+  }
+
+  private async findApproversForRecord(record: any, report: any): Promise<any[]> {
+    const user = await this.userRepo.findById(record.approverId);
+    if (user) return [user];
+
+    const reporter = await this.userRepo.findById(report.userId);
+    const department = reporter?.department;
+
+    return this.userRepo.findByRole(record.approverId, department);
   }
 
   private async sendSmsAndLog(

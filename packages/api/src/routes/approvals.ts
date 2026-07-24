@@ -113,27 +113,39 @@ router.post(
     await engine.approveStep(
       reportId,
       pendingRecord.step,
-      role,
       ApprovalResult.APPROVED,
       comment
     );
 
-    // 检查是否还有后续步骤，如果没有则标记为已通过
-    const rule = await ruleRepo.findActive();
-    const matchingRule = rule.find((r) => {
-      const steps = r.approvalChain.map((s) => s.role);
-      return steps.includes(pendingRecord.approverId);
-    });
+    const { rows: items } = await pool.query(
+      'SELECT category_id FROM expense_items WHERE report_id = $1',
+      [reportId]
+    );
+    const categoryIds = items.map((r: any) => r.category_id);
 
-    // 简单处理：如果有用匹配的规则且存在后面的步骤且已通过，推进状态
-    const updatedRecords = await recordRepo.findByReportId(reportId);
-    const allApproved = updatedRecords.every((r) => r.result === ApprovalResult.APPROVED);
-
-    if (allApproved) {
-      await expenseRepo.updateStatus(reportId, ReportStatus.APPROVED, report.currentStep);
+    const matchedRule = await engine.matchRule(report.totalAmount, categoryIds);
+    if (!matchedRule) {
+      await expenseRepo.updateStatus(reportId, ReportStatus.APPROVED);
+      res.json({ message: '审批成功（无匹配规则，直接通过）', result: ApprovalResult.APPROVED });
+      return;
     }
 
-    res.json({ message: '审批成功', result: ApprovalResult.APPROVED });
+    if (engine.isLastStep(matchedRule, pendingRecord.step)) {
+      await expenseRepo.updateStatus(reportId, ReportStatus.APPROVED);
+      res.json({ message: '审批成功，流程结束', result: ApprovalResult.APPROVED });
+      return;
+    }
+
+    const nextRecord = await engine.createNextStep(reportId, matchedRule, pendingRecord.step);
+    if (!nextRecord) {
+      await expenseRepo.updateStatus(reportId, ReportStatus.APPROVED);
+      res.json({ message: '审批成功，流程结束', result: ApprovalResult.APPROVED });
+      return;
+    }
+
+    await expenseRepo.updateStatus(reportId, ReportStatus.PENDING, nextRecord.step);
+
+    res.json({ message: '审批成功，已推进至下一审批步骤', result: ApprovalResult.APPROVED, nextStep: nextRecord.step });
   })
 );
 
@@ -175,7 +187,6 @@ router.post(
     await engine.approveStep(
       reportId,
       pendingRecord.step,
-      role,
       ApprovalResult.REJECTED,
       comment
     );

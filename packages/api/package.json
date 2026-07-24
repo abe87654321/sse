@@ -13,6 +13,7 @@
     "@sse/auth": "workspace:*",
     "@sse/core": "workspace:*",
     "@sse/db": "workspace:*",
+    "@sse/notifications": "workspace:*",
     "@sse/ocr": "workspace:*",
     "@sse/shared": "workspace:*",
     "cors": "^2.8",

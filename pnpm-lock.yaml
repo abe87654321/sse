@@ -53,6 +53,9 @@ importers:
       '@sse/db':
         specifier: workspace:*
         version: link:../db
+      '@sse/notifications':
+        specifier: workspace:*
+        version: link:../notifications
       '@sse/ocr':
         specifier: workspace:*
         version: link:../ocr
