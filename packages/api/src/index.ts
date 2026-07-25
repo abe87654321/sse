@@ -70,7 +70,7 @@ async function startScheduler() {
   }
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`[SSE API] 服务启动成功，端口: ${PORT}`);
   startScheduler();
 });
