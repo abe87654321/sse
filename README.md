@@ -5,27 +5,28 @@
 <div align="center">
 
 <!-- SSE Logo -->
-<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="sseGrad" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#ff6b6b" />
       <stop offset="100%" stop-color="#ffa94d" />
     </linearGradient>
   </defs>
-  <!-- Outer square with rounded corners -->
-  <rect x="8" y="8" width="104" height="104" rx="24" fill="url(#sseGrad)" />
-  <!-- Inner receipt/document -->
-  <rect x="34" y="22" width="52" height="60" rx="6" fill="#fff" opacity="0.95" />
-  <!-- Receipt lines -->
-  <rect x="42" y="32" width="36" height="4" rx="2" fill="#ff6b6b" opacity="0.6" />
-  <rect x="42" y="42" width="28" height="3" rx="1.5" fill="#ccc" />
-  <rect x="42" y="50" width="32" height="3" rx="1.5" fill="#ccc" />
-  <rect x="42" y="58" width="20" height="3" rx="1.5" fill="#ccc" />
-  <!-- Checkmark circle -->
-  <circle cx="68" cy="64" r="14" fill="#51cf66" />
-  <path d="M62 64 l4 4 l8 -8" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-  <!-- S letter overlay -->
-  <text x="44" y="108" font-family="Georgia, serif" font-size="20" font-weight="700" fill="#fff" opacity="0.8">SSE</text>
+  <!-- Background -->
+  <rect x="4" y="4" width="112" height="112" rx="28" fill="url(#sseGrad)" />
+  <!-- Phosphor invoice icon (regular) - white -->
+  <g transform="translate(34, 26) scale(3.2)" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Document body -->
+    <path d="M4 2h11a1 1 0 011 1v18a1 1 0 01-1 1H1a1 1 0 01-1-1V6l4-4z" fill="none" />
+    <!-- Fold corner -->
+    <path d="M4 2v4H0" fill="none" />
+    <!-- Lines -->
+    <line x1="4" y1="9" x2="12" y2="9" />
+    <line x1="4" y1="13" x2="10" y2="13" />
+    <line x1="4" y1="17" x2="8" y2="17" />
+  </g>
+  <!-- SSE text -->
+  <text x="60" y="108" text-anchor="middle" font-family="Georgia, serif" font-size="16" font-weight="700" fill="#fff" opacity="0.85" letter-spacing="2">SSE</text>
 </svg>
 
 > AI-powered semantic expense management — **Speak. Scan. Submit.**
