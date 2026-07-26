@@ -152,7 +152,9 @@ async function sendNow() {
       delivery_channels: form.delivery_channels,
       send_now: true,
     }
-    await api.post('/admin/messages', payload)
+    if (form.target_roles.length === 0 && form.specificUsers.length === 0) { alert('请选择目标角色或指定用户'); return }
+    const res = await api.post('/admin/messages', payload)
+    alert(`发送成功，已推送给 ${res.data.sent_to} 人`)
     closeComposer(); fetchMessages()
   } catch (err: any) {
     const msg = err.response?.data?.error?.message || err.response?.data?.message || err.message || '发送失败'
@@ -161,7 +163,11 @@ async function sendNow() {
 }
 
 async function sendDraft(id: string) {
-  try { await api.post(`/admin/messages/${id}/send`); fetchMessages() } catch (err: any) { alert(err.response?.data?.message || '发送失败') }
+  try {
+    const res = await api.post(`/admin/messages/${id}/send`)
+    alert(`发送成功，已推送给 ${res.data.sent_to} 人`)
+    fetchMessages()
+  } catch (err: any) { alert(err.response?.data?.error?.message || err.response?.data?.message || err.message || '发送失败') }
 }
 
 async function deleteDraft(id: string) {

@@ -32,18 +32,25 @@ router.post('/', asyncWrap(async (req, res) => {
   const { title, body, body_ai, target_roles, target_user_ids, delivery_channels, send_now } = req.body;
   if (!title || !body) throw new AppError(400, 'INVALID_PARAMS', '标题和正文不能为空');
 
+  const roles = target_roles || [];
+  const userIds = target_user_ids || [];
+
+  if (send_now && roles.length === 0 && userIds.length === 0) {
+    throw new AppError(400, 'INVALID_PARAMS', '请选择目标角色或指定用户');
+  }
+
   const msg = await repo.createSystemMessage({
     title, body,
     body_ai: body_ai || undefined,
-    target_roles: target_roles || [],
-    target_user_ids: target_user_ids || [],
+    target_roles: roles,
+    target_user_ids: userIds,
     sender_id: req.user!.userId,
     delivery_channels: delivery_channels || [],
     status: send_now ? 'sent' : 'draft',
   });
 
   if (send_now) {
-    const targetUsers = await resolveTargetUsers(target_roles || [], target_user_ids || []);
+    const targetUsers = await resolveTargetUsers(roles, userIds);
     const { NotificationEngine } = await import('@sse/notifications');
     const { NotificationService, DevSmsProvider, DevEmailProvider, createSmsProvider, createEmailProvider } = await import('@sse/notifications');
     const smsProvider = process.env.SMS_PROVIDER === 'dev' || process.env.SMS_PROVIDER === 'log' || !process.env.SMS_PROVIDER ? new DevSmsProvider() : createSmsProvider();
@@ -51,6 +58,8 @@ router.post('/', asyncWrap(async (req, res) => {
     const engine = new NotificationEngine(repo, userRepo, new NotificationService(smsProvider, emailProvider));
     const finalBody = body_ai || body;
     await engine.sendBatch(targetUsers, 'broadcast', title, finalBody, (delivery_channels || []).filter((c: string) => c === 'sms' || c === 'email') as ('sms' | 'email')[]);
+    res.status(201).json({ ...msg, sent_to: targetUsers.length });
+    return;
   }
 
   res.status(201).json(msg);
