@@ -132,61 +132,89 @@ ead96d9 fix: drop NOT NULL on legacy notification_logs columns for new INSERT co
 ca7ab16 fix: replace HTML emoji entities with real Unicode chars in Vue templates
 0733834 fix: Dashboard &#165; display and Statistics NaN% division
 dcdfa4e fix: sendBounceAlert FK violation and skip bounce when user has no phone/email
+2ceabae docs: add ontology and MDM integration design specs
+bf3f959 feat: add ontology package, ontology routes, MDM identity bridge, SCIM/webhook
+0f35443 docs: update README with latest features, ontology, MDM; switch to Apache 2.0
+734f60a docs: switch logo to Phosphor invoice icon
+2726ddf feat: apply invoice logo to sidebar, login, favicon, and browser tab
+f77c124 test: add ontology and MDM integration test cases
+65933b5 fix: jest config exclude dist and node_modules, restrict testMatch to test/ dir
+1341eba fix: scope jest to test/ directory only, ignore packages and dist
+b4795b3 fix: simplify jest config and add tsconfig for ts-jest
+768f9fb chore: add test:integration script for test/ directory
+0017ec7 fix: add node and jest types to test tsconfig
+01d6dd4 fix: add @types/node to root workspace devDependencies
 ```
-
-### 部署文档更新
-- 新增 §4 通知通道配置：163邮箱 SMTP 开通步骤、阿里云短信开通步骤
-- 环境变量清单新增 9 个变量
-- `.env.example` 新增邮件 SMTP 和短信配置注释
-- FAQ 新增 Docker 容器名修正、`system_messages` 表迁移、EADDRINUSE 端口冲突
 
 ---
 
 ## 阶段四：UserPicker 通用组件 + Bug 修复
 
-### UserPicker 组件
+## 阶段五：本体层 + MDM 设计与实现
 
-用 brainstorming 设计，直接实施。3 个文件变更：
+### 使用的 ECC 技能
+- **brainstorming** — 本体层语义编排引擎 + MDM 整合设计
+- **writing-plans** — 两个实施计划（7+2 任务）
+- **Task tool (general-purpose)** — 子代理实施 ontology 包
 
-| 文件 | 变更 |
-|------|------|
-| `packages/web/src/components/UserPicker.vue` | 新建通用用户多选组件（标签在输入框内、下拉复选框、300ms 防抖、键盘导航） |
-| `packages/api/src/routes/user.ts` | `/search` 支持 `q` 和 `role` 可选参数 |
-| `packages/web/src/pages/AdminMessages.vue` | 替换内联搜索为 UserPicker；角色-用户双向同步 |
+### 新增文件（15+ 个）
+```
+packages/ontology/               — 本体层包（8 个源文件）
+packages/api/src/routes/ontology.ts
+packages/api/src/routes/scim.ts
+packages/api/src/routes/webhook.ts
+packages/api/src/services/identity-bridge.ts
+packages/db/src/migrations/003_identity_mappings.sql
+docs/2026-07-26-ontology-design.md
+docs/2026-07-26-mdm-design.md
+docs/plans/2026-07-26-ontology.md
+docs/plans/2026-07-26-mdm.md
+```
 
-### 关键 Bug 修复
+---
 
-| Bug | 根因 | 修复 |
-|-----|------|------|
-| 通知发送后用户收不到 | `sendBatch` 中 `if (!prefs) continue` 因老用户 `notify_prefs` 为 NULL 全部跳过 | 改为总有默认 prefs |
-| 勾选 SMS/邮件发送报 500 | `sendBounceAlert` 中 `notification_id: admin.id` 用用户 UUID 当通知 ID，FK 违规 | 改用 `bounceNotif.id` |
-| 用户无 phone/email 时误报退回 | 未区分"未尝试发送"和"发送失败" | 新增 `attempted` 标志，未尝试则标 `skipped` |
-| 迁移后 `notification_logs` INSERT 失败 | 旧列 `report_id` 等有 NOT NULL 约束 | ALTER 表松绑约束 |
-| 表情符号显示 `&#128197;` | HTML 实体在 `{{ }}` 文本插值中不解码 | 换成真实 Unicode 字符 |
-| 通过率显示 `NaN%` | 分母 `approvedCount + rejectedCount` 为 0 时除零 | 提前算 `done`，`done > 0` 才除 |
-| 保存草稿失败 | `system_messages` 表不存在（迁移未执行） | 手动执行 `002_notifications.sql` |
+## 阶段六：README 重写 + Logo + 品牌统一
 
-### 设计文档新增
-- `docs/2026-07-26-userpicker-design.md` — UserPicker 设计（含双向同步）
+- 协议 MIT → **Apache 2.0**，新增 LICENSE 文件
+- Logo：Phosphor Icons `invoice` 图标 + coral→orange 渐变
+- 应用位置：README、侧边栏、登录页、favicon、浏览器标签页
+- README 完整重写：12 个包、12 个 MCP 工具、本体语义引擎、MDM/SCIM
+
+---
+
+## 阶段七：集成测试用例 + 踩坑
+
+### test/ 目录创建
+- `test/ontology.test.ts` — 7 个用例
+- `test/mdm.test.ts` — 9 个用例
+- `pnpm test:integration` 运行（需先启动 API）
+
+### jest 配置踩坑
+| # | 问题 | 解决 |
+|---|------|------|
+| 1 | Jest 扫描 packages/ 下的测试文件 | 加 `test:integration` 脚本 `cd test && jest` |
+| 2 | `import type` 语法解析失败 | test/ 目录加 `tsconfig.json`（types: node, jest） |
+| 3 | `.bin/jest` 是 shell 脚本不能用 node 运行 | 用 `pnpm exec jest` 或 npm scripts |
+| 4 | ts-jest 找不到 `process`/`fetch`/`require` | root 加 `@types/node` devDependency |
 
 ---
 
 ## 已知问题
 
-1. ~~数据库迁移未执行~~ — 已手动执行 `002_notifications.sql`，但仅针对当前 DB
-2. **事务性消息未接入** — 驳回/付款等事件的 NotificationEngine.send() 尚未调用
-3. **阿里云短信 SDK** — 需安装并取消代码注释
-4. **邮件/SMS 真实发送** — 当前用 Dev 模式（仅 console.log），需配置 SMTP/阿里云
-5. **EADDRINUSE 端口冲突** — Express 绑定 IPv4 `0.0.0.0` 已缓解，FAQ 已记录 `fuser -k` 方案
+1. **事务性消息未接入** — 驳回/付款等事件未调用 NotificationEngine.send()
+2. **邮件/SMS Dev 模式** — 需配置 SMTP/阿里云
+3. **集成测试依赖 API 服务** — 需先启动 `pnpm --filter @sse/api dev`
+4. **`git stash/pop` 冲突** — 本地 package.json 被 pnpm add 修改时 pull 会冲突
 
 ---
 
 ## 下次会话建议
 
-1. **优先**：事务性消息接入 — 驳回/付款等 API 端点调用 `NotificationEngine.send()`
-2. **其次**：配置真实邮件/SMS 通道（163 SMTP / 阿里云短信）
-3. **前端体验**：Dashboard 统计卡片在无数据时显示 0 而非 "-"、空状态优化
-4. **测试**：端到端集成测试（创建报销 → 审批流转 → 通知送达）
+1. 运行 `pnpm test:integration`（需先启动 API）验证本体和 MDM
+2. 事务性消息接入 — 驳回/付款等 API 端点调用 NotificationEngine.send()
+3. 配置真实邮件/SMS 通道
+4. 本体可视化编辑页面（Cytoscape.js）
+5. MCP 工具注册（ontology 的 5 个新工具）
 
 ---
 
