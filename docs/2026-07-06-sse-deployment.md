@@ -327,8 +327,19 @@ CMD ["node", "packages/api/dist/index.js"]
 | MINIO_ACCESS_KEY | 是 | — | MinIO Access Key |
 | MINIO_SECRET_KEY | 是 | — | MinIO Secret Key |
 | MINIO_BUCKET | 否 | invoices | 发票存储桶 |
-| SMS_PROVIDER | 否 | log | SMS 服务商 |
-| EMAIL_PROVIDER | 否 | log | 邮件服务商 |
+| SMS_PROVIDER | 否 | log | SMS 服务商：`log` / `aliyun` |
+| EMAIL_PROVIDER | 否 | log | 邮件服务商：`log` / `smtp` |
+| EMAIL_HOST | 否* | smtp.163.com | SMTP 服务器地址 |
+| EMAIL_PORT | 否* | 465 | SMTP 端口 |
+| EMAIL_USER | 否* | — | SMTP 登录账号 |
+| EMAIL_PASS | 否* | — | SMTP 授权码（非邮箱密码） |
+| EMAIL_FROM | 否 | — | 发件人显示地址 |
+| ALIYUN_ACCESS_KEY_ID | 否* | — | 阿里云 AccessKey |
+| ALIYUN_ACCESS_KEY_SECRET | 否* | — | 阿里云 Secret |
+| ALIYUN_SMS_SIGN_NAME | 否* | — | 阿里云短信签名 |
+| ALIYUN_SMS_TEMPLATE_CODE | 否* | — | 阿里云短信模板编号 |
+
+> \* 仅在 `EMAIL_PROVIDER=smtp` 或 `SMS_PROVIDER=aliyun` 时必填。
 
 ### 3.4 端口映射
 
@@ -341,7 +352,87 @@ docker-compose 对外暴露端口已避开常见冲突：
 | MinIO Console | 9001 | 9003 |
 
 环境变量 `DB_PORT` 和 `MINIO_PORT` 需与宿主机端口一致。
-## 4. 默认账户
+
+## 4. 通知通道配置
+
+SSE 通知系统支持邮件和短信两种补充送达通道（页面内通知始终启用）。
+
+### 4.1 邮件通道 — 163 邮箱 SMTP
+
+#### 开通步骤
+
+1. 登录 [163邮箱](https://mail.163.com)（没有则注册一个）
+2. 进入 **设置 → POP3/SMTP/IMAP**
+3. 勾选开启 **SMTP 服务** 和/或 **IMAP服务**
+4. 在弹出窗口中完成验证 → 获取 **授权码**（一串字母，不是邮箱密码！）
+5. 保存授权码
+
+#### 配置 .env
+
+```env
+EMAIL_PROVIDER=smtp
+EMAIL_HOST=smtp.163.com
+EMAIL_PORT=465
+EMAIL_USER=your-email@163.com
+EMAIL_PASS=your-auth-code        # 上面获取的授权码
+EMAIL_FROM=your-email@163.com    # （可选）发件人显示地址
+```
+
+> **注意**：`EMAIL_PASS` 是**授权码**，不是邮箱登录密码。QQ邮箱等其他 SMTP 同理，只需改 `EMAIL_HOST` 和 `EMAIL_PORT`：
+> - QQ邮箱: `smtp.qq.com:465`，需在 QQ 邮箱设置里生成授权码
+> - Gmail: `smtp.gmail.com:587`，需开启两步验证 + 应用专用密码
+
+#### 测试
+
+启动后调度器发送第一封邮件时，日志会显示发送结果：
+
+```
+[Email] To: user@example.com | Subject: 报销审批提醒 - xxx
+```
+
+如失败，检查：
+- `.env` 中 `EMAIL_USER` 和 `EMAIL_PASS` 是否正确
+- 163 邮箱是否已开启 SMTP 服务
+- 网络是否能访问 `smtp.163.com:465`
+
+### 4.2 短信通道 — 阿里云短信
+
+#### 开通步骤
+
+1. 登录 [阿里云控制台](https://console.aliyun.com)
+2. 进入 **短信服务** → 如果没有开通，点击"免费开通"
+3. 进入 **国内消息 → 签名管理** → 添加签名（需审核，1-2 个工作日内）
+4. 进入 **国内消息 → 模板管理** → 添加模板，内容示例：
+
+   ```
+   您的报销单"${title}"有新动态：${content}。请登录系统查看。
+   ```
+
+5. 进入 **AccessKey管理** → 获取 `AccessKey ID` 和 `AccessKey Secret`
+
+#### 配置 .env
+
+```env
+SMS_PROVIDER=aliyun
+ALIYUN_ACCESS_KEY_ID=your-access-key-id
+ALIYUN_ACCESS_KEY_SECRET=your-access-key-secret
+ALIYUN_SMS_SIGN_NAME=审批通知            # 已审核的签名名称
+ALIYUN_SMS_TEMPLATE_CODE=SMS_123456789   # 已审核的模板编号
+```
+
+#### 安装 SDK
+
+```bash
+pnpm --filter @sse/notifications add @alicloud/dysmsapi20170525
+```
+
+#### 测试
+
+启动后发送短信时，阿里云控制台可查看发送记录。开发阶段建议保持 `SMS_PROVIDER=log`，短信内容输出到控制台。
+
+> **未开通短信时**：将 `SMS_PROVIDER` 设为 `log`（默认），短信不实际发送，内容仅打印到控制台。
+
+## 5. 默认账户
 
 迁移脚本会创建默认管理员：
 
@@ -352,7 +443,7 @@ docker-compose 对外暴露端口已避开常见冲突：
 
 首次登录后请立即修改密码。
 
-## 5. 常见问题
+## 6. 常见问题
 
 ### Docker 相关
 

@@ -303,19 +303,68 @@ notify_prefs: {
 
 ---
 
-## 8. 数据库迁移
+## 8. 通知通道配置
 
-### 8.1 新增表
+### 8.1 邮件通道
+
+支持两种模式：
+
+| 模式 | EMAIL_PROVIDER | 说明 |
+|------|---------------|------|
+| 开发（控制台输出） | `dev` 或 `log` | 不实际发送，仅打印日志 |
+| SMTP | `smtp` | 通过外部 SMTP 服务器发送 |
+
+**SMTP 模式环境变量**（以 163 邮箱为例）：
+
+```env
+EMAIL_PROVIDER=smtp
+EMAIL_HOST=smtp.163.com
+EMAIL_PORT=465
+EMAIL_USER=your-email@163.com
+EMAIL_PASS=your-auth-code     # 163 授权码，不是邮箱密码
+EMAIL_FROM=your-email@163.com  # 发件人显示地址（可选，默认用 EMAIL_USER）
+```
+
+实现为 `packages/notifications/src/channels/email.ts::SmtpEmailProvider`，使用 nodemailer 直接调用 SMTP。失败时返回 `{ success: false }` 含 `error_message`，触发退回告警。
+
+### 8.2 短信通道
+
+支持三种模式：
+
+| 模式 | SMS_PROVIDER | 说明 |
+|------|-------------|------|
+| 开发（控制台输出） | `dev` 或 `log` | 不实际发送，仅打印日志 |
+| 阿里云短信 | `aliyun` | 通过阿里云短信 API 发送 |
+
+**阿里云短信模式环境变量**：
+
+```env
+SMS_PROVIDER=aliyun
+ALIYUN_ACCESS_KEY_ID=your-access-key-id
+ALIYUN_ACCESS_KEY_SECRET=your-access-key-secret
+ALIYUN_SMS_SIGN_NAME=your-sign-name      # 已审核的短信签名
+ALIYUN_SMS_TEMPLATE_CODE=SMS_123456789   # 已审核的短信模板编号
+```
+
+实现为 `packages/notifications/src/channels/sms.ts::AliyunSmsProvider`。失败时同样触发退回告警。
+
+> **开通教程详见部署文档 `docs/2026-07-06-sse-deployment.md`。**
+
+---
+
+## 9. 数据库迁移
+
+### 9.1 新增表
 
 - `notification_deliveries`
 - `system_messages`
 
-### 8.2 修改表
+### 9.2 修改表
 
 - `notification_logs`: 增加 `title`, `body`, `read_at` 字段；`type` 增加 `broadcast`, `welcome`, `bounce_alert`
 - `users`: 增加 `notify_prefs JSONB DEFAULT '{}'`
 
-### 8.3 默认值
+### 9.3 默认值
 
 新用户创建时 `notify_prefs` 默认：
 ```json
@@ -329,7 +378,7 @@ notify_prefs: {
 
 ---
 
-## 9. 文件变更清单
+## 10. 文件变更清单
 
 | 文件 | 变更类型 | 说明 |
 |------|---------|------|
@@ -341,6 +390,8 @@ notify_prefs: {
 | `packages/db/src/repositories/pg-notification-repo.ts` | 修改 | 新增查询方法 |
 | `packages/core/src/ports/inotification-repo.ts` | 修改 | 新增接口方法 |
 | `packages/notifications/src/scheduler.ts` | 修改 | 改用新模型 |
+| `packages/notifications/src/channels/email.ts` | 修改 | 新增 SmtpEmailProvider（163邮箱） |
+| `packages/notifications/src/channels/sms.ts` | 修改 | 新增 AliyunSmsProvider（阿里云短信） |
 | `packages/api/src/routes/notifications.ts` | 新建 | 用户通知 API |
 | `packages/api/src/routes/admin-messages.ts` | 新建 | 管理员消息管理 API |
 | `packages/api/src/routes/ai.ts` | 修改 | 新增 polish 接口 |
