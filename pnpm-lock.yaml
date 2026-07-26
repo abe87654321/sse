@@ -59,6 +59,9 @@ importers:
       '@sse/ocr':
         specifier: workspace:*
         version: link:../ocr
+      '@sse/ontology':
+        specifier: workspace:*
+        version: link:../ontology
       '@sse/shared':
         specifier: workspace:*
         version: link:../shared

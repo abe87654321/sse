@@ -13,6 +13,9 @@ import { aiRoutes } from './routes/ai';
 import { notificationRoutes } from './routes/notifications';
 import { userRoutes } from './routes/user';
 import { adminMessageRoutes } from './routes/admin-messages';
+import { ontologyRoutes } from './routes/ontology';
+import { scimRoutes } from './routes/scim';
+import { webhookRoutes } from './routes/webhook';
 import { errorHandler } from './middleware/error';
 
 const app = express();
@@ -30,6 +33,9 @@ app.use('/ai', aiRoutes);
 app.use('/notifications', notificationRoutes);
 app.use('/user', userRoutes);
 app.use('/admin/messages', adminMessageRoutes);
+app.use('/ontology', ontologyRoutes);
+app.use('/scim', scimRoutes);
+app.use('/webhook', webhookRoutes);
 
 app.get('/categories', async (_req, res, next) => {
   try {
