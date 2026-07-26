@@ -1,4 +1,10 @@
--- 修改 notification_logs 表，适应新模型
+-- 修改 notification_logs 表，适应新模型（旧列松绑 NOT NULL）
+ALTER TABLE notification_logs
+  ALTER COLUMN report_id DROP NOT NULL,
+  ALTER COLUMN recipient_id DROP NOT NULL,
+  ALTER COLUMN channel DROP NOT NULL,
+  ALTER COLUMN trigger_type DROP NOT NULL;
+
 ALTER TABLE notification_logs
   ADD COLUMN IF NOT EXISTS user_id UUID,
   ADD COLUMN IF NOT EXISTS type text,
