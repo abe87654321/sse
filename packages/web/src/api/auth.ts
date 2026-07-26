@@ -7,7 +7,7 @@ export const authApi = {
   profile() {
     return api.get('/auth/profile')
   },
-  updateProfile(data: { name?: string; avatar?: string }) {
+  updateProfile(data: { name?: string; email?: string }) {
     return api.put('/auth/profile', data)
   },
   changePassword(data: { oldPassword: string; newPassword: string }) {

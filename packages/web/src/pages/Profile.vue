@@ -20,6 +20,14 @@
             <span class="info-row-value">{{ auth.user?.phone }}</span>
           </div>
           <div class="info-row">
+            <span class="info-row-label">邮箱</span>
+            <span class="info-row-value">{{ auth.user?.email || '未设置' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-row-label">部门</span>
+            <span class="info-row-value">{{ auth.user?.department || '未分配' }}</span>
+          </div>
+          <div class="info-row">
             <span class="info-row-label">角色</span>
             <span class="info-row-value">{{ roleLabel }}</span>
           </div>
@@ -86,12 +94,18 @@ import { authApi } from '@/api/auth'
 
 const auth = useAuthStore()
 const userInitial = computed(() => auth.user?.name?.charAt(0)?.toUpperCase() || 'U')
-const roleLabel = computed(() => auth.user?.role === 'admin' ? '管理员' : '普通用户')
+const roleLabels: Record<string, string> = {
+  admin: '系统管理员',
+  finance: '财务',
+  dept_approver: '部门审批人',
+  employee: '普通员工',
+}
+const roleLabel = computed(() => roleLabels[auth.user?.role || ''] || auth.user?.role || '-')
 
 const profileForm = reactive({
   name: auth.user?.name || '',
   phone: auth.user?.phone || '',
-  email: '',
+  email: auth.user?.email || '',
 })
 
 const profileLoading = ref(false)
@@ -119,9 +133,9 @@ async function handleUpdateProfile() {
 
   profileLoading.value = true
   try {
-    await authApi.updateProfile({ name: profileForm.name.trim() })
+    await authApi.updateProfile({ name: profileForm.name.trim(), email: profileForm.email.trim() })
     if (auth.user) {
-      const updated = { ...auth.user, name: profileForm.name.trim() }
+      const updated = { ...auth.user, name: profileForm.name.trim(), email: profileForm.email.trim() }
       auth.user = updated
       localStorage.setItem('user', JSON.stringify(updated))
     }
