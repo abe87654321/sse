@@ -72,19 +72,19 @@ const routes: RouteRecordRaw[] = [
         path: 'admin',
         name: 'Admin',
         component: () => import('@/pages/Admin.vue'),
-        meta: { title: '系统管理', icon: 'Setting' }
+        meta: { title: '系统管理', icon: 'Setting', requiresAdmin: true }
       },
       {
         path: 'admin/users',
         name: 'AdminUsers',
         component: () => import('@/pages/AdminUsers.vue'),
-        meta: { title: '用户管理' }
+        meta: { title: '用户管理', requiresAdmin: true }
       },
       {
         path: 'admin/departments',
         name: 'AdminDepartments',
         component: () => import('@/pages/AdminDepartments.vue'),
-        meta: { title: '部门管理' }
+        meta: { title: '部门管理', requiresAdmin: true }
       }
     ]
   }
@@ -102,6 +102,7 @@ router.beforeEach((to, _from, next) => {
     return next()
   }
   if (!auth.isLoggedIn) return next('/login')
+  if (to.meta.requiresAdmin && auth.user?.role !== 'admin') return next('/dashboard')
   next()
 })
 
