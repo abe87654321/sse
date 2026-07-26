@@ -72,15 +72,27 @@ export class NotificationEngine {
 
     let success = false;
     let errorMessage: string | undefined;
+    let attempted = false;
 
     try {
       if (channel === 'sms' && user.phone) {
+        attempted = true;
         success = await this.notificationService.sendSms(user.phone, `${title}: ${body}`);
       } else if (channel === 'email' && user.email) {
+        attempted = true;
         success = await this.notificationService.sendEmail(user.email, title, body);
       }
     } catch (err: any) {
       errorMessage = err.message;
+    }
+
+    if (!attempted) {
+      await this.notificationRepo.createDelivery({
+        notification_id: notificationId,
+        channel,
+        status: 'skipped',
+      });
+      return;
     }
 
     await this.notificationRepo.createDelivery({
@@ -105,14 +117,14 @@ export class NotificationEngine {
   private async sendBounceAlert(user: any, channel: string, title: string, errorMessage?: string) {
     const admins = await this.userRepo.findByRole('admin');
     for (const admin of admins) {
-      await this.notificationRepo.create({
+      const bounceNotif = await this.notificationRepo.create({
         user_id: admin.id,
         type: 'bounce_alert',
         title: '消息送达失败',
         body: `向 ${user.name}(${channel === 'sms' ? user.phone : user.email}) 发送的"${title}"失败: ${errorMessage || '未知错误'}`,
       });
       await this.notificationRepo.createDelivery({
-        notification_id: admin.id,
+        notification_id: bounceNotif.id,
         channel: 'in_app',
         status: 'sent',
       });
