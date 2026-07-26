@@ -83,14 +83,39 @@
           </button>
         </div>
       </div>
+
+      <div class="card">
+        <h3 class="form-section-title font-heading">通知设置</h3>
+        <div class="notify-section">
+          <div class="notify-group">
+            <h4>SMS 通知</h4>
+            <label><input type="checkbox" v-model="notifyPrefs.sms.reminder" /> 审批提醒</label>
+            <label><input type="checkbox" v-model="notifyPrefs.sms.rejected" /> 驳回通知</label>
+            <label><input type="checkbox" v-model="notifyPrefs.sms.paid" /> 付款通知</label>
+          </div>
+          <div class="notify-group">
+            <h4>邮件通知</h4>
+            <label><input type="checkbox" v-model="notifyPrefs.email.rejected" /> 驳回通知</label>
+            <label><input type="checkbox" v-model="notifyPrefs.email.paid" /> 付款通知</label>
+          </div>
+          <div class="notify-group">
+            <h4>广播消息</h4>
+            <label><input type="checkbox" v-model="notifyPrefs.broadcast" /> 接收管理员广播消息</label>
+          </div>
+        </div>
+        <div style="margin-top:16px">
+          <button class="btn-primary btn-sm" @click="saveNotifyPrefs">保存通知设置</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { authApi } from '@/api/auth'
+import api from '../api/index'
 
 const auth = useAuthStore()
 const userInitial = computed(() => auth.user?.name?.charAt(0)?.toUpperCase() || 'U')
@@ -121,6 +146,28 @@ const passwordForm = reactive({
 const passwordLoading = ref(false)
 const passwordError = ref('')
 const passwordSuccess = ref('')
+
+const notifyPrefs = reactive({
+  sms: { reminder: true, rejected: true, paid: false },
+  email: { rejected: true, paid: false },
+  broadcast: true,
+})
+
+async function fetchNotifyPrefs() {
+  try {
+    const res = await api.get('/user/notify-prefs')
+    if (res.data?.sms) Object.assign(notifyPrefs, res.data)
+  } catch {}
+}
+
+async function saveNotifyPrefs() {
+  try {
+    await api.put('/user/notify-prefs', { notify_prefs: { ...notifyPrefs } })
+    profileSuccess.value = '通知设置已保存'
+  } catch {}
+}
+
+onMounted(fetchNotifyPrefs)
 
 async function handleUpdateProfile() {
   profileError.value = ''
@@ -236,6 +283,11 @@ async function handleChangePassword() {
 
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .field.full { grid-column: 1 / -1; }
+
+.notify-section { display: flex; flex-direction: column; gap: 16px; }
+.notify-group h4 { font-size: 0.88rem; color: var(--text-primary); margin-bottom: 8px; }
+.notify-group label { display: flex; align-items: center; gap: 6px; font-size: 0.88rem; color: var(--text-secondary); cursor: pointer; margin-bottom: 4px; }
+.notify-group label input[type="checkbox"] { width: auto; }
 
 @media (max-width: 600px) {
   .profile-info-card { flex-direction: column; align-items: center; text-align: center; }

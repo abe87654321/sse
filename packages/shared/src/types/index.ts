@@ -1,4 +1,4 @@
-export type { User } from './user';
+export type { User, NotifyPrefs } from './user';
 export type { ExpenseReport } from './expense-report';
 export type { ExpenseItem } from './expense-item';
 export type { Invoice, OcrResult } from './invoice';

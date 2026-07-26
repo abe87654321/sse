@@ -5,5 +5,5 @@ export type NotificationDelivery = {
   status: 'sent' | 'failed' | 'skipped';
   error_message?: string;
   sent_at?: Date;
-  created_at: Date;
+  created_at?: Date;
 };

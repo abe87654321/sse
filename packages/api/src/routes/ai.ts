@@ -128,4 +128,31 @@ router.post(
   })
 );
 
+router.post(
+  '/polish',
+  asyncWrap(async (req, res) => {
+    const { body, instruction, previous } = req.body;
+    if (!body) throw new AppError(400, 'INVALID_PARAMS', '请提供原文 body');
+
+    const config = loadAiConfig();
+    const provider = new LocalProvider({ endpoint: config.fillEngine.endpoint, modelName: config.fillEngine.model });
+
+    const prompt = `你是企业通知编辑助手。请润色以下通知，使其更专业、简洁、友好。
+保持原意不变，不要添加原文没有的信息。
+${instruction ? `用户要求: ${instruction}` : ''}
+${previous ? `上次润色版: ${previous}` : ''}
+
+原文: ${body}
+
+请只返回润色后的正文，不要添加任何额外说明。`;
+
+    try {
+      const result = await provider.analyzeText(body, prompt);
+      res.json({ polished_body: result });
+    } catch {
+      throw new AppError(500, 'AI_FAILED', '模型调用失败，请检查 AI 配置');
+    }
+  })
+);
+
 export { router as aiRoutes };

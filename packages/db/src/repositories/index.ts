@@ -4,3 +4,5 @@ export { PgInvoiceRepo } from './pg-invoice-repo';
 export { PgApprovalRuleRepo } from './pg-approval-rule-repo';
 export { PgApprovalRecordRepo } from './pg-approval-record-repo';
 export { PgNotificationLogRepo } from './pg-notification-log-repo';
+export * from './pg-notification-repo';
+

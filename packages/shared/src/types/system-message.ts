@@ -10,6 +10,6 @@ export type SystemMessage = {
   delivery_channels: string[];
   status: 'draft' | 'sent';
   sent_at?: Date;
-  created_at: Date;
-  updated_at: Date;
+  created_at?: Date;
+  updated_at?: Date;
 };

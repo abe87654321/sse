@@ -55,7 +55,7 @@
               <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
               <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
             </svg>
-            <span class="topbar-dot"></span>
+            <span v-if="unreadCount > 0" class="topbar-count">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
           </router-link>
           <div class="topbar-user" @click="showUserMenu = !showUserMenu">
             <div class="avatar avatar-coral" style="width:34px;height:34px;font-size:0.8rem;">{{ userInitial }}</div>
@@ -92,6 +92,7 @@ const router = useRouter()
 const collapsed = ref(false)
 const showUserMenu = ref(false)
 const pendingApprovalCount = ref(0)
+const unreadCount = ref(0)
 
 function handleLogout() {
   showUserMenu.value = false
@@ -127,6 +128,16 @@ onMounted(async () => {
       pendingApprovalCount.value = (res.data || []).length
     } catch {}
   }
+  try {
+    const res = await api.get('/notifications/unread-count')
+    unreadCount.value = res.data.count || 0
+  } catch {}
+  setInterval(async () => {
+    try {
+      const res = await api.get('/notifications/unread-count')
+      unreadCount.value = res.data.count || 0
+    } catch {}
+  }, 60000)
 })
 </script>
 
@@ -305,6 +316,23 @@ onMounted(async () => {
   height: 8px;
   border-radius: 50%;
   background: var(--accent-coral);
+  border: 2px solid var(--bg-card);
+}
+.topbar-count {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  background: var(--accent-coral);
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
   border: 2px solid var(--bg-card);
 }
 .topbar-user {

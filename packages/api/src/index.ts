@@ -10,6 +10,9 @@ import { approvalRoutes } from './routes/approvals';
 import { statisticsRoutes } from './routes/statistics';
 import { adminRoutes } from './routes/admin';
 import { aiRoutes } from './routes/ai';
+import { notificationRoutes } from './routes/notifications';
+import { userRoutes } from './routes/user';
+import { adminMessageRoutes } from './routes/admin-messages';
 import { errorHandler } from './middleware/error';
 
 const app = express();
@@ -24,6 +27,9 @@ app.use('/approvals', approvalRoutes);
 app.use('/statistics', statisticsRoutes);
 app.use('/admin', adminRoutes);
 app.use('/ai', aiRoutes);
+app.use('/notifications', notificationRoutes);
+app.use('/user', userRoutes);
+app.use('/admin/messages', adminMessageRoutes);
 
 app.get('/categories', async (_req, res, next) => {
   try {
