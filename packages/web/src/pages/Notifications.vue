@@ -37,14 +37,14 @@ const loading = ref(true)
 const unreadCount = ref(0)
 
 const typeConfig: Record<string, any> = {
-  approved: { emoji: '&#9989;', bg: 'var(--accent-mint-bg)' },
-  rejected: { emoji: '&#10060;', bg: 'var(--accent-coral-bg)' },
-  paid: { emoji: '&#128179;', bg: 'var(--accent-violet-bg)' },
-  broadcast: { emoji: '&#128197;', bg: 'var(--accent-sky-bg)' },
-  reminder: { emoji: '&#9200;', bg: 'var(--accent-orange-bg)' },
-  escalation: { emoji: '&#128680;', bg: 'var(--accent-coral-bg)' },
-  welcome: { emoji: '&#128075;', bg: 'var(--accent-sky-bg)' },
-  bounce_alert: { emoji: '&#9888;', bg: 'var(--accent-coral-bg)' },
+  approved: { emoji: '✅', bg: 'var(--accent-mint-bg)' },
+  rejected: { emoji: '❌', bg: 'var(--accent-coral-bg)' },
+  paid: { emoji: '💰', bg: 'var(--accent-violet-bg)' },
+  broadcast: { emoji: '📅', bg: 'var(--accent-sky-bg)' },
+  reminder: { emoji: '⏰', bg: 'var(--accent-orange-bg)' },
+  escalation: { emoji: '🚨', bg: 'var(--accent-coral-bg)' },
+  welcome: { emoji: '👋', bg: 'var(--accent-sky-bg)' },
+  bounce_alert: { emoji: '⚠️', bg: 'var(--accent-coral-bg)' },
 }
 
 function formatTime(dateStr: string) {
