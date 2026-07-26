@@ -136,7 +136,7 @@ onMounted(async () => {
       { label: '待审批', value: String(pending), emoji: '&#9200;', color: 'var(--accent-sky)', bg: 'var(--accent-sky-bg)' },
       { label: '本月报销', value: String(thisMonthCount), emoji: '&#128176;', color: 'var(--accent-orange)', bg: 'var(--accent-orange-bg)' },
       { label: '已通过', value: String(approved), emoji: '&#9989;', color: 'var(--accent-mint)', bg: 'var(--accent-mint-bg)' },
-      { label: '已付款', value: '&#165;' + formatAmount(paidTotal), emoji: '&#128179;', color: 'var(--accent-violet)', bg: 'var(--accent-violet-bg)' },
+      { label: '已付款', value: '¥' + formatAmount(paidTotal), emoji: '&#128179;', color: 'var(--accent-violet)', bg: 'var(--accent-violet-bg)' },
     ]
   } catch {}
 

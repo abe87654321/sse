@@ -94,8 +94,10 @@ onMounted(async () => {
 
     const { overview, byCategory, monthly } = data
     const approvedCount = overview.approvedCount || 0
+    const rejectedCount = overview.rejectedCount || 0
     const totalCount = overview.totalCount || 0
-    const passRate = totalCount > 0 ? Math.round(approvedCount / (overview.approvedCount + overview.rejectedCount) * 100) : 0
+    const done = approvedCount + rejectedCount
+    const passRate = done > 0 ? Math.round(approvedCount / done * 100) : 0
 
     summaries.value = [
       { label: '总支出', value: '¥' + formatK(overview.totalAmount || 0), sub: `${totalCount} 笔报销`, color: 'var(--accent-coral)' },
