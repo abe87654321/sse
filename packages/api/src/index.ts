@@ -3,6 +3,7 @@ import { resolve } from 'path';
 config({ path: resolve(__dirname, '..', '..', '..', '.env') });
 import express from 'express';
 import cors from 'cors';
+import type { Server } from 'http';
 import { authRoutes } from './routes/auth';
 import { expenseRoutes } from './routes/expenses';
 import { approvalRoutes } from './routes/approvals';
@@ -38,9 +39,11 @@ app.get('/health', (_req, res) => {
 
 app.use(errorHandler);
 
+let schedulerInstance: { start: () => void; stop: () => void } | null = null;
+
 async function startScheduler() {
   try {
-    const { PgApprovalRecordRepo, PgNotificationLogRepo, PgUserRepo, PgExpenseRepo, pool } = await import('@sse/db');
+    const { PgApprovalRecordRepo, PgNotificationLogRepo, PgUserRepo, PgExpenseRepo } = await import('@sse/db');
     const { NotificationService, ApprovalReminderScheduler } = await import('@sse/notifications');
 
     const smsProvider = !process.env.SMS_PROVIDER || process.env.SMS_PROVIDER === 'dev' || process.env.SMS_PROVIDER === 'log'
@@ -52,7 +55,7 @@ async function startScheduler() {
 
     const notificationService = new NotificationService(smsProvider, emailProvider);
 
-    const scheduler = new ApprovalReminderScheduler(
+    schedulerInstance = new ApprovalReminderScheduler(
       new PgApprovalRecordRepo(),
       new PgNotificationLogRepo(),
       new PgUserRepo(),
@@ -60,19 +63,30 @@ async function startScheduler() {
       notificationService,
     );
 
-    scheduler.start();
+    schedulerInstance.start();
     console.log('[SSE] 审批提醒调度器已启动（每15分钟检查一次）');
-
-    process.on('SIGTERM', () => scheduler.stop());
-    process.on('SIGINT', () => scheduler.stop());
   } catch (err) {
     console.warn('[SSE] 审批提醒调度器启动失败（可能数据库未连接）:', err);
   }
 }
 
-app.listen(PORT, '0.0.0.0', () => {
+function shutdown(server: Server) {
+  console.log('[SSE] 正在关闭服务...');
+  if (schedulerInstance) schedulerInstance.stop();
+  server.close(() => {
+    console.log('[SSE] 服务已关闭');
+    process.exit(0);
+  });
+  setTimeout(() => {
+    console.log('[SSE] 强制退出');
+    process.exit(1);
+  }, 5000);
+}
+
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[SSE API] 服务启动成功，端口: ${PORT}`);
   startScheduler();
 });
 
-export default app;
+process.on('SIGTERM', () => shutdown(server));
+process.on('SIGINT', () => shutdown(server));
