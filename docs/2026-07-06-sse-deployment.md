@@ -438,6 +438,35 @@ pnpm migrate
 
 确认 `vue-tsc` 版本 ≥ 2.0（最新代码已修复）。
 
+### API / 服务相关
+
+**Q: 启动 API 报 `EADDRINUSE: address already in use 0.0.0.0:3000`**
+
+端口 3000 被之前的进程（或僵尸进程）占用。释放端口：
+
+```bash
+# 查看占用进程
+fuser 3000/tcp
+
+# 强制释放
+fuser -k 3000/tcp
+```
+
+如果 `fuser` 不可用：
+
+```bash
+# 备选方案
+lsof -ti:3000 | xargs kill -9
+```
+
+释放后重新启动：
+
+```bash
+pnpm --filter @sse/api dev
+```
+
+> **原因**：Express 绑定到 `0.0.0.0:3000`，上一个 `ts-node` 进程未正常退出时端口不会立即释放。`fuser -k` 可直接终止占用进程。
+
 ### AI / OCR 相关
 
 **Q: AI 检验按钮报"连接失败"**
