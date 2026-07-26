@@ -5,7 +5,13 @@
         <div class="login-logo">
           <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
             <rect width="56" height="56" rx="14" fill="url(#loginGrad)" />
-            <text x="28" y="38" text-anchor="middle" font-family="var(--font-heading)" font-size="30" fill="#fff" font-weight="700">S</text>
+            <g transform="translate(10, 8) scale(2.3)" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 2h8a1 1 0 011 1v14a1 1 0 01-1 1H1a1 1 0 01-1-1V6l4-4z" fill="none" />
+              <path d="M4 2v4H0" fill="none" />
+              <line x1="3" y1="8" x2="10" y2="8" />
+              <line x1="3" y1="11" x2="8" y2="11" />
+              <line x1="3" y1="14" x2="6" y2="14" />
+            </g>
             <defs>
               <linearGradient id="loginGrad" x1="0" y1="0" x2="56" y2="56">
                 <stop stop-color="#ff6b6b"/>

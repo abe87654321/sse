@@ -5,7 +5,13 @@
         <div class="brand-icon">
           <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
             <rect width="32" height="32" rx="8" fill="url(#brandGrad)" />
-            <text x="16" y="22" text-anchor="middle" font-family="var(--font-heading)" font-size="18" fill="#fff" font-weight="700">S</text>
+            <g transform="translate(5, 5) scale(1.3)" stroke="#fff" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 2h8a1 1 0 011 1v14a1 1 0 01-1 1H1a1 1 0 01-1-1V6l4-4z" fill="none" />
+              <path d="M4 2v4H0" fill="none" />
+              <line x1="3" y1="8" x2="10" y2="8" />
+              <line x1="3" y1="11" x2="8" y2="11" />
+              <line x1="3" y1="14" x2="6" y2="14" />
+            </g>
             <defs>
               <linearGradient id="brandGrad" x1="0" y1="0" x2="32" y2="32">
                 <stop stop-color="#ff6b6b"/>
