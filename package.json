@@ -11,5 +11,10 @@
     "migrate:rollback": "pnpm --filter @sse/db migrate:rollback"
   },
   "packageManager": "pnpm@9.15.0",
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1"
+  }
 }
