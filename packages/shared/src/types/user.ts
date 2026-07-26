@@ -1,3 +1,10 @@
+export type NotifyPrefs = {
+  sms: { reminder: boolean; escalation: boolean; rejected: boolean; paid: boolean };
+  email: { rejected: boolean; paid: boolean };
+  broadcast: boolean;
+  in_app: { rejected: boolean; paid: boolean; broadcast: boolean };
+};
+
 export type User = {
   id: string;
   name: string;
@@ -7,6 +14,7 @@ export type User = {
   role: string;
   parentId?: string;
   status: string;
-  createdAt: Date;
-  updatedAt: Date;
+  notify_prefs?: NotifyPrefs;
+  created_at: Date;
+  updated_at: Date;
 };

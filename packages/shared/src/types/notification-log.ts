@@ -1,10 +1,9 @@
 export type NotificationLog = {
   id: string;
-  reportId: string;
-  recipientId: string;
-  channel: string;
-  triggerType: string;
-  status: string;
-  sentAt?: Date;
-  errorMessage?: string;
+  user_id: string;
+  type: string;
+  title: string;
+  body: string;
+  read_at?: Date;
+  created_at: Date;
 };

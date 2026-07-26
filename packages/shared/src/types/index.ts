@@ -5,3 +5,5 @@ export type { Invoice, OcrResult } from './invoice';
 export type { ApprovalRule, ApprovalChainStep } from './approval-rule';
 export type { ApprovalRecord } from './approval-record';
 export type { NotificationLog } from './notification-log';
+export * from './notification-delivery';
+export * from './system-message';
