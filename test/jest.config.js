@@ -1,15 +1,13 @@
 /** @type {import('ts-jest').JestConfigWithTsJest} */
 module.exports = {
   testEnvironment: 'node',
+  rootDir: __dirname,
   roots: ['<rootDir>'],
-  testMatch: ['<rootDir>/**/*.test.ts'],
+  testMatch: ['**/*.test.ts'],
+  testPathIgnorePatterns: ['/node_modules/', '/dist/', '/packages/'],
   transform: {
     '^.+\\.tsx?$': 'ts-jest',
   },
-  transformIgnorePatterns: [
-    '/node_modules/',
-    '/dist/',
-  ],
   moduleNameMapper: {
     '^@sse/(.*)$': '<rootDir>/../packages/$1/src',
   },
