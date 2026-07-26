@@ -48,8 +48,7 @@ export class NotificationEngine {
   ): Promise<void> {
     for (const userId of userIds) {
       const prefs = await this.getUserNotifyPrefs(userId);
-      if (!prefs) continue;
-      await this.send(userId, type, title, body, channels, prefs);
+      await this.send(userId, type, title, body, channels, prefs || undefined);
     }
   }
 
@@ -120,17 +119,17 @@ export class NotificationEngine {
     }
   }
 
-  private async getUserNotifyPrefs(userId: string): Promise<NotifyPrefs | null> {
+  private async getUserNotifyPrefs(userId: string): Promise<NotifyPrefs> {
     const user = await this.userRepo.findById(userId);
-    return user?.notify_prefs || null;
-  }
-
-  private async getDefaultPrefs(userId: string): Promise<NotifyPrefs> {
-    return this.getUserNotifyPrefs(userId).then(p => p || {
+    return user?.notify_prefs || {
       sms: { reminder: true, escalation: true, rejected: true, paid: false },
       email: { rejected: true, paid: false },
       broadcast: true,
       in_app: { rejected: true, paid: true, broadcast: true },
-    });
+    };
+  }
+
+  private async getDefaultPrefs(userId: string): Promise<NotifyPrefs> {
+    return this.getUserNotifyPrefs(userId);
   }
 }
