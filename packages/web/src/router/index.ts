@@ -85,6 +85,12 @@ const routes: RouteRecordRaw[] = [
         name: 'AdminDepartments',
         component: () => import('@/pages/AdminDepartments.vue'),
         meta: { title: '部门管理', requiresAdmin: true }
+      },
+      {
+        path: 'admin/messages',
+        name: 'AdminMessages',
+        component: () => import('@/pages/AdminMessages.vue'),
+        meta: { title: '消息管理', requiresAdmin: true }
       }
     ]
   }
