@@ -121,35 +121,72 @@ c0c3586 fix: align User type fields and notification-log-repo with new types
 92e9b42 feat: add DB migration, email/sms providers, fix type compatibility
 a4182a9 feat: notification system - engine, repo, API routes, frontend pages
 0e94d1d feat: add AdminMessages.vue - broadcast message management with AI polish
+d2fc6c0 fix: improve AdminMessages error handling, fallback body to title
+df01c9e docs: fix docker container names and add system_messages migration FAQ
+5845d20 feat: add UserPicker common component, refactor AdminMessages to use it
+b8deb57 fix: require target selection before sending broadcast, show sent count
+976c1e0 feat: bidirectional role-user sync in AdminMessages, add role param to /user/search
+f965a07 fix: add missing created_at and type columns to notification_logs migration
+ead96d9 fix: drop NOT NULL on legacy notification_logs columns for new INSERT compatibility
+012913a fix: send notification to all users even if notify_prefs is NULL (use defaults)
+ca7ab16 fix: replace HTML emoji entities with real Unicode chars in Vue templates
+0733834 fix: Dashboard &#165; display and Statistics NaN% division
+dcdfa4e fix: sendBounceAlert FK violation and skip bounce when user has no phone/email
 ```
 
 ### 部署文档更新
 - 新增 §4 通知通道配置：163邮箱 SMTP 开通步骤、阿里云短信开通步骤
 - 环境变量清单新增 9 个变量
 - `.env.example` 新增邮件 SMTP 和短信配置注释
+- FAQ 新增 Docker 容器名修正、`system_messages` 表迁移、EADDRINUSE 端口冲突
+
+---
+
+## 阶段四：UserPicker 通用组件 + Bug 修复
+
+### UserPicker 组件
+
+用 brainstorming 设计，直接实施。3 个文件变更：
+
+| 文件 | 变更 |
+|------|------|
+| `packages/web/src/components/UserPicker.vue` | 新建通用用户多选组件（标签在输入框内、下拉复选框、300ms 防抖、键盘导航） |
+| `packages/api/src/routes/user.ts` | `/search` 支持 `q` 和 `role` 可选参数 |
+| `packages/web/src/pages/AdminMessages.vue` | 替换内联搜索为 UserPicker；角色-用户双向同步 |
+
+### 关键 Bug 修复
+
+| Bug | 根因 | 修复 |
+|-----|------|------|
+| 通知发送后用户收不到 | `sendBatch` 中 `if (!prefs) continue` 因老用户 `notify_prefs` 为 NULL 全部跳过 | 改为总有默认 prefs |
+| 勾选 SMS/邮件发送报 500 | `sendBounceAlert` 中 `notification_id: admin.id` 用用户 UUID 当通知 ID，FK 违规 | 改用 `bounceNotif.id` |
+| 用户无 phone/email 时误报退回 | 未区分"未尝试发送"和"发送失败" | 新增 `attempted` 标志，未尝试则标 `skipped` |
+| 迁移后 `notification_logs` INSERT 失败 | 旧列 `report_id` 等有 NOT NULL 约束 | ALTER 表松绑约束 |
+| 表情符号显示 `&#128197;` | HTML 实体在 `{{ }}` 文本插值中不解码 | 换成真实 Unicode 字符 |
+| 通过率显示 `NaN%` | 分母 `approvedCount + rejectedCount` 为 0 时除零 | 提前算 `done`，`done > 0` 才除 |
+| 保存草稿失败 | `system_messages` 表不存在（迁移未执行） | 手动执行 `002_notifications.sql` |
+
+### 设计文档新增
+- `docs/2026-07-26-userpicker-design.md` — UserPicker 设计（含双向同步）
 
 ---
 
 ## 已知问题
 
-1. **数据库迁移未执行** — 需在 Linux 上运行 `DB_PORT=5433 pnpm migrate` 创建新表
-2. **通知触发事务性消息** — 驳回/付款等事件的 `send()` 调用尚未接入对应 API 端点
-3. **阿里云短信 SDK** — 需 `pnpm --filter @sse/notifications add @alicloud/dysmsapi20170525` 并取消代码注释
-4. **AdminMessages.vue 路由** — 已注册，侧边栏菜单项仅 admin 可见
+1. ~~数据库迁移未执行~~ — 已手动执行 `002_notifications.sql`，但仅针对当前 DB
+2. **事务性消息未接入** — 驳回/付款等事件的 NotificationEngine.send() 尚未调用
+3. **阿里云短信 SDK** — 需安装并取消代码注释
+4. **邮件/SMS 真实发送** — 当前用 Dev 模式（仅 console.log），需配置 SMTP/阿里云
+5. **EADDRINUSE 端口冲突** — Express 绑定 IPv4 `0.0.0.0` 已缓解，FAQ 已记录 `fuser -k` 方案
 
 ---
 
-## 待办事项
+## 下次会话建议
 
-- [x] 通知系统设计文档
-- [x] 通知系统实施计划
-- [x] 全部 12 个任务完成
-- [x] 全量编译通过（10个包）
-- [x] 部署文档更新（邮件/SMS）
-- [ ] 执行数据库迁移（需 Docker + DB）
-- [ ] 事务性消息触发点接入（驳回/付款等事件）
-- [ ] 阿里云短信 SDK 安装和配置
-- [ ] 端到端集成测试
+1. **优先**：事务性消息接入 — 驳回/付款等 API 端点调用 `NotificationEngine.send()`
+2. **其次**：配置真实邮件/SMS 通道（163 SMTP / 阿里云短信）
+3. **前端体验**：Dashboard 统计卡片在无数据时显示 0 而非 "-"、空状态优化
+4. **测试**：端到端集成测试（创建报销 → 审批流转 → 通知送达）
 
 ---
 
