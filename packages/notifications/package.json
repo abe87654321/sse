@@ -3,7 +3,18 @@
   "version": "0.1.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "scripts": { "build": "tsc" },
-  "dependencies": { "@sse/core": "workspace:*", "@sse/db": "workspace:*", "@sse/shared": "workspace:*" },
-  "devDependencies": { "@types/node": "^26.1.0", "typescript": "^5.3" }
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@sse/core": "workspace:*",
+    "@sse/db": "workspace:*",
+    "@sse/shared": "workspace:*",
+    "nodemailer": "^9.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@types/nodemailer": "^8.0.1",
+    "typescript": "^5.3"
+  }
 }

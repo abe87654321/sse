@@ -1,6 +1,6 @@
-export { DevSmsProvider, createSmsProvider } from './channels/sms';
+export { DevSmsProvider, AliyunSmsProvider, createSmsProvider } from './channels/sms';
 export type { SmsProvider } from './channels/sms';
-export { DevEmailProvider, createEmailProvider } from './channels/email';
+export { DevEmailProvider, SmtpEmailProvider, createEmailProvider } from './channels/email';
 export type { EmailProvider } from './channels/email';
 export { NotificationService } from './notification-service';
 export { ApprovalReminderScheduler } from './scheduler';

@@ -5,5 +5,5 @@ export type NotificationLog = {
   title: string;
   body: string;
   read_at?: Date;
-  created_at: Date;
+  created_at?: Date;
 };

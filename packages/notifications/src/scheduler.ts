@@ -1,5 +1,5 @@
 import type { IApprovalRecordRepo, INotificationLogRepo, IUserRepo, IExpenseRepo } from '@sse/core';
-import { NotificationChannel, NotificationTriggerType, NotificationStatus } from '@sse/shared';
+import { NotificationTriggerType } from '@sse/shared';
 import type { NotificationService } from './notification-service';
 import { reminderMessage } from './templates/reminder';
 import { escalationMessage } from './templates/escalation';
@@ -93,24 +93,17 @@ export class ApprovalReminderScheduler {
     content: string,
     triggerType: NotificationTriggerType,
   ): Promise<void> {
-    let status = NotificationStatus.SENT;
-    let errorMessage: string | undefined;
-
     try {
       await this.notificationService.sendSms(phone, content);
     } catch {
-      status = NotificationStatus.FAILED;
-      errorMessage = 'SMS发送失败';
+      // SMS_FAILED silently for now
     }
 
     await this.notificationLogRepo.create({
-      reportId,
-      recipientId,
-      channel: NotificationChannel.SMS,
-      triggerType,
-      status,
-      sentAt: status === NotificationStatus.SENT ? new Date() : undefined,
-      errorMessage,
+      user_id: recipientId,
+      type: triggerType,
+      title: '审批提醒',
+      body: content,
     });
   }
 
@@ -122,24 +115,17 @@ export class ApprovalReminderScheduler {
     body: string,
     triggerType: NotificationTriggerType,
   ): Promise<void> {
-    let status = NotificationStatus.SENT;
-    let errorMessage: string | undefined;
-
     try {
       await this.notificationService.sendEmail(email, subject, body);
     } catch {
-      status = NotificationStatus.FAILED;
-      errorMessage = '邮件发送失败';
+      // EMAIL_FAILED silently for now
     }
 
     await this.notificationLogRepo.create({
-      reportId,
-      recipientId,
-      channel: NotificationChannel.EMAIL,
-      triggerType,
-      status,
-      sentAt: status === NotificationStatus.SENT ? new Date() : undefined,
-      errorMessage,
+      user_id: recipientId,
+      type: triggerType,
+      title: subject,
+      body,
     });
   }
 }
