@@ -131,7 +131,7 @@ async function saveDraft() {
   try {
     if (!form.title.trim()) { alert('请输入标题'); return }
     const payload = {
-      title: form.title, body: form.body, body_ai: form.body_ai,
+      title: form.title, body: form.body || form.title, body_ai: form.body_ai,
       target_roles: form.target_roles,
       target_user_ids: form.specificUsers.map(u => u.id),
       delivery_channels: form.delivery_channels,
@@ -139,14 +139,17 @@ async function saveDraft() {
     if (editingId.value) { await api.put(`/admin/messages/${editingId.value}`, payload) }
     else { await api.post('/admin/messages', payload) }
     closeComposer(); fetchMessages()
-  } catch (err: any) { alert(err.response?.data?.message || '保存失败') }
+  } catch (err: any) {
+    const msg = err.response?.data?.error?.message || err.response?.data?.message || err.message || '保存失败'
+    alert(msg)
+  }
 }
 
 async function sendNow() {
   try {
     if (!form.title.trim()) { alert('请输入标题'); return }
     const payload = {
-      title: form.title, body: form.body, body_ai: form.body_ai,
+      title: form.title, body: form.body || form.title, body_ai: form.body_ai,
       target_roles: form.target_roles,
       target_user_ids: form.specificUsers.map(u => u.id),
       delivery_channels: form.delivery_channels,
@@ -154,7 +157,10 @@ async function sendNow() {
     }
     await api.post('/admin/messages', payload)
     closeComposer(); fetchMessages()
-  } catch (err: any) { alert(err.response?.data?.message || '发送失败') }
+  } catch (err: any) {
+    const msg = err.response?.data?.error?.message || err.response?.data?.message || err.message || '发送失败'
+    alert(msg)
+  }
 }
 
 async function sendDraft(id: string) {
