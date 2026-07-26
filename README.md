@@ -1,33 +1,35 @@
 # SSE — Smart Staff Expense / 智能报销管理系统
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Node.js](https://img.shields.io/badge/Node.js→18+-339935?logo=node.js)](https://nodejs.org) [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript)](https://typescriptlang.org) [![Vue.js](https://img.shields.io/badge/Vue.js-3.x-42b883?logo=vue.js)](https://vuejs.org) [![pnpm](https://img.shields.io/badge/pnpm-9.x+-8B5CF6?logo=pnpm)](https://pnpm.io)
-
-> A lightweight, AI-powered reimbursement management system for small teams (5–20 people).
-> 面向小微团队（5-20 人）的智能报销管理系统，支持发票 OCR 识别、可配置审批流、AI 智能填单与 MCP 接口。
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE) [![Node.js](https://img.shields.io/badge/Node.js→18+-339935?logo=node.js)](https://nodejs.org) [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript)](https://typescriptlang.org) [![Vue.js](https://img.shields.io/badge/Vue.js-3.x-42b883?logo=vue.js)](https://vuejs.org) [![pnpm](https://img.shields.io/badge/pnpm-9.x+-8B5CF6?logo=pnpm)](https://pnpm.io)
 
 <div align="center">
 
-```
-┌─────────────────────────────────────────────────┐
-│              SSE Dashboard / 工作台               │
-│                                                  │
-│   ┌──────────┐  ┌──────────┐  ┌──────────┐     │
-│   │  待审批   │  │  已提交   │  │  已打款   │     │
-│   │ Pending  │  │ Submitted│  │  Paid    │     │
-│   │   12     │  │   23     │  │   87     │     │
-│   └──────────┘  └──────────┘  └──────────┘     │
-│                                                  │
-│   ┌────────────────────────────────────┐        │
-│   │         费用趋势图 / Expense Chart   │        │
-│   │   ╱╲    ╱╲    ╱╲       ╱╲          │        │
-│   │  ╱  ╳──╳  ╳──╳  ╲──  ╳  ╲         │        │
-│   │ ╱___╲__╳__╳__╳__╳__╳___╲        │        │
-│   └────────────────────────────────────┘        │
-│                                                  │
-│   新建报销  │  审批处理  │  统计报表  │  系统管理    │
-│  New Rep.  │  Approval │  Statistics│  Settings   │
-└─────────────────────────────────────────────────┘
-```
+<!-- SSE Logo -->
+<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sseGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ff6b6b" />
+      <stop offset="100%" stop-color="#ffa94d" />
+    </linearGradient>
+  </defs>
+  <!-- Outer square with rounded corners -->
+  <rect x="8" y="8" width="104" height="104" rx="24" fill="url(#sseGrad)" />
+  <!-- Inner receipt/document -->
+  <rect x="34" y="22" width="52" height="60" rx="6" fill="#fff" opacity="0.95" />
+  <!-- Receipt lines -->
+  <rect x="42" y="32" width="36" height="4" rx="2" fill="#ff6b6b" opacity="0.6" />
+  <rect x="42" y="42" width="28" height="3" rx="1.5" fill="#ccc" />
+  <rect x="42" y="50" width="32" height="3" rx="1.5" fill="#ccc" />
+  <rect x="42" y="58" width="20" height="3" rx="1.5" fill="#ccc" />
+  <!-- Checkmark circle -->
+  <circle cx="68" cy="64" r="14" fill="#51cf66" />
+  <path d="M62 64 l4 4 l8 -8" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+  <!-- S letter overlay -->
+  <text x="44" y="108" font-family="Georgia, serif" font-size="20" font-weight="700" fill="#fff" opacity="0.8">SSE</text>
+</svg>
+
+> AI-powered semantic expense management — **Speak. Scan. Submit.**
+> 面向小微团队的智能报销系统：说话、拍照、自动报销。
 
 </div>
 
@@ -35,78 +37,81 @@
 
 ## ✨ Features / 特性
 
-| Feature / 功能 | Description / 说明 |
-|--------|--------|
-| 📝 **Smart Reimbursement / 智能报销** | Create reports with expense items, auto-calculate totals · 填写费用明细，自动计算金额 |
-| 🖼️ **Invoice OCR / 发票识别** | Upload PDF/OFD invoices, auto-extract data via AI vision models · 上传发票文件，AI 自动识别发票信息 |
-| 🔀 **Configurable Approval / 可配置审批** | Multi-step approval chains based on amount & category, fully configurable · 按金额区间和费用类型自动匹配多级审批链 |
-| 📊 **Statistics & Reports / 统计报表** | Filter by department, category, date range; export to Excel · 多维度筛选统计，图表展示，Excel 导出 |
-| 🤖 **MCP Integration / AI 查询** | 6 read-only query tools for AI Agent integration via MCP protocol · 6 个只读查询工具，AI Agent 可调用 |
-| 🔔 **Reminders & Escalation / 提醒升级** | Configurable SMS/email alerts for pending approvals · 审批超时自动短信/邮件提醒和升级通知 |
-| 🗂️ **Object Storage / 对象存储** | Invoice files stored in MinIO, DB only holds references · 发票原件存 MinIO，数据库仅存引用 |
-| 🔐 **RBAC / 角色权限** | Four built-in roles with data scope isolation · 员工 / 审批人 / 财务 / 管理员，数据范围隔离 |
+| Feature | Description |
+|---------|-------------|
+| 📝 **Smart Reimbursement** | Natural-language expense submission ("张三出差住宿600元") |
+| 🖼️ **Invoice OCR** | Upload PDF/OFD invoices, auto-extract data via AI vision models |
+| 🔀 **Configurable Approval** | Multi-step approval chains based on amount & category |
+| 🤖 **Ontology / Knowledge Graph** | OWL-based semantic model linking reports, people, and organizations |
+| 🧠 **AI Semantic Engine** | LLM-powered entity extraction, category matching, and NL explanation |
+| 📊 **Statistics & Export** | Charts, monthly trends, Excel export |
+| 🔔 **Notifications** | In-app + SMS + Email with per-user preferences and delivery tracking |
+| 📡 **MCP Protocol** | 12 read/write tools for AI Agent integration |
+| 🔗 **SCIM 2.0 + MDM** | External identity sync via SCIM and MDM Webhook |
+| 🗂️ **Object Storage** | Invoice files in MinIO, DB holds references only |
+| 🔐 **RBAC** | 4 roles with data scope isolation |
 
 ---
 
 ## 🏗️ Architecture / 架构
 
-Adopting **Ports & Adapters (Hexagonal Architecture)** — the core business logic has zero framework dependencies.
-
-采用 **六边形架构（端口-适配器模式）** — 核心业务逻辑零框架依赖，换掉 Express 不影响业务、OCR 可独立升级、单元测试不依赖数据库。
-
-<div align="center">
+Hexagonal Architecture (Ports & Adapters) — core business logic has zero framework dependencies.
 
 ```
-┌─────────────────────────────────────────────────┐
-│           前端 Frontend (web/)                    │
-│        Vue 3 · Element Plus · Pinia · Vite        │
-└──────────────────────┬──────────────────────────┘
-                       │ HTTP REST / API 接口
-┌──────────────────────┴──────────────────────────┐
-│              适配器层 Adapters                    │
-│   ┌──────────────────┐   ┌──────────────────┐  │
-│   │  api/ Express    │   │  mcp/ JSON-RPC   │  │
-│   └────────┬─────────┘   └────────┬─────────┘  │
-│            │                      │             │
-│   ┌────────┴─────────┐   ┌────────┴─────────┐  │
-│   │  db/ Postgres    │   │  ocr/ PDF+OFD    │  │
-│   └────────┬─────────┘   └────────┬─────────┘  │
-└────────────┼──────────────────────┼─────────────┘
-             │  端口 Ports          │  端口 Ports
-┌────────────┴──────────────────────┴─────────────┐
-│              领域核心 Domain Core (core/)         │
-│    Entities 权限证  ·  Services 审批引擎           │
-│         · 零框架依赖 Zero Framework Dependencies   │
-└─────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│                 Frontend (web/)                         │
+│             Vue 3 · Pinia · Vite                        │
+└───────────────────────┬────────────────────────────────┘
+                        │ HTTP / MCP / SCIM
+┌───────────────────────┴────────────────────────────────┐
+│               Adapters / 适配器层                        │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
+│  │ api/     │ │ mcp/     │ │ ontology/│ │ scim/    │  │
+│  │ Express  │ │ JSON-RPC │ │ OWL RDF  │ │ Webhook  │  │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘  │
+│       └─────────────┼─────────────┼─────────────┘     │
+│                     │             │                     │
+│  ┌──────────┐ ┌─────┴─────┐ ┌────┴──────┐             │
+│  │ db/      │ │ ocr/      │ │ ai/       │             │
+│  │ Postgres │ │ PDF+OFD   │ │ Ollama    │             │
+│  └────┬─────┘ └─────┬─────┘ └────┬──────┘             │
+└───────┼─────────────┼─────────────┼────────────────────┘
+        │             │             │
+        └─────────────┼─────────────┘
+                      ▼
+┌────────────────────────────────────────────────────────┐
+│            Domain Core (core/)                           │
+│   Entities · Services · Ports — Zero framework deps     │
+└────────────────────────────────────────────────────────┘
 ```
-
-</div>
 
 ---
 
 ## 📦 Tech Stack / 技术栈
 
-| Layer / 层级 | Technology / 技术 |
-|-------------|------|
-| **Frontend / 前端** | Vue 3 + Element Plus + Pinia + Vite |
-| **Backend / 后端** | Node.js + Express + TypeScript |
-| **Database / 数据库** | PostgreSQL 16 |
-| **File Storage / 文件存储** | MinIO (S3-compatible object storage / S3 兼容对象存储) |
-| **AI / OCR / 人工智能** | Ollama (local) + MinerU / PaddleOCR (optional) |
-| **Authentication / 认证** | JWT + RBAC (四角色权限) |
-| **MCP** | @modelcontextprotocol/sdk |
-| **Monorepo** | pnpm workspaces |
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Vue 3 + Vue Router + Pinia + Vite |
+| Backend | Node.js + Express + TypeScript |
+| Database | PostgreSQL 16 (UUID PKs, JSONB, full-text) |
+| File Storage | MinIO (S3-compatible) |
+| AI / OCR | Ollama (local LLM) + MinerU / PaddleOCR |
+| Ontology | N3.js + RDF/JS + OWL 2 |
+| Messaging | SMTP (nodemailer) + Aliyun SMS |
+| Protocol | MCP (@modelcontextprotocol/sdk) + SCIM 2.0 |
+| Auth | JWT + RBAC (4 roles) |
+| Monorepo | pnpm workspaces |
 
 ---
 
 ## 👥 User Roles / 用户角色
 
-| Role / 角色 | Permission / 权限 |
-|-------------|------|
-| 👤 **Employee / 员工** | Create reports, view own records · 提交报销、查看个人记录、查看审批进度 |
-| ✅ **Dept. Approver / 审批人** | Approve reports from own department · 审批本部门报销申请 |
-| 💰 **Finance / 财务** | Verify payments, view full company data, export reports · 复核打款、查看全公司数据、导出报表 |
-| ⚙️ **Admin / 管理员** | User/role management, approval rules, AI config · 用户管理、角色分配、审批规则配置、AI 参数设置 |
+| Role | Permissions |
+|------|------------|
+| 👤 Employee / 员工 | Create/view own reports, submit from text/voice |
+| ✅ Dept. Approver / 部门审批人 | Approve reports from own department |
+| 💰 Finance / 财务 | Full-company data, export, payment processing |
+| ⚙️ Admin / 管理员 | User/role/rule management, broadcast messages, AI config, MDM setup |
 
 ---
 
@@ -114,56 +119,33 @@ Adopting **Ports & Adapters (Hexagonal Architecture)** — the core business log
 
 ### Prerequisites / 环境要求
 
-| Component / 组件 | Version / 版本 |
-|---------|---------|
+| Component | Version |
+|-----------|---------|
 | Node.js | ≥ 18 |
 | pnpm | ≥ 9 |
-| Docker + Compose | Latest（用于启动 PostgreSQL + MinIO） |
+| Docker + Compose | Latest |
 
-### One-shot Setup / 一键启动
+### Setup / 一键启动
 
 ```bash
-# 1. Clone & install / 拉取代码并安装依赖
-git clone <repo-url>
-cd sse
+git clone <repo-url> && cd sse
 pnpm install
-
-# 2. Start infrastructure / 启动基础设施 (PostgreSQL + MinIO)
 docker compose up -d
-
-# 3. Build & initialize database / 编译项目并初始化数据库
 pnpm build
 cp .env.example .env
 DB_PORT=5433 pnpm migrate
-
-# 4. Start dev server / 启动开发服务器
 pnpm dev
 ```
 
-| Service / 服务 | URL / 访问地址 | Port / 端口 |
-|--------|--------|------|
-| **API** | `http://localhost:3000` | 3000 |
-| **Web / 前端** | `http://localhost:5173` (加 `--host` 允许外部访问) | 5173 |
-| **PostgreSQL** | `localhost:5433` → container 5432 | 5433 |
-| **MinIO API** | `localhost:9002` → container 9000 | 9002 |
-| **MinIO Console** | `localhost:9003` → container 9001 | 9003 |
+| Service | URL | Port |
+|---------|-----|------|
+| API | `http://localhost:3000` | 3000 |
+| Web | `http://localhost:5173` | 5173 |
+| PostgreSQL | `localhost:5433` | 5433 |
+| MinIO API | `localhost:9002` | 9002 |
+| MinIO Console | `localhost:9003` | 9003 |
 
-> **Default login / 默认账号:** 手机号 `13800000001`（管理员）— 首次登录后请修改密码
-
----
-
-## 🤖 AI & OCR Setup / AI 与 OCR 配置
-
-```bash
-# Install Ollama / 安装本地 AI 模型服务
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull llama3.2-vision:11b    # 推荐视觉模型 / Recommended vision model
-
-# Start Ollama service / 启动 Ollama 服务
-ollama serve                        # 前台启动，或在后台运行 / run in background
-```
-
-配置路径 / Config path: 管理后台 → AI 模型设置 → 保存配置 → 点击检验
+> **Default login:** `13800000001` (admin) — change password after first login.
 
 ---
 
@@ -172,101 +154,105 @@ ollama serve                        # 前台启动，或在后台运行 / run in
 ```
 sse/
 ├── packages/
-│   ├── shared/          # 共享类型 · Shared types, enums, DTOs
-│   ├── core/            # 领域核心 · Domain core (zero framework dependency / 零框架依赖)
-│   │   ├── entities/    # 实体类 · User, ExpenseReport, Invoice...
-│   │   ├── ports/       # 接口定义 · IExpenseRepo, IApprovalEngine...
-│   │   └── services/    # 领域服务 · ApprovalEngine, ReportService...
-│   ├── db/              # 数据库 · PostgreSQL repositories & migrations
-│   ├── auth/            # 认证授权 · JWT authentication & RBAC
-│   ├── api/             # REST API · Express REST API
-│   ├── mcp/             # MCP Server · 6 read-only query tools / 6 个只读查询工具
-│   ├── ocr/             # 发票 OCR · Invoice OCR (PDF/OFD parsing)
-│   ├── ai/              # AI 引擎 · AI vision & smart form filling
-│   ├── notifications/   # 通知提醒 · SMS/Email alerts & scheduler
-│   └── web/             # 前端 · Vue 3 SPA
-├── docs/                # 文档 · Design & deployment docs / 设计与部署文档
-├── docker-compose.yml   # Docker 基础设施 / Infrastructure
-└── package.json         # Monorepo 根配置 · Monorepo root config
+│   ├── shared/          # Shared types, enums, DTOs
+│   ├── core/            # Domain core (zero framework dependency)
+│   ├── db/              # PostgreSQL repositories & migrations
+│   ├── auth/            # JWT + RBAC
+│   ├── api/             # Express REST API
+│   ├── mcp/             # MCP Server (12 tools)
+│   ├── ontology/        # OWL ontology + semantic orchestration engine
+│   ├── ocr/             # Invoice OCR (PDF/OFD)
+│   ├── ai/              # LLM provider (Ollama)
+│   ├── notifications/   # SMS/Email + scheduler
+│   └── web/             # Vue 3 SPA
+├── docs/                # Design, deployment, process docs
+├── docker-compose.yml
+└── package.json
 ```
 
 ---
 
 ## 🔁 Approval Workflow / 审批流程
 
-Reports auto-route through configurable multi-step chains based on amount & category.
-报销单按金额区间和费用类型自动匹配多级审批链。
-
-<div align="center">
-
 ```
-┌──────────┐   提交   ┌──────────┐  全部通过  ┌──────────┐  打款  ┌──────────┐
-│  草稿     │ ───────→ │  待审批   │ ─────────→ │  已通过   │ ─────→ │  已打款  │
-│  Draft   │          │  Pending │            │Approved │        │  Paid   │
-└──────────┘          └──────────┘            └──────────┘        └──────────┘
-   ▲                       │
-   │                       ├─ 驳回 ──→ 已驳回 ──→ 修改重提 ──→ 草稿
-   │                       │  Rejected              Edit & Resubmit
-   │                       │
-   └─── 保存草稿 ←──────────┘
-         ↑ 48h 无审批 → 发送提醒
-         ↑ 96h 无审批 → 升级通知上级
+Draft ──submit──→ Pending ──all approved──→ Approved ──paid──→ Paid
+  ↑                  │
+  └──save draft───────┼──rejected──→ Rejected ──resubmit──→ Draft
+                     │
+           48h no approval → reminder
+           96h no approval → escalation
 ```
-
-</div>
 
 ---
 
-## 🔍 MCP Tools / MCP 查询工具
+## 🤖 Ontology & Semantic Engine / 本体语义引擎
 
-Six read-only query tools for AI Agents via MCP protocol. 6 个只读查询工具，供 AI Agent 查询报销数据。
+Natural language → LLM extraction → ontology mapping → auto expense creation:
 
-| Tool / 工具 | Description / 说明 |
-|-----------|------|
-| `search_expenses` | 多条件搜索报销单 — Multi-condition search with pagination |
-| `get_expense_detail` | 查看报销单完整详情（含明细、发票、审批）— Full report detail |
-| `get_approval_status` | 查看审批进度和历史 — Approve status & history |
-| `get_statistics` | 汇总统计数据（按类别/部门）— Aggregated stats by category & dept |
-| `get_user_summary` | 个人费用概览 — Per-user expense overview |
-| `list_pending_approvals` | 待审批列表 — Approver's pending queue |
+```
+"张三出差北京住宿600元"
+  → EntityExtractor: {person:"张三", amount:600, category:"住宿费"}
+  → SemanticMapper: Person → DB userId, category → DB categoryId
+  → ActionReasoner: match approval rule, validate
+  → ActionExecutor: POST /expenses → submit
+  → NL Explanation: "已为张三创建报销单，住宿费 ¥600，审批中。"
+```
+
+**Endpoints:**
+- `POST /ontology/submit-from-text` — Natural language expense creation
+- `GET /ontology/sync` — Full ontology sync from DB
+- `GET /ontology/query?type=X` — Query ontology by class
 
 ---
 
-## 🗄️ Data Model / 数据模型
-
-<div align="center">
+## 🔗 MDM & SCIM Integration / 主数据整合
 
 ```
-┌──────────┐ 1:N  ┌──────────────┐ 1:N  ┌────────────┐ 1:1  ┌─────────┐
-│  User     │─────>│ ExpenseReport ├──────>│ ExpenseItem ├───┤ Invoice │
-│  用户     │      │  报销单       │       │  费用明细    │     │ 发票    │
-└──────────┘      └──────┬───────┘       └────────────┘     └─────────┘
-                        │ 1:N
-                        ▼
-                 ┌──────────────┐
-                 │ApprovalRecord│
-                 │  审批记录     │
-                 └──────────────┘
-
-ExpenseCategory ←── N:1 ── ExpenseItem      （费用类别）
-ApprovalRule → （按金额区间 + 费用类别匹配规则，不直接关联）
+External Systems (HR / LDAP / 企业微信)
+  ├── SCIM 2.0 ─────────→ [users + identity_mappings]
+  └── MDM Webhook ───────→ [users sync]
 ```
 
-</div>
+- `POST /scim/Users` — SCIM 2.0 user CRUD
+- `POST /webhook/mdm` — MDM event receiver
+
+---
+
+## 📡 MCP Tools / MCP 工具
+
+| Tool | Description |
+|------|------------|
+| `search_expenses` | Multi-condition search with pagination |
+| `get_expense_detail` | Full report detail (items, invoices, approvals) |
+| `get_approval_status` | Approval status & history |
+| `get_statistics` | Aggregated stats by category/department |
+| `get_user_summary` | Per-user expense overview |
+| `list_pending_approvals` | Approver's pending queue |
+| `submit_expense_from_text` | Natural language → create expense |
+| `submit_expense_from_invoice` | Invoice image → OCR → create expense |
+| `query_expense_status` | NL query: "张三这个月报销批了吗" |
+| `explain_decision` | Approval chain + rule matching explanation |
+| `validate_expense` | Compliance check + suggestions |
+| `query_ontology` | SPARQL query the ontology |
 
 ---
 
 ## 📖 Documentation / 文档
 
-| Docs / 文档 | Content / 内容 |
-|-----|------|
-| [📄 系统需求设计 System Design](docs/2026-07-06-sse-design.md) | 完整功能说明、数据模型、API 定义、MCP 接口 Schema |
-| [📄 部署文档 Deployment](docs/2026-07-06-sse-deployment.md) | 逐步安装指南、Docker 配置、AI/OCR 部署 |
-| [📄 审批流设计器 Workflow Designer](docs/2026-07-07-workflow-organisation-design.md) | 可视化拖拽审批流配置、组织人员管理 |
-| [📄 实体关系与权限矩阵 ER & Permission Matrix](docs/2026-07-07-er-permission-matrix.md) | 实体关系图、RBAC 数据范围规则、权限矩阵 |
+| Doc | Content |
+|-----|---------|
+| [系统需求设计 (v2)](docs/2026-07-06-sse-design.md) | Full feature spec, data model, API, MCP schema |
+| [部署文档](docs/2026-07-06-sse-deployment.md) | Step-by-step install, Docker, AI/OCR, email/SMS setup |
+| [本体层设计](docs/2026-07-26-ontology-design.md) | OWL ontology + semantic orchestration engine |
+| [MDM 整合设计](docs/2026-07-26-mdm-design.md) | SCIM 2.0 + MDM Webhook + Identity Bridge |
+| [通知系统设计](docs/2026-07-26-notification-system-design.md) | In-app + SMS + Email notification system |
+| [UserPicker 设计](docs/2026-07-26-userpicker-design.md) | Reusable user search/select component |
+| [审批流设计器](docs/2026-07-07-workflow-organisation-design.md) | Visual drag-drop approval flow designer |
+| [实体关系与权限矩阵](docs/2026-07-07-er-permission-matrix.md) | ER diagram, RBAC data scope, permission matrix |
+| [开发过程记录 (2026-07-26)](docs/2026-07-26-sse-process.md) | Latest session progress, bug fixes, next steps |
 
 ---
 
-## 📚 License / 许可
+## 📜 License / 许可
 
-MIT
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
