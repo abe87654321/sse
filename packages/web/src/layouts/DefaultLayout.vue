@@ -82,14 +82,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
+import api from '../api/index'
 
 const auth = useAuthStore()
 const router = useRouter()
 const collapsed = ref(false)
 const showUserMenu = ref(false)
+const pendingApprovalCount = ref(0)
 
 function handleLogout() {
   showUserMenu.value = false
@@ -104,7 +106,7 @@ const navItems = computed(() => {
   const items = [
     { path: '/dashboard', label: '工作台', icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>' },
     { path: '/expenses', label: '报销列表', icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>' },
-    { path: '/approvals', label: '审批管理', icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>', badge: '3' },
+    { path: '/approvals', label: '审批管理', icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>', badge: pendingApprovalCount.value },
     { path: '/statistics', label: '统计分析', icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>' },
   ]
   if (isAdmin.value) {
@@ -115,6 +117,16 @@ const navItems = computed(() => {
     )
   }
   return items
+})
+
+onMounted(async () => {
+  const role = auth.user?.role
+  if (role === 'dept_approver' || role === 'admin') {
+    try {
+      const res = await api.get('/approvals/pending')
+      pendingApprovalCount.value = (res.data || []).length
+    } catch {}
+  }
 })
 </script>
 
