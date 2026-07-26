@@ -1,9 +1,11 @@
 -- 修改 notification_logs 表，适应新模型
 ALTER TABLE notification_logs
   ADD COLUMN IF NOT EXISTS user_id UUID,
+  ADD COLUMN IF NOT EXISTS type text,
   ADD COLUMN IF NOT EXISTS title text,
   ADD COLUMN IF NOT EXISTS body text,
-  ADD COLUMN IF NOT EXISTS read_at timestamptz;
+  ADD COLUMN IF NOT EXISTS read_at timestamptz,
+  ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
 
 -- migration: populate user_id from recipient_id if exists
 UPDATE notification_logs SET user_id = recipient_id::UUID WHERE recipient_id IS NOT NULL AND user_id IS NULL;
