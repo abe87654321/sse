@@ -496,7 +496,7 @@ docker compose version            # ≥ 2.0 即可
 **Q: 旧容器残留导致失败**
 
 ```bash
-sudo docker rm -f sse_postgres_1 sse_minio_1
+sudo docker rm -f sse-postgres-1 sse-minio-1
 sudo docker compose up -d
 ```
 
@@ -508,7 +508,15 @@ sudo docker compose up -d
 
 ```bash
 # 测试连接（端口 5433）
-psql -h localhost -p 5433 -U sse -d sse
+sudo docker exec -i sse-postgres-1 psql -U sse -d sse -c "SELECT 1"
+```
+
+**Q: system_messages 表不存在**
+
+迁移脚本 002 未执行。手动执行：
+
+```bash
+sudo docker exec -i sse-postgres-1 psql -U sse -d sse < packages/db/src/migrations/002_notifications.sql
 ```
 
 **Q: 迁移报错 `role "sse" does not exist`**
