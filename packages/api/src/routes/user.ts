@@ -24,9 +24,19 @@ router.put('/notify-prefs', asyncWrap(async (req, res) => {
 }));
 
 router.get('/search', asyncWrap(async (req, res) => {
-  const q = req.query.q as string || '';
-  const { rows } = await pool.query('SELECT id, name FROM users WHERE name ILIKE $1 OR phone ILIKE $1 LIMIT 10', [`%${q}%`]);
-  res.json(rows);
+  const q = (req.query.q as string)?.trim();
+  if (q) {
+    const { rows } = await pool.query(
+      "SELECT id, name, phone, department, role FROM users WHERE status = 'active' AND (name ILIKE $1 OR phone ILIKE $1) ORDER BY name LIMIT 20",
+      [`%${q}%`]
+    );
+    res.json(rows);
+  } else {
+    const { rows } = await pool.query(
+      "SELECT id, name, phone, department, role FROM users WHERE status = 'active' ORDER BY name LIMIT 50"
+    );
+    res.json(rows);
+  }
 }));
 
 export { router as userRoutes };

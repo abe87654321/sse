@@ -48,10 +48,7 @@
         </div>
 
         <div class="field"><label>指定用户（可选）</label>
-          <div class="user-tags">
-            <span v-for="u in form.specificUsers" :key="u.id" class="tag">{{ u.name }} <button @click="removeUser(u.id)">&times;</button></span>
-            <input v-model="userSearch" @keyup.enter="searchUser" placeholder="搜索用户添加..." class="tag-input" />
-          </div>
+          <UserPicker v-model="form.specificUsers" />
         </div>
 
         <div class="field"><label>发送渠道</label>
@@ -95,6 +92,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive } from 'vue'
 import api from '../api/index'
+import UserPicker from '../components/UserPicker.vue'
 
 const tab = ref<'draft' | 'sent'>('draft')
 const messages = ref<any[]>([])
@@ -104,7 +102,6 @@ const editingId = ref('')
 const polishedBody = ref('')
 const polishInstruction = ref('')
 const polishing = ref(false)
-const userSearch = ref('')
 
 const form = reactive({
   title: '', body: '', body_ai: '',
@@ -196,18 +193,6 @@ async function aiPolish() {
 
 function acceptPolish() { form.body = polishedBody.value; form.body_ai = polishedBody.value; polishInstruction.value = ''; showPolishDialog.value = false }
 
-async function searchUser() {
-  if (!userSearch.value.trim()) return
-  try {
-    const res = await api.get(`/user/search?q=${encodeURIComponent(userSearch.value)}`)
-    const users = res.data || []
-    for (const u of users) { if (!form.specificUsers.find(s => s.id === u.id)) form.specificUsers.push({ id: u.id, name: u.name }) }
-    userSearch.value = ''
-  } catch {}
-}
-
-function removeUser(id: string) { form.specificUsers = form.specificUsers.filter(u => u.id !== id) }
-
 onMounted(fetchMessages)
 </script>
 
@@ -231,11 +216,6 @@ onMounted(fetchMessages)
 .checkbox-group { display: flex; gap: 16px; flex-wrap: wrap; }
 .checkbox-group label { display: flex; align-items: center; gap: 4px; font-size: 0.9rem; cursor: pointer; }
 .checkbox-group label input[type="checkbox"] { width: auto; }
-
-.user-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); min-height: 36px; }
-.tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: var(--accent-sky-bg); color: var(--accent-sky); border-radius: var(--radius-sm); font-size: 0.82rem; }
-.tag button { background: none; border: none; color: inherit; cursor: pointer; font-size: 1rem; padding: 0; line-height: 1; }
-.tag-input { border: none; outline: none; flex: 1; min-width: 120px; background: transparent; font-size: 0.88rem; }
 
 .polish-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .polish-col { padding: 12px; background: var(--bg-warm); border-radius: var(--radius-sm); }
