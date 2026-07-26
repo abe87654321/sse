@@ -57,8 +57,15 @@
             </svg>
             <span class="topbar-dot"></span>
           </router-link>
-          <div class="topbar-user" @click="$router.push('/profile')">
+          <div class="topbar-user" @click="showUserMenu = !showUserMenu">
             <div class="avatar avatar-coral" style="width:34px;height:34px;font-size:0.8rem;">{{ userInitial }}</div>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:4px;">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </div>
+          <div v-if="showUserMenu" class="user-menu" @mouseleave="showUserMenu = false">
+            <router-link to="/profile" class="user-menu-item" @click="showUserMenu = false">个人中心</router-link>
+            <div class="user-menu-item" @click="handleLogout">登出</div>
           </div>
         </div>
       </header>
@@ -77,9 +84,17 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { useRouter } from 'vue-router'
 
 const auth = useAuthStore()
+const router = useRouter()
 const collapsed = ref(false)
+const showUserMenu = ref(false)
+
+function handleLogout() {
+  showUserMenu.value = false
+  auth.logout()
+}
 
 const userInitial = computed(() => auth.user?.name?.charAt(0)?.toUpperCase() || 'U')
 
@@ -271,7 +286,42 @@ const navItems = [
   background: var(--accent-coral);
   border: 2px solid var(--bg-card);
 }
-.topbar-user { cursor: pointer; }
+.topbar-user {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition);
+  position: relative;
+}
+.topbar-user:hover { background: var(--bg-hover); }
+
+.user-menu {
+  position: absolute;
+  top: var(--topbar-height);
+  right: 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  min-width: 140px;
+  z-index: 200;
+  overflow: hidden;
+}
+.user-menu-item {
+  display: block;
+  padding: 10px 16px;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+  text-decoration: none;
+}
+.user-menu-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
 
 .content {
   flex: 1;
