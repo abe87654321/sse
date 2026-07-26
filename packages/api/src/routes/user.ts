@@ -25,6 +25,17 @@ router.put('/notify-prefs', asyncWrap(async (req, res) => {
 
 router.get('/search', asyncWrap(async (req, res) => {
   const q = (req.query.q as string)?.trim();
+  const role = (req.query.role as string)?.trim();
+
+  if (role) {
+    const { rows } = await pool.query(
+      "SELECT id, name, phone, department, role FROM users WHERE status = 'active' AND role = $1 ORDER BY name",
+      [role]
+    );
+    res.json(rows);
+    return;
+  }
+
   if (q) {
     const { rows } = await pool.query(
       "SELECT id, name, phone, department, role FROM users WHERE status = 'active' AND (name ILIKE $1 OR phone ILIKE $1) ORDER BY name LIMIT 20",

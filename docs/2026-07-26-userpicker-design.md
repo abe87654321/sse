@@ -27,23 +27,28 @@
 
 ## 3. 后端改动
 
-`GET /user/search`：`q` 参数改为可选
+`GET /user/search`：`q` 和 `role` 参数可选
 
-| q | 行为 | limit |
-|---|------|-------|
-| 空/未传 | 返回全部活跃用户 | 50 |
-| 有值 | 按姓名或手机号模糊匹配 | 20 |
+| 参数 | 行为 | limit |
+|------|------|-------|
+| `role` 有值 | 返回指定角色的全部活跃用户 | 全部 |
+| `q` 有值 | 按姓名或手机号模糊匹配 | 20 |
+| 都无 | 返回全部活跃用户 | 50 |
 
 ```sql
--- q 为空
+-- role 指定
 SELECT id, name, phone, department, role
-FROM users WHERE status = 'active' ORDER BY name LIMIT 50
+FROM users WHERE status = 'active' AND role = $1 ORDER BY name
 
 -- q 不为空
 SELECT id, name, phone, department, role
 FROM users
 WHERE status = 'active' AND (name ILIKE '%xxx%' OR phone ILIKE '%xxx%')
 ORDER BY name LIMIT 20
+
+-- 都无
+SELECT id, name, phone, department, role
+FROM users WHERE status = 'active' ORDER BY name LIMIT 50
 ```
 
 ---
@@ -75,8 +80,38 @@ ORDER BY name LIMIT 20
 | 文件 | 变更 |
 |------|------|
 | `packages/web/src/components/UserPicker.vue` | 新建 |
-| `packages/api/src/routes/user.ts` | 修改：`/search` q 改为可选 |
-| `packages/web/src/pages/AdminMessages.vue` | 修改：替换内联搜索为 UserPicker |
+| `packages/api/src/routes/user.ts` | 修改：`/search` 加 `q` 和 `role` 参数 |
+| `packages/web/src/pages/AdminMessages.vue` | 修改：替换内联搜索为 UserPicker；角色-用户双向同步 |
+
+---
+
+## 6. 角色-用户双向同步
+
+### 6.1 数据模型
+
+唯一数据源是已选用户集合（UserPicker v-model）。role checkbox 是派生视图。
+
+```
+用户选中集合 ──(派生)──→ role checkbox 状态
+role checkbox ──(写入)──→ 用户选中集合
+```
+
+### 6.2 同步规则
+
+```
+勾选"财务" → GET /user/search?role=finance → 加入已选集合
+取消"财务" → 从集合移除所有 role=finance 的用户
+
+UserPicker 勾选某用户 → 检查该用户的 role 是否所有成员都已选中
+  是 → checkbox 自动勾
+  否 → checkbox 不勾
+
+UserPicker 移除某用户 → 同上反向检查
+```
+
+### 6.3 防循环
+
+使用 `syncing` 标志位防止 `syncRoleToUsers` 和 `syncUsersToRoles` 互相触发死循环。
 
 ---
 

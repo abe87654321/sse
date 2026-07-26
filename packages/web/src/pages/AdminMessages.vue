@@ -43,7 +43,7 @@
 
         <div class="field"><label>目标角色</label>
           <div class="checkbox-group">
-            <label v-for="role in roleOptions" :key="role.value"><input type="checkbox" :value="role.value" v-model="form.target_roles" /> {{ role.label }}</label>
+            <label v-for="role in roleOptions" :key="role.value"><input type="checkbox" :checked="form.target_roles.includes(role.value)" @change="syncRoleToUsers(role.value, ($event.target as HTMLInputElement).checked)" /> {{ role.label }}</label>
           </div>
         </div>
 
@@ -90,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, reactive, watch } from 'vue'
 import api from '../api/index'
 import UserPicker from '../components/UserPicker.vue'
 
@@ -115,6 +115,51 @@ const roleOptions = [
   { value: 'finance', label: '财务' },
   { value: 'employee', label: '普通员工' },
 ]
+
+let syncing = false
+
+async function syncRoleToUsers(role: string, checked: boolean) {
+  if (syncing) return
+  syncing = true
+  if (checked) {
+    try {
+      const res = await api.get('/user/search', { params: { role } })
+      const roleUsers: { id: string; name: string; role: string }[] = res.data || []
+      const existingIds = new Set(form.specificUsers.map((u: any) => u.id))
+      for (const u of roleUsers) {
+        if (!existingIds.has(u.id)) form.specificUsers.push({ id: u.id, name: u.name, role: u.role })
+      }
+    } catch {}
+  } else {
+    form.specificUsers = form.specificUsers.filter((u: any) => u.role !== role)
+  }
+  syncing = false
+  syncUsersToRoles()
+}
+
+async function syncUsersToRoles() {
+  if (syncing) return
+  syncing = true
+  for (const opt of roleOptions) {
+    const idx = form.target_roles.indexOf(opt.value)
+    try {
+      const res = await api.get('/user/search', { params: { role: opt.value } })
+      const allRoleIds = new Set((res.data || []).map((u: any) => u.id))
+      if (allRoleIds.size === 0) continue
+      const selectedRoleIds = new Set(
+        form.specificUsers.filter((u: any) => allRoleIds.has(u.id)).map((u: any) => u.id)
+      )
+      const allSelected = allRoleIds.size > 0 && allRoleIds.size === selectedRoleIds.size
+      if (allSelected && idx < 0) form.target_roles.push(opt.value)
+      if (!allSelected && idx >= 0) form.target_roles.splice(idx, 1)
+    } catch {}
+  }
+  syncing = false
+}
+
+watch(() => form.specificUsers.length, () => {
+  if (!syncing) syncUsersToRoles()
+})
 
 const filteredMessages = computed(() => messages.value.filter(m => m.status === tab.value))
 
