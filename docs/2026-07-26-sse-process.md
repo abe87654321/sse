@@ -434,19 +434,26 @@ docs/2026-07-26-sse-process.md
 
 ---
 
-## 已知问题（更新）
+## 待办模块汇总
 
-1. **事务性消息未接入** — 驳回/付款等事件未调用 NotificationEngine.send()
-2. **邮件/SMS Dev 模式** — 需配置 SMTP/阿里云
-3. **集成测试依赖 API 服务** — 需先启动 `pnpm --filter @sse/api dev`
+| 优先级 | 模块 | 说明 | 状态 |
+|--------|------|------|------|
+| P0 | 事务性消息接入 | 驳回/付款等 API 端点调用 NotificationEngine.send() | 未开始 |
+| P1 | 邮件/SMS 真实通道 | 当前 dev/log 模式，需配置 SMTP + 阿里云短信 | 未开始 |
+| P2 | 数据中台开放 API | `/api/v1/open/reports`、Webhook 推送 | 未开始 |
+| P3 | 集成测试验证 | `test/` 目录已有用例，需启动 API 执行 | 待执行 |
+| — | 预算管控 | 设计文档标记为"不在本期范围" | 排期外 |
+| — | ERP 系统对接 | 设计文档标记为"不在本期范围" | 排期外 |
+| — | 移动端原生 App | 设计文档标记为"不在本期范围" | 排期外 |
 
 ---
 
 ## 下次会话建议
 
-1. 运行 `pnpm test:integration`（需先启动 API）验证本体和 MDM
-2. 事务性消息接入 — 驳回/付款等 API 端点调用 NotificationEngine.send()
-3. 配置真实邮件/SMS 通道
+1. **P0** 事务性消息接入 — 驳回/付款等 API 端点调用 NotificationEngine.send()
+2. **P1** 配置真实邮件/SMS 通道
+3. **P3** 运行 `pnpm test:integration`（需先启动 API）验证本体和 MDM
+4. **P2** 数据中台开放 API — `/api/v1/open/reports` + Webhook
 
 ---
 
