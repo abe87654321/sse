@@ -380,8 +380,57 @@ docs/2026-07-26-sse-process.md
 ```
 
 ### 已知问题（本阶段）
-1. Ontology chunk 531KB（vis-network + vis-data 捆绑）
+1. vis-network + vis-data 捆绑体积大（已拆分为 vendor-vis 独立 chunk）
 2. Turtle 文件仅在写操作后保存，启动恢复优先 DB
+
+---
+
+## 阶段十：本体可视化完善 + 语义映射修复
+
+> 日期：2026-07-27 | 会话记录（续）
+
+### 使用的 ECC 技能
+- **brainstorming** — 基于 example.jpg 设计浅色可视化风格
+
+### 主要变更
+
+**语义映射修复**
+- SemanticMapper 原本用 `addEntity(uri, '', { submittedBy: '...' })` 创建的是字面量属性而非对象关系
+- 修复：所有关系改用 `addRelation(from, predicate, to)`，新增 Department 节点 + belongsTo 关系
+- 修复后不再出现"孤立节点"警告
+
+**可视化风格迭代**
+| 属性 | 调整 |
+|------|------|
+| 背景 | 浅色 `#fafbfc` + 内阴影边框 |
+| 节点 | 无边框 flat fill，`borderWidth: 0` |
+| 颜色 | 粉彩系：粉/蓝/黄/青/珊瑚/紫/绿，所有 Report 子类型统一青色 |
+| ExpenseItem | `#e8c820` 纯黄，box 扁矩形（80x20） |
+| 阴影 | `rgba(0,0,0,0.2)` size 18，比之前更显眼 |
+| 边 | 直线 `#999`，width 1px |
+| 标签 | sans-serif #333 字号13，节点下方；边标签 #666 字号11 居中 |
+| 标题 | serif bold 30px "本体图谱" + serif italic 16px 副标题 |
+
+**图例**
+- 形状与图元一致（圆/菱形/六角/星/方/扁矩形），用 CSS clip-path/transform 实现
+
+**节点标签**
+- 新增 `nodeLabel()` 从属性取有意义名称（Person→name, Report→title, ExpenseItem→"类别 ¥金额"）
+- 新增 `nodeTitle()` 悬停提示，ExpenseItem 显示类别/金额/描述/日期
+
+**构建优化**
+- vite.config.ts 添加 `manualChunks`：vis-network + vis-data 拆为独立 `vendor-vis` chunk（521KB）
+- Ontology 页面 chunk 从 531KB 降至 11KB
+- `chunkSizeWarningLimit` 调至 600KB 消除警告
+
+### 新增/修改文件
+```
+修改：
+packages/ontology/src/semantic-mapper.ts
+packages/web/src/pages/Ontology.vue (多次迭代)
+packages/web/vite.config.ts
+docs/2026-07-26-sse-process.md
+```
 
 ---
 
@@ -390,7 +439,6 @@ docs/2026-07-26-sse-process.md
 1. **事务性消息未接入** — 驳回/付款等事件未调用 NotificationEngine.send()
 2. **邮件/SMS Dev 模式** — 需配置 SMTP/阿里云
 3. **集成测试依赖 API 服务** — 需先启动 `pnpm --filter @sse/api dev`
-4. **本体 n3 类型声明** — `n3.d.ts` 是手动维护的类型声明
 
 ---
 

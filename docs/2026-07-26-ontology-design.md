@@ -1,8 +1,8 @@
 # SSE 本体层 — 语义编排引擎设计
 
-> 日期：2026-07-26 | 版本：v1.2 | 状态：已实现
+> 日期：2026-07-26 | 版本：v1.3 | 状态：已实现
 >
-> **v1.1 → v1.2 变更记录：** 可视化从 Cytoscape.js 更换为 vis-network（§12）、新增 validateGraph 合规校验（§13）、混合持久化 Turtle + DB（§14）、图例面板、启动时自动恢复。
+> **v1.2 → v1.3 变更记录：** 可视化风格改为浅色粉彩系 + 形状匹配图例 + box 扁矩形 ExpenseItem + 阴影增强（§12）、构建拆分 vis-network 独立 chunk（§15）、Report 子类型颜色统一、节点标签从属性读取有意义名称。
 
 ---
 
@@ -277,6 +277,8 @@ API 启动 → loadFromDb() 恢复 ──→ loadFromTurtle() 恢复 ───�
 | `packages/api/src/routes/ontology.ts` | 新建 | REST 端点（9 个） | ✅ |
 | `packages/web/src/pages/Ontology.vue` | 新建 | vis-network 可视化页面 | ✅ |
 | `packages/web/src/router/index.ts` | 修改 | `/ontology` 路由 | ✅ |
+| `packages/web/vite.config.ts` | 修改 | manualChunks 拆分 vis-network | ✅ |
+| `packages/ontology/src/semantic-mapper.ts` | 修改 | 修复 addRelation 替代 addEntity | ✅ |
 | `packages/db/src/migrations/004_ontology_snapshots.sql` | 新建 | DB 持久化表 | ✅ |
 | `packages/api/src/index.ts` | 修改 | 启动时恢复本体 | ✅ |
 
@@ -337,7 +339,34 @@ LLM 提取为结构化的实体列表和关系列表：
 └──────────────────────────────────────────────────────────┘
 ```
 
-### 12.2 API 端点（共 9 个）
+### 12.2 可视化风格（v1.3）
+
+| 属性 | 设置 |
+|------|------|
+| 背景 | `#fafbfc` 浅色 + 1px `#e5e7eb` 边框 + 内阴影 |
+| 节点 | 无边框 flat fill, `borderWidth: 0` |
+| 节点颜色 | 粉彩系：Person=粉, Department=蓝, ExpenseItem=纯黄, Report=青, Invoice=珊瑚, Rule=紫, Approver=天蓝, Company=绿 |
+| 节点大小 | dot 类 20px, ExpenseItem box 80x20 |
+| 节点阴影 | `rgba(0,0,0,0.2)` size 18 |
+| 节点标签 | sans-serif #333 13px, 节点下方 |
+| 边 | 直线 `#999`, width 1px, 箭头 0.5 比例 |
+| 边标签 | sans-serif #666 11px, 居中, 白色半透明背景 |
+| 标题 | serif bold 30px "本体图谱", serif italic 16px 副标题 |
+| 图例 | CSS 形状匹配（圆/菱形/六角/星/方/扁矩形）+ 颜色对照 |
+| 构建 | vis-network 拆为独立 `vendor-vis` chunk（521KB），页面 chunk 仅 11KB |
+
+### 12.3 节点标签规则
+
+| 类型 | 标签来源 |
+|------|----------|
+| Person | `name` → `phone` → URI |
+| Department / Company | `name` → URI |
+| Report | `title` → `serialNo` → URI |
+| ExpenseItem | `"类别 ¥金额"` → `description` → `category` |
+| Invoice | `file_name` → URI |
+| ApprovalRule | `name` → URI |
+
+### 12.4 API 端点（共 9 个）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
