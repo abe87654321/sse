@@ -125,18 +125,35 @@ watch(selectedNode, (node) => {
   for (const [k, v] of Object.entries(node.properties || {})) editableProps[k] = v as string
 })
 
+function nodeLabel(node: any): string {
+  const p = node.properties || {}
+  switch (node.type) {
+    case 'Person': return p.name || p.phone || node.label
+    case 'Department': return p.name || node.label
+    case 'Company': return p.name || node.label
+    case 'Approver': return p.name || node.label
+    case 'Report': case 'DraftReport': case 'PendingReport': case 'ApprovedReport':
+      return p.title || p.serialNo || node.label
+    case 'ExpenseItem': return p.description || p.category || `¥${p.amount || ''}` || node.label
+    case 'Invoice': return p.file_name || node.label
+    case 'ApprovalRule': return p.name || node.label
+    default: return node.label || node.id.split('/').pop()
+  }
+}
+
 function buildVisData() {
   const nodes = graph.value.nodes.map((n: any) => {
     const bg = COLORS[n.type] || COLORS.Unknown
+    const label = nodeLabel(n)
     return {
       id: n.id,
-      label: n.label || n.id.split('/').pop(),
+      label,
       color: { background: bg, border: bg, highlight: { background: bg, border: bg } },
       shape: SHAPES[n.type] || 'dot',
       size: 20,
       borderWidth: 0,
       shadow: { enabled: true, color: 'rgba(0,0,0,0.12)', size: 14, x: 0, y: 1 },
-      title: `${n.type}: ${n.label}\n${JSON.stringify(n.properties || {}, null, 2)}`,
+      title: `${n.type}: ${label}\n${JSON.stringify(n.properties || {}, null, 2)}`,
     }
   })
   const edges = graph.value.edges.map((e: any) => ({
