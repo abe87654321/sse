@@ -11,6 +11,13 @@ import * as getApprovalStatusTool from "./tools/get-approval-status.js";
 import * as getStatisticsTool from "./tools/get-statistics.js";
 import * as getUserSummaryTool from "./tools/get-user-summary.js";
 import * as listPendingApprovalsTool from "./tools/list-pending-approvals.js";
+import * as submitExpenseFromTextTool from "./tools/submit-expense-from-text.js";
+import * as submitExpenseFromInvoiceTool from "./tools/submit-expense-from-invoice.js";
+import * as queryExpenseStatusTool from "./tools/query-expense-status.js";
+import * as explainDecisionTool from "./tools/explain-decision.js";
+import * as getEntityNetworkTool from "./tools/get-entity-network.js";
+import * as validateExpenseTool from "./tools/validate-expense.js";
+import * as queryOntologyTool from "./tools/query-ontology.js";
 import type { ToolDefinition, ToolResult } from "./tools/types.js";
 
 interface ToolEntry {
@@ -25,6 +32,13 @@ const allTools: ToolEntry[] = [
   getStatisticsTool,
   getUserSummaryTool,
   listPendingApprovalsTool,
+  submitExpenseFromTextTool,
+  submitExpenseFromInvoiceTool,
+  queryExpenseStatusTool,
+  explainDecisionTool,
+  getEntityNetworkTool,
+  validateExpenseTool,
+  queryOntologyTool,
 ];
 
 const toolMap = new Map(allTools.map((t) => [t.definition.name, t]));

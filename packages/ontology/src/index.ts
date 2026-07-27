@@ -1,4 +1,4 @@
-export { OwlStore } from './owl-store';
+export { OwlStore, type GraphNode, type GraphEdge } from './owl-store';
 export { SemanticMapper } from './semantic-mapper';
 export { EntityExtractor } from './entity-extractor';
 export { ActionReasoner } from './action-reasoner';
