@@ -430,7 +430,12 @@ packages/ontology/src/semantic-mapper.ts
 packages/web/src/pages/Ontology.vue (多次迭代)
 packages/web/vite.config.ts
 docs/2026-07-26-sse-process.md
+docs/2026-07-26-ontology-design.md
 ```
+
+### 遗留问题
+- `pnpm test:integration` 未执行 — 需启动 API 后验证本体和 MDM 集成测试
+- 事务性消息接入未处理
 
 ---
 
@@ -441,7 +446,7 @@ docs/2026-07-26-sse-process.md
 | P0 | 事务性消息接入 | 驳回/付款等 API 端点调用 NotificationEngine.send() | 未开始 |
 | P1 | 邮件/SMS 真实通道 | 当前 dev/log 模式，需配置 SMTP + 阿里云短信 | 未开始 |
 | P2 | 数据中台开放 API | `/api/v1/open/reports`、Webhook 推送 | 未开始 |
-| P3 | 集成测试验证 | `test/` 目录已有用例，需启动 API 执行 | 待执行 |
+| P3 | 集成测试验证 | `test/` 目录已有 ontology/mdm 用例，需启动 API 执行（上次遗留） | 待执行 |
 | — | 预算管控 | 设计文档标记为"不在本期范围" | 排期外 |
 | — | ERP 系统对接 | 设计文档标记为"不在本期范围" | 排期外 |
 | — | 移动端原生 App | 设计文档标记为"不在本期范围" | 排期外 |
