@@ -65,14 +65,14 @@
     <div class="card legend-panel">
       <h4>图例</h4>
       <div class="legend-grid">
-        <div class="legend-item"><span class="legend-dot" style="background:#e878b0"></span> Person (人员)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#68a3e8"></span> Department (部门)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#58c4b8"></span> Report (报销单)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#6ea8f0"></span> ExpenseItem (费用项)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#e88080"></span> Invoice (发票)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#d878e0"></span> ApprovalRule (规则)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#58c4d0"></span> Approver (审批人)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#f5c842"></span> Company (公司)</div>
+        <div class="legend-item"><span class="legend-shape shape-dot" style="background:#e878b0"></span> Person (人员)</div>
+        <div class="legend-item"><span class="legend-shape shape-diamond" style="background:#5898e0"></span> Department (部门)</div>
+        <div class="legend-item"><span class="legend-shape shape-box" style="background:#e8b040"></span> ExpenseItem (费用项)</div>
+        <div class="legend-item"><span class="legend-shape shape-dot" style="background:#48b8a8"></span> Report (报销单)</div>
+        <div class="legend-item"><span class="legend-shape shape-star" style="background:#e87870"></span> Invoice (发票)</div>
+        <div class="legend-item"><span class="legend-shape shape-square" style="background:#c080e0"></span> ApprovalRule (规则)</div>
+        <div class="legend-item"><span class="legend-shape shape-dot" style="background:#48b0c8"></span> Approver (审批人)</div>
+        <div class="legend-item"><span class="legend-shape shape-hexagon" style="background:#88c040"></span> Company (公司)</div>
       </div>
     </div>
   </div>
@@ -107,15 +107,15 @@ let nodesData: DataSet<any> | null = null
 let edgesData: DataSet<any> | null = null
 
 const COLORS: Record<string, string> = {
-  Person: '#e878b0', Department: '#68a3e8', Company: '#f5c842',
-  Report: '#58c4b8', DraftReport: '#c4c9d0', PendingReport: '#f0b060',
-  ApprovedReport: '#58c4b8', ExpenseItem: '#6ea8f0', Invoice: '#e88080',
-  ApprovalRule: '#d878e0', Approver: '#58c4d0', Unknown: '#999',
+  Person: '#e878b0', Department: '#5898e0', Company: '#88c040',
+  Report: '#48b8a8', DraftReport: '#c4c9d0', PendingReport: '#f0b060',
+  ApprovedReport: '#48b8a8', ExpenseItem: '#e8b040', Invoice: '#e87870',
+  ApprovalRule: '#c080e0', Approver: '#48b0c8', Unknown: '#999',
 }
 
 const SHAPES: Record<string, string> = {
   Person: 'dot', Department: 'diamond', Company: 'hexagon',
-  ExpenseItem: 'triangle', Invoice: 'star', ApprovalRule: 'square',
+  ExpenseItem: 'box', Invoice: 'star', ApprovalRule: 'square',
   Approver: 'dot', Unknown: 'dot',
 }
 
@@ -134,27 +134,53 @@ function nodeLabel(node: any): string {
     case 'Approver': return p.name || node.label
     case 'Report': case 'DraftReport': case 'PendingReport': case 'ApprovedReport':
       return p.title || p.serialNo || node.label
-    case 'ExpenseItem': return p.description || p.category || `¥${p.amount || ''}` || node.label
+    case 'ExpenseItem': {
+      const cat = p.category || ''
+      const amt = p.amount ? `¥${p.amount}` : ''
+      return [cat, amt].filter(Boolean).join(' ') || node.label
+    }
     case 'Invoice': return p.file_name || node.label
     case 'ApprovalRule': return p.name || node.label
     default: return node.label || node.id.split('/').pop()
   }
 }
 
+function nodeTitle(node: any): string {
+  const p = node.properties || {}
+  const label = nodeLabel(node)
+  if (node.type === 'ExpenseItem') {
+    const lines = [
+      `费用项: ${p.category || '—'}  ¥${p.amount || '—'}`,
+      `描述: ${p.description || '—'}`,
+      `日期: ${p.date || p.expenseDate || '—'}`,
+    ]
+    return lines.join('\n')
+  }
+  return `${node.type}: ${label}\n${JSON.stringify(p, null, 2)}`
+}
+
 function buildVisData() {
   const nodes = graph.value.nodes.map((n: any) => {
     const bg = COLORS[n.type] || COLORS.Unknown
     const label = nodeLabel(n)
-    return {
+    const shape = SHAPES[n.type] || 'dot'
+    const node: any = {
       id: n.id,
       label,
       color: { background: bg, border: bg, highlight: { background: bg, border: bg } },
-      shape: SHAPES[n.type] || 'dot',
-      size: 20,
+      shape,
       borderWidth: 0,
-      shadow: { enabled: true, color: 'rgba(0,0,0,0.12)', size: 14, x: 0, y: 1 },
-      title: `${n.type}: ${label}\n${JSON.stringify(n.properties || {}, null, 2)}`,
+      shadow: { enabled: true, color: 'rgba(0,0,0,0.2)', size: 18, x: 0, y: 2 },
+      title: nodeTitle(n),
     }
+    if (shape === 'box') {
+      node.widthConstraint = { maximum: 80 }
+      node.heightConstraint = { maximum: 20 }
+      node.size = undefined
+    } else {
+      node.size = 20
+    }
+    return node
   })
   const edges = graph.value.edges.map((e: any) => ({
     id: e.id, from: e.from, to: e.to, label: e.label,
@@ -185,7 +211,7 @@ function initNetwork() {
     if (params.nodes.length > 0) {
       const nodeId = params.nodes[0]
       const n = graph.value.nodes.find((n: any) => n.id === nodeId)
-      if (n) selectedNode.value = { id: n.id, label: n.label || n.type, type: n.type, properties: { ...n.properties } }
+      if (n) selectedNode.value = { id: n.id, label: nodeLabel(n), type: n.type, properties: { ...n.properties } }
     } else {
       selectedNode.value = null
     }
@@ -344,5 +370,11 @@ onUnmounted(() => { if (network) network.destroy() })
 .legend-panel h4 { margin: 0 0 8px; font-size: 0.88rem; color: var(--text-secondary); }
 .legend-grid { display: flex; flex-wrap: wrap; gap: 12px 20px; }
 .legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--text-secondary); }
-.legend-dot { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+.legend-shape { width: 18px; height: 18px; flex-shrink: 0; }
+.shape-dot { border-radius: 50%; }
+.shape-diamond { border-radius: 2px; transform: rotate(45deg); width: 14px; height: 14px; margin: 2px; }
+.shape-hexagon { border-radius: 2px; clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); }
+.shape-square { border-radius: 2px; }
+.shape-star { clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
+.shape-box { border-radius: 2px; height: 10px; margin: 4px 0; }
 </style>
