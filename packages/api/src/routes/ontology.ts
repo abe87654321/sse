@@ -9,10 +9,18 @@ const router = Router();
 const CONFIG_PATH = join(process.cwd(), 'ai-config.json');
 
 function loadAiConfig() {
-  const defaults = { fillEngine: { endpoint: 'http://localhost:11434/v1/chat/completions', model: 'llama3.2-vision' } };
-  try { if (existsSync(CONFIG_PATH)) { const saved = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')); return { ...defaults, fillEngine: { ...defaults.fillEngine, ...(saved.fillEngine || {}) } }; } } catch { /* use defaults */ }
-  if (process.env.AI_ENDPOINT) defaults.fillEngine.endpoint = process.env.AI_ENDPOINT;
-  if (process.env.AI_MODEL) defaults.fillEngine.model = process.env.AI_MODEL;
+  const defaults = {
+    fillEngine: {
+      endpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
+      model: process.env.AI_MODEL || 'llama3.2-vision',
+    },
+  };
+  try {
+    if (existsSync(CONFIG_PATH)) {
+      const saved = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+      return { ...defaults, fillEngine: { ...defaults.fillEngine, ...(saved.fillEngine || {}) } };
+    }
+  } catch { /* use defaults */ }
   return defaults;
 }
 
