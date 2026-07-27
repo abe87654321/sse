@@ -17,5 +17,15 @@ export default defineConfig({
         rewrite: (path: string) => path.replace(/^\/api/, ''),
       }
     }
-  }
+  },
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-vis': ['vis-network', 'vis-data'],
+        },
+      },
+    },
+  },
 })
