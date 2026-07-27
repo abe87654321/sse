@@ -1,7 +1,8 @@
 <template>
   <div class="ontology-page">
-    <div class="page-header">
-      <h2 class="page-header-title">本体可视化</h2>
+    <div class="ontology-title-row">
+      <h1 class="ontology-title">Ontology Graph</h1>
+      <p class="ontology-subtitle">Semantic visualization of expenses, people, and organizations</p>
       <div class="header-spacer"></div>
       <button class="btn-secondary btn-sm" @click="syncFromDB" :disabled="syncing">从数据库同步</button>
     </div>
@@ -118,13 +119,6 @@ const SHAPES: Record<string, string> = {
   Approver: 'dot', Unknown: 'dot',
 }
 
-const BORDER_COLORS: Record<string, string> = {
-  Person: '#d06090', Department: '#4888c8', Company: '#d4a820',
-  Report: '#38a898', DraftReport: '#a0a5ac', PendingReport: '#d09040',
-  ApprovedReport: '#38a898', ExpenseItem: '#4e88d0', Invoice: '#c86060',
-  ApprovalRule: '#b858c0', Approver: '#38a8b0', Unknown: '#777',
-}
-
 watch(selectedNode, (node) => {
   if (!node) return
   for (const k of Object.keys(editableProps)) delete editableProps[k]
@@ -134,25 +128,24 @@ watch(selectedNode, (node) => {
 function buildVisData() {
   const nodes = graph.value.nodes.map((n: any) => {
     const bg = COLORS[n.type] || COLORS.Unknown
-    const border = BORDER_COLORS[n.type] || BORDER_COLORS.Unknown
     return {
       id: n.id,
       label: n.label || n.id.split('/').pop(),
-      color: { background: bg, border: border, highlight: { background: bg, border: border } },
+      color: { background: bg, border: bg, highlight: { background: bg, border: bg } },
       shape: SHAPES[n.type] || 'dot',
       size: 20,
-      shadow: { enabled: true, color: 'rgba(0,0,0,0.12)', size: 6, x: 1, y: 2 },
-      font: { color: '#444', size: 11, face: 'Inter, sans-serif' },
+      borderWidth: 0,
+      shadow: { enabled: true, color: 'rgba(0,0,0,0.12)', size: 14, x: 0, y: 1 },
       title: `${n.type}: ${n.label}\n${JSON.stringify(n.properties || {}, null, 2)}`,
     }
   })
   const edges = graph.value.edges.map((e: any) => ({
     id: e.id, from: e.from, to: e.to, label: e.label,
-    arrows: { to: { enabled: true, scaleFactor: 0.7 } },
-    color: { color: '#bbb', highlight: '#888' },
-    font: { color: '#999', size: 9, align: 'middle', background: 'rgba(255,255,255,0.7)' },
+    arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+    color: { color: '#999', highlight: '#666' },
+    font: { color: '#666', size: 11, align: 'horizontal', background: 'rgba(255,255,255,0.6)' },
     smooth: false,
-    width: 1.5,
+    width: 1,
   }))
   return { nodes: new DataSet(nodes), edges: new DataSet(edges) }
 }
@@ -165,7 +158,10 @@ function initNetwork() {
   network = new Network(graphContainer.value, { nodes, edges }, {
     physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -50, centralGravity: 0.01, springLength: 150, springConstant: 0.08 } },
     interaction: { hover: true, tooltipDelay: 200, navigationButtons: true, keyboard: true },
-    edges: { smooth: { type: 'curvedCW', roundness: 0.2 } },
+    nodes: {
+      font: { color: '#333', size: 13, face: 'sans-serif', align: 'below' },
+    },
+    edges: { smooth: false },
     layout: { improvedLayout: true },
   })
   network.on('click', (params: any) => {
@@ -301,6 +297,9 @@ onUnmounted(() => { if (network) network.destroy() })
 
 <style scoped>
 .ontology-page { max-width: 100%; }
+.ontology-title-row { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.ontology-title { font-family: Georgia, 'Times New Roman', serif; font-weight: bold; font-size: 30px; color: #111; margin: 0; line-height: 1.1; }
+.ontology-subtitle { font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 16px; color: #666; margin: 0 0 2px; }
 .header-spacer { flex: 1; }
 .nl-input-section { margin-bottom: 12px; padding: 14px 18px; }
 .nl-input-section label { font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 8px; color: var(--text-primary); }
@@ -317,7 +316,7 @@ onUnmounted(() => { if (network) network.destroy() })
 }
 .warnings-panel ul { margin: 4px 0 0 16px; padding: 0; }
 .warnings-panel li { margin-bottom: 2px; }
-.graph-container { height: 540px; padding: 0; overflow: hidden; border-radius: var(--radius-md); background: #f5f6fa; }
+.graph-container { height: 540px; padding: 0; overflow: hidden; border-radius: var(--radius-md); background: #fafbfc; border: 1px solid #e5e7eb; box-shadow: inset 0 0 30px rgba(0,0,0,0.03); }
 .properties-panel { margin-top: 12px; padding: 16px 20px; }
 .properties-panel h4 { margin: 0 0 10px; font-size: 0.95rem; color: var(--accent-coral); }
 .prop-item { margin-bottom: 6px; font-size: 0.85rem; display: flex; align-items: center; }
