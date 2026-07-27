@@ -1,6 +1,7 @@
 import { config } from 'dotenv';
-import { resolve } from 'path';
+import { resolve, join } from 'path';
 config({ path: resolve(__dirname, '..', '..', '..', '.env') });
+import { readFileSync, existsSync } from 'fs';
 import express from 'express';
 import cors from 'cors';
 import type { Server } from 'http';
@@ -14,6 +15,7 @@ import { notificationRoutes } from './routes/notifications';
 import { userRoutes } from './routes/user';
 import { adminMessageRoutes } from './routes/admin-messages';
 import { ontologyRoutes } from './routes/ontology';
+import { OntologyEngine } from '@sse/ontology';
 import { scimRoutes } from './routes/scim';
 import { webhookRoutes } from './routes/webhook';
 import { errorHandler } from './middleware/error';
@@ -95,7 +97,39 @@ function shutdown(server: Server) {
   }, 5000);
 }
 
-const server = app.listen(PORT, '0.0.0.0', () => {
+async function initOntology() {
+  const CONFIG_PATH = join(process.cwd(), 'ai-config.json');
+  const defaults = {
+    fillEngine: {
+      endpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
+      model: process.env.AI_MODEL || 'llama3.2-vision',
+    },
+  };
+  let cfg = defaults;
+  try {
+    if (existsSync(CONFIG_PATH)) {
+      const saved = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+      cfg = { ...defaults, fillEngine: { ...defaults.fillEngine, ...(saved.fillEngine || {}) } };
+    }
+  } catch { /* use defaults */ }
+  const engine = new OntologyEngine(cfg.fillEngine.endpoint, cfg.fillEngine.model);
+  try {
+    await engine.store.loadFromDb();
+    console.log('[Ontology] 已从数据库恢复本体');
+  } catch (e: any) {
+    console.log('[Ontology] 数据库无历史本体:', e.message);
+  }
+  try {
+    const turtlePath = join(process.cwd(), 'data', 'ontology', 'sse.owl');
+    if (existsSync(turtlePath)) {
+      await engine.store.loadFromTurtle(turtlePath);
+      console.log('[Ontology] 已从 Turtle 文件恢复本体');
+    }
+  } catch { /* file may not exist yet */ }
+}
+
+const server = app.listen(PORT, '0.0.0.0', async () => {
+  await initOntology();
   console.log(`[SSE API] 服务启动成功，端口: ${PORT}`);
   startScheduler();
 });
