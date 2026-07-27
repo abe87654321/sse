@@ -308,8 +308,91 @@ docs/2026-07-26-sse-process.md
 
 ### 已知问题（本阶段）
 1. GraphExtraction 在 types.ts 和 entity-extractor.ts 重复定义
-2. `data/ontology/sse.owl` 初始 Turtle 文件待创建
-3. Ontology.vue 的 turtle 导出功能为占位（前端无文件系统权限）
+2. 可视化页面使用 Cytoscape.js（已计划替换为 vis-network）
+
+---
+
+> 文档位置：`E:\app\opencode\sse\docs\2026-07-26-sse-process.md`
+
+---
+
+# SSE 报销系统 — 开发过程记录（v2.3）
+
+> 日期：2026-07-27 | 会话记录（续）
+
+---
+
+## 阶段九：本体可视化升级 — vis-network + 持久化 + 校验
+
+### 使用的 ECC 技能
+- **brainstorming** — 调研可视化方案（Cytoscape vs vis-network vs d3），确定持久化策略
+- **writing-plans** — 制定 5 个任务的实施计划
+- **subagent-driven-development** — 子代理逐任务实施
+
+### 5 个任务完成情况
+
+| # | 任务 | 状态 |
+|---|------|------|
+| 1 | OwlStore validateGraph + saveToDb/loadFromDb + DB 迁移 | ✅ |
+| 2 | vis-network 替换 cytoscape + 图例 + 警告 + 搜索 | ✅ |
+| 3 | API 集成校验 + Turtle/DB 持久化调用 | ✅ |
+| 4 | 启动时从 DB/Turtle 恢复本体 | ✅ |
+| 5 | 全量编译 + 文档更新 | ✅ |
+
+### 主要变更
+
+**可视化：Cytoscape.js → vis-network**
+- 节点按类型区分形状（Person=圆形, Department=菱形, ExpenseItem=三角形, Invoice=五角星, Rule=方形）
+- 深色背景 + 力导向布局，双击节点高亮邻居
+- 搜索过滤 + 重置视图 + 导航按钮
+- 底部图例面板（8 种类型颜色/形状对照）
+
+**合规校验：OwlStore.validateGraph()**
+- 检查关系来源/目标是否存在
+- 标记孤立节点（无连接）
+- 检查 Person 是否绑定 belongsTo 部门
+- API `/from-text` 和 `/sync` 返回 `warnings` 数组
+
+**混合持久化**
+- 每次写操作自动 saveToTurtle("data/ontology/sse.owl") + saveToDb()
+- API 启动时从 DB (ontology_snapshots 表) + Turtle 文件恢复
+- 重启后数据不丢失
+
+### 新增/修改文件
+```
+新增：
+packages/db/src/migrations/004_ontology_snapshots.sql
+
+修改：
+packages/ontology/src/owl-store.ts
+packages/web/src/pages/Ontology.vue (重写)
+packages/web/package.json (cytoscape → vis-network + vis-data)
+packages/api/src/routes/ontology.ts
+packages/api/src/index.ts
+docs/2026-07-26-ontology-design.md (v1.2)
+docs/2026-07-26-sse-process.md
+```
+
+### 已知问题（本阶段）
+1. Ontology chunk 531KB（vis-network + vis-data 捆绑）
+2. Turtle 文件仅在写操作后保存，启动恢复优先 DB
+
+---
+
+## 已知问题（更新）
+
+1. **事务性消息未接入** — 驳回/付款等事件未调用 NotificationEngine.send()
+2. **邮件/SMS Dev 模式** — 需配置 SMTP/阿里云
+3. **集成测试依赖 API 服务** — 需先启动 `pnpm --filter @sse/api dev`
+4. **本体 n3 类型声明** — `n3.d.ts` 是手动维护的类型声明
+
+---
+
+## 下次会话建议
+
+1. 运行 `pnpm test:integration`（需先启动 API）验证本体和 MDM
+2. 事务性消息接入 — 驳回/付款等 API 端点调用 NotificationEngine.send()
+3. 配置真实邮件/SMS 通道
 
 ---
 

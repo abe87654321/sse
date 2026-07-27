@@ -1,8 +1,8 @@
 # SSE 本体层 — 语义编排引擎设计
 
-> 日期：2026-07-26 | 版本：v1.1 | 状态：已实现
+> 日期：2026-07-26 | 版本：v1.2 | 状态：已实现
 >
-> **v1.0 → v1.1 变更记录：** NL→图谱生成（extractGraph）、本体可视化页面（Cytoscape.js）、MCP 工具全部 7 个已注册、API 新增 6 个端点（§11-12）、OwlStore 扩展（getGraph / CRUD）。
+> **v1.1 → v1.2 变更记录：** 可视化从 Cytoscape.js 更换为 vis-network（§12）、新增 validateGraph 合规校验（§13）、混合持久化 Turtle + DB（§14）、图例面板、启动时自动恢复。
 
 ---
 
@@ -238,7 +238,47 @@ interface MCPToolResponse {
 
 ---
 
-## 11. NL → 本体生成（v1.1 新增）
+## 13. 合规校验（v1.2 新增）
+
+`OwlStore.validateGraph()` 在每次写操作后自动执行，检查：
+
+| 检查项 | 说明 |
+|--------|------|
+| 关系来源存在性 | 每个 Relation 的 from/to 必须对应已存在的实体 |
+| 孤立节点 | 没有任何关系连接的实体标记为可疑 |
+| Person 缺少部门 | 人员类型实体必须有 belongsTo 关系 |
+
+校验结果以 `warnings` 数组返回给前端，以黄色警告面板展示。
+
+---
+
+## 14. 混合持久化（v1.2 新增）
+
+```
+写操作 → 内存 OwlStore → saveToTurtle("data/ontology/sse.owl") ┐
+                       → saveToDb() (ontology_snapshots 表)   │
+                                                               │
+API 启动 → loadFromDb() 恢复 ──→ loadFromTurtle() 恢复 ───────┘
+```
+
+| 存储 | 格式 | 用途 |
+|------|------|------|
+| Turtle 文件 | `data/ontology/sse.owl` | 版本管理、可编辑 |
+| DB JSONB | `ontology_snapshots` 表 | 恢复速度快、多实例共享 |
+
+---
+
+## 15. 文件变更清单（累计）
+
+| 文件 | 类型 | 说明 | 状态 |
+|------|------|------|------|
+| `packages/ontology/` | 新建 | 本体层包 | ✅ |
+| `packages/mcp/src/tools/submit-expense-from-text.ts` 等 7 文件 | 新建 | MCP 工具 | ✅ |
+| `packages/api/src/routes/ontology.ts` | 新建 | REST 端点（9 个） | ✅ |
+| `packages/web/src/pages/Ontology.vue` | 新建 | vis-network 可视化页面 | ✅ |
+| `packages/web/src/router/index.ts` | 修改 | `/ontology` 路由 | ✅ |
+| `packages/db/src/migrations/004_ontology_snapshots.sql` | 新建 | DB 持久化表 | ✅ |
+| `packages/api/src/index.ts` | 修改 | 启动时恢复本体 | ✅ |
 
 ### 11.1 流程
 
