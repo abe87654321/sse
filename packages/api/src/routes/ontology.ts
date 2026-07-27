@@ -48,4 +48,63 @@ router.get('/query', asyncWrap(async (req, res) => {
   res.json(getEngine().store.queryByType(type));
 }));
 
+router.post('/from-text', asyncWrap(async (req, res) => {
+  const { text } = req.body;
+  if (!text) throw new AppError(400, 'INVALID_PARAMS', '请提供 text 描述');
+
+  const extraction = await getEngine().extractor.extractGraph(text);
+
+  const store = getEngine().store;
+  const baseUri = 'https://sse.local/';
+
+  for (const entity of extraction.entities) {
+    const uri = entity.uri.includes('://') ? entity.uri : `${baseUri}${entity.uri}`;
+    store.addEntity(uri, entity.type, entity.properties);
+  }
+
+  for (const rel of extraction.relations) {
+    const fromUri = rel.from.includes('://') ? rel.from : `${baseUri}${rel.from}`;
+    const toUri = rel.to.includes('://') ? rel.to : `${baseUri}${rel.to}`;
+    store.addRelation(fromUri, rel.predicate, toUri);
+  }
+
+  const graph = store.getGraph();
+  res.json({ entities_added: extraction.entities.length, relations_added: extraction.relations.length, graph });
+}));
+
+router.get('/graph', asyncWrap(async (_req, res) => {
+  const graph = getEngine().store.getGraph();
+  res.json(graph);
+}));
+
+router.put('/entity', asyncWrap(async (req, res) => {
+  const { uri, type, properties } = req.body;
+  if (!uri || !type) throw new AppError(400, 'INVALID_PARAMS', '请提供 uri 和 type');
+  const store = getEngine().store;
+  store.deleteEntity(uri);
+  store.addEntity(uri, type, properties || {});
+  res.json({ message: '实体已保存', uri });
+}));
+
+router.delete('/entity', asyncWrap(async (req, res) => {
+  const uri = req.query.uri as string;
+  if (!uri) throw new AppError(400, 'INVALID_PARAMS', '请提供 uri 参数');
+  getEngine().store.deleteEntity(uri);
+  res.json({ message: '实体已删除' });
+}));
+
+router.post('/relation', asyncWrap(async (req, res) => {
+  const { from, to, predicate } = req.body;
+  if (!from || !to || !predicate) throw new AppError(400, 'INVALID_PARAMS', '请提供 from、to 和 predicate');
+  getEngine().store.addRelation(from, predicate, to);
+  res.json({ message: '关系已添加', from, predicate, to });
+}));
+
+router.delete('/relation', asyncWrap(async (req, res) => {
+  const { from, to, predicate } = req.body;
+  if (!from || !to || !predicate) throw new AppError(400, 'INVALID_PARAMS', '请提供 from、to 和 predicate');
+  getEngine().store.deleteRelation(from, predicate, to);
+  res.json({ message: '关系已删除' });
+}));
+
 export { router as ontologyRoutes };
