@@ -1,4 +1,4 @@
-import { Store, Parser, Writer } from 'n3';
+import { Store, Parser, Writer, DataFactory } from 'n3';
 
 export interface GraphNode {
   id: string;
@@ -18,6 +18,9 @@ export interface OntologyGraph {
   nodes: GraphNode[];
   edges: GraphEdge[];
 }
+
+const RDF_TYPE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
+const { namedNode, literal } = DataFactory;
 
 export class OwlStore {
   private store: Store;
@@ -45,38 +48,38 @@ export class OwlStore {
   }
 
   addEntity(uri: string, type: string, properties: Record<string, string>): void {
-    const subject = this.store.createNamedNode(uri);
-    this.store.addQuad(subject, this.store.createNamedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), this.store.createNamedNode(this.baseUri + type));
+    const subject = namedNode(uri);
+    this.store.addQuad(subject, namedNode(RDF_TYPE), namedNode(this.baseUri + type));
     for (const [key, value] of Object.entries(properties)) {
-      this.store.addQuad(subject, this.store.createNamedNode(this.baseUri + key), this.store.createLiteral(value));
+      this.store.addQuad(subject, namedNode(this.baseUri + key), literal(value));
     }
   }
 
   addRelation(fromUri: string, predicate: string, toUri: string): void {
-    const subject = this.store.createNamedNode(fromUri);
+    const subject = namedNode(fromUri);
     const objectUri = toUri.startsWith('http') ? toUri : `${this.baseUri}${toUri}`;
-    this.store.addQuad(subject, this.store.createNamedNode(this.baseUri + predicate), this.store.createNamedNode(objectUri));
+    this.store.addQuad(subject, namedNode(this.baseUri + predicate), namedNode(objectUri));
   }
 
   deleteEntity(uri: string): void {
-    this.store.removeMatches(this.store.createNamedNode(uri), null, null, null);
-    this.store.removeMatches(null, null, this.store.createNamedNode(uri), null);
+    this.store.removeMatches(namedNode(uri), null, null, null);
+    this.store.removeMatches(null, null, namedNode(uri), null);
   }
 
   deleteRelation(fromUri: string, predicate: string, toUri: string): void {
-    const subject = this.store.createNamedNode(fromUri);
-    const predicateNode = this.store.createNamedNode(this.baseUri + predicate);
+    const subject = namedNode(fromUri);
+    const predicateNode = namedNode(this.baseUri + predicate);
     const objectUri = toUri.startsWith('http') ? toUri : `${this.baseUri}${toUri}`;
-    this.store.removeMatches(subject, predicateNode, this.store.createNamedNode(objectUri), null);
+    this.store.removeMatches(subject, predicateNode, namedNode(objectUri), null);
   }
 
   queryByType(type: string): Array<{ uri: string; properties: Record<string, string> }> {
     const results: Array<{ uri: string; properties: Record<string, string> }> = [];
-    const typeNode = this.store.createNamedNode(this.baseUri + type);
-    for (const quad of this.store.match(null, this.store.createNamedNode('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'), typeNode)) {
+    const typeNode = namedNode(this.baseUri + type);
+    for (const quad of this.store.match(null, namedNode(RDF_TYPE), typeNode)) {
       const props: Record<string, string> = {};
       for (const pq of this.store.match(quad.subject, null, null)) {
-        if (pq.predicate.value === 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type') continue;
+        if (pq.predicate.value === RDF_TYPE) continue;
         const predicate = pq.predicate.value.replace(this.baseUri, '');
         props[predicate] = pq.object.value;
       }
@@ -89,10 +92,9 @@ export class OwlStore {
     const nodes: GraphNode[] = [];
     const edges: GraphEdge[] = [];
     const seenNodes = new Set<string>();
-    const rdfType = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
 
     const typeIndex = new Map<string, string>();
-    for (const quad of this.store.getQuads(null, this.store.createNamedNode(rdfType), null, null)) {
+    for (const quad of this.store.getQuads(null, namedNode(RDF_TYPE), null, null)) {
       typeIndex.set(quad.subject.value, quad.object.value);
     }
 
@@ -109,7 +111,7 @@ export class OwlStore {
         nodes.push({ id: subjectUri, label: shortId, type, properties: {} });
       }
 
-      if (predicateUri === rdfType) continue;
+      if (predicateUri === RDF_TYPE) continue;
 
       const isObjectLiteral = quad.object.termType === 'Literal';
       const propertyName = predicateUri.replace(this.baseUri, '');

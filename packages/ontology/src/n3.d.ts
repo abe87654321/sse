@@ -5,8 +5,6 @@ declare module 'n3' {
     getQuads(subject: any, predicate: any, object: any, graph: any): any[];
     match(subject: any, predicate: any, object: any, graph?: any): any[];
     removeMatches(subject: any, predicate: any, object: any, graph?: any): void;
-    createNamedNode(iri: string): any;
-    createLiteral(value: string): any;
   }
 
   export class Parser {
@@ -18,4 +16,9 @@ declare module 'n3' {
     constructor(options?: { format?: string });
     quadsToString(quads: any[]): string;
   }
+
+  export const DataFactory: {
+    namedNode(iri: string): any;
+    literal(value: string): any;
+  };
 }
