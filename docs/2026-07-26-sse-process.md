@@ -358,6 +358,12 @@ docs/2026-07-26-sse-process.md
 - API 启动时从 DB (ontology_snapshots 表) + Turtle 文件恢复
 - 重启后数据不丢失
 
+**数据库迁移（Docker 环境）**
+```bash
+# 注意：PostgreSQL 在 Docker 容器中，不能用本地 psql
+sudo docker exec -i sse-postgres-1 psql -U sse -d sse < packages/db/src/migrations/004_ontology_snapshots.sql
+```
+
 ### 新增/修改文件
 ```
 新增：
