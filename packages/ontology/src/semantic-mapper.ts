@@ -14,6 +14,8 @@ export class SemanticMapper {
     const { rows: users } = await pool.query('SELECT id, name, department FROM users WHERE id = $1', [userId]);
     const user = users[0];
 
+    const userUri = `https://sse.local/person/${user.id}`;
+
     this.store.addEntity(reportUri, r.status === 'draft' ? 'DraftReport' : r.status === 'pending' ? 'PendingReport' : 'ApprovedReport', {
       serialNo: r.serial_no,
       title: r.title,
@@ -23,11 +25,18 @@ export class SemanticMapper {
     });
 
     if (user) {
-      this.store.addEntity(`https://sse.local/person/${user.id}`, 'Person', {
+      this.store.addEntity(userUri, 'Person', {
         name: user.name,
-        department: user.department,
+        department: user.department || '未分配',
       });
-      this.store.addEntity(reportUri, '', { submittedBy: `https://sse.local/person/${user.id}` });
+
+      const deptUri = `https://sse.local/dept/${encodeURIComponent(user.department || '未分配')}`;
+      this.store.addEntity(deptUri, 'Department', {
+        name: user.department || '未分配',
+      });
+
+      this.store.addRelation(userUri, 'belongsTo', deptUri);
+      this.store.addRelation(reportUri, 'submittedBy', userUri);
     }
 
     const { rows: items } = await pool.query(
@@ -41,7 +50,7 @@ export class SemanticMapper {
         description: item.description || '',
         category: item.cat_name || '',
       });
-      this.store.addEntity(reportUri, '', { containsItem: itemUri });
+      this.store.addRelation(reportUri, 'containsItem', itemUri);
     }
   }
 
