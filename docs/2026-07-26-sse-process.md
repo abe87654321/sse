@@ -204,7 +204,7 @@ docs/plans/2026-07-26-mdm.md
 1. **事务性消息未接入** — 驳回/付款等事件未调用 NotificationEngine.send()
 2. **邮件/SMS Dev 模式** — 需配置 SMTP/阿里云
 3. **集成测试依赖 API 服务** — 需先启动 `pnpm --filter @sse/api dev`
-4. **`git stash/pop` 冲突** — 本地 package.json 被 pnpm add 修改时 pull 会冲突
+4. **本体 Turtle 文件** — `data/ontology/sse.owl` 初始文件待创建
 
 ---
 
@@ -213,8 +213,103 @@ docs/plans/2026-07-26-mdm.md
 1. 运行 `pnpm test:integration`（需先启动 API）验证本体和 MDM
 2. 事务性消息接入 — 驳回/付款等 API 端点调用 NotificationEngine.send()
 3. 配置真实邮件/SMS 通道
-4. 本体可视化编辑页面（Cytoscape.js）
-5. MCP 工具注册（ontology 的 5 个新工具）
+4. 创建 `data/ontology/sse.owl` 初始 Turtle 本体文件
+
+---
+
+> 文档位置：`E:\app\opencode\sse\docs\2026-07-26-sse-process.md`
+
+---
+
+# SSE 报销系统 — 开发过程记录（v2.2）
+
+> 日期：2026-07-27 | 会话记录
+
+---
+
+## 阶段八：本体层 MCP 工具 + 可视化页面
+
+### 使用的 ECC 技能
+- **brainstorming** — 确认 MCP 工具选择（7个全做）+ 可视化方案（Cytoscape.js）
+- **writing-plans** — 制定 6 个任务的实施计划
+- **subagent-driven-development** — 子代理逐任务实施 + spec/code 双阶段审查
+
+### 6 个任务完成情况
+
+| # | 任务 | 状态 |
+|---|------|------|
+| 1 | OwlStore 扩展：getGraph / addRelation / deleteEntity / deleteRelation / clear | ✅ |
+| 2 | EntityExtractor 扩展：extractGraph NL→图谱 | ✅ |
+| 3 | 7 个 MCP 工具实现 + server.ts 注册（共 13 个工具） | ✅ |
+| 4 | API 扩展：/from-text, /graph, /entity, /relation（共 9 个端点） | ✅ |
+| 5 | 前端 Ontology.vue（Cytoscape.js）+ 路由 + 侧边栏 | ✅ |
+| 6 | 全量编译验证（11/11 包通过） | ✅ |
+
+### MCP 工具（7 个新增）
+
+| 工具 | 功能 |
+|------|------|
+| `submit_expense_from_text` | NL 描述 → LLM 提取 → 创建+提交报销单 |
+| `submit_expense_from_invoice` | 发票 base64 → OCR → LLM → 创建报销单 |
+| `query_expense_status` | NL 查询 → LLM 提取过滤条件 → SQL 搜索 → NL 总结 |
+| `explain_decision` | 解释审批规则匹配 + 审批链 + 全程历史 |
+| `get_entity_network` | N 跳 BFS 语义关系网络展开 |
+| `validate_expense` | 合规检查：规则匹配 + 审批人就绪校验 + 建议 |
+| `query_ontology` | 图谱查询：全图/按类型过滤 + 统计概览 |
+
+### API 端点（6 个新增，共 9 个）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/ontology/from-text` | NL → LLM 提取实体+关系 → 存 OwlStore |
+| `GET` | `/ontology/graph` | 返回全图谱（nodes + edges） |
+| `PUT` | `/ontology/entity` | 创建/编辑实体 |
+| `DELETE` | `/ontology/entity?uri=` | 删除实体及关联 |
+| `POST` | `/ontology/relation` | 创建关系 |
+| `DELETE` | `/ontology/relation` | 删除关系 |
+
+### 前端页面
+
+- **路由**：`/ontology`，侧边栏菜单"本体可视化"
+- **Cytoscape.js 图谱**：缩放/拖拽/自动布局，节点按类型着色
+- **NL → 图谱**：自然语言描述 → LLM 提取 → 渲染到画布
+- **手动编辑**：添加节点（URI+类型+属性JSON）、添加关系
+- **属性面板**：点击节点查看/编辑属性，保存或删除
+- **数据库同步**：一键从 expense_reports 表同步到本体图谱
+
+### 代码质量修复
+- OwlStore `getGraph()`：修复 N+1 查询（预建 typeIndex），修复 https URI 误判（改用 termType）
+- EntityExtractor：GraphExtraction 类型同时定义于 types.ts 和 entity-extractor.ts（TODO：统一导入）
+
+### 新增/修改文件
+
+```
+新增：
+packages/mcp/src/tools/submit-expense-from-text.ts
+packages/mcp/src/tools/submit-expense-from-invoice.ts
+packages/mcp/src/tools/query-expense-status.ts
+packages/mcp/src/tools/explain-decision.ts
+packages/mcp/src/tools/get-entity-network.ts
+packages/mcp/src/tools/validate-expense.ts
+packages/mcp/src/tools/query-ontology.ts
+packages/web/src/pages/Ontology.vue
+
+修改：
+packages/ontology/src/owl-store.ts
+packages/ontology/src/entity-extractor.ts
+packages/ontology/src/types.ts
+packages/mcp/src/server.ts
+packages/api/src/routes/ontology.ts
+packages/web/src/router/index.ts
+packages/web/src/layouts/DefaultLayout.vue
+docs/2026-07-26-ontology-design.md
+docs/2026-07-26-sse-process.md
+```
+
+### 已知问题（本阶段）
+1. GraphExtraction 在 types.ts 和 entity-extractor.ts 重复定义
+2. `data/ontology/sse.owl` 初始 Turtle 文件待创建
+3. Ontology.vue 的 turtle 导出功能为占位（前端无文件系统权限）
 
 ---
 

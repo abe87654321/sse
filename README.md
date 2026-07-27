@@ -47,7 +47,7 @@
 | 🧠 **AI Semantic Engine** | LLM-powered entity extraction, category matching, and NL explanation |
 | 📊 **Statistics & Export** | Charts, monthly trends, Excel export |
 | 🔔 **Notifications** | In-app + SMS + Email with per-user preferences and delivery tracking |
-| 📡 **MCP Protocol** | 12 read/write tools for AI Agent integration |
+| 📡 **MCP Protocol** | 13 read/write tools for AI Agent integration |
 | 🔗 **SCIM 2.0 + MDM** | External identity sync via SCIM and MDM Webhook |
 | 🗂️ **Object Storage** | Invoice files in MinIO, DB holds references only |
 | 🔐 **RBAC** | 4 roles with data scope isolation |
@@ -160,7 +160,7 @@ sse/
 │   ├── db/              # PostgreSQL repositories & migrations
 │   ├── auth/            # JWT + RBAC
 │   ├── api/             # Express REST API
-│   ├── mcp/             # MCP Server (12 tools)
+│   ├── mcp/             # MCP Server (13 tools)
 │   ├── ontology/        # OWL ontology + semantic orchestration engine
 │   ├── ocr/             # Invoice OCR (PDF/OFD)
 │   ├── ai/              # LLM provider (Ollama)
@@ -199,10 +199,18 @@ Natural language → LLM extraction → ontology mapping → auto expense creati
   → NL Explanation: "已为张三创建报销单，住宿费 ¥600，审批中。"
 ```
 
-**Endpoints:**
+**Endpoints (9):**
 - `POST /ontology/submit-from-text` — Natural language expense creation
+- `POST /ontology/from-text` — NL → ontology graph generation (LLM extraction)
+- `GET /ontology/graph` — Full ontology graph (nodes + edges)
 - `GET /ontology/sync` — Full ontology sync from DB
 - `GET /ontology/query?type=X` — Query ontology by class
+- `PUT /ontology/entity` — Create/update entity
+- `DELETE /ontology/entity?uri=...` — Delete entity
+- `POST /ontology/relation` — Create relation
+- `DELETE /ontology/relation` — Delete relation
+
+**Visualization:** `/ontology` page — interactive Cytoscape.js graph with NL-to-graph generation, manual node/edge editing, and DB sync.
 
 ---
 
@@ -234,7 +242,8 @@ External Systems (HR / LDAP / 企业微信)
 | `query_expense_status` | NL query: "张三这个月报销批了吗" |
 | `explain_decision` | Approval chain + rule matching explanation |
 | `validate_expense` | Compliance check + suggestions |
-| `query_ontology` | SPARQL query the ontology |
+| `get_entity_network` | N-hop semantic relationship network |
+| `query_ontology` | Query ontology graph by type or full graph |
 
 ---
 
