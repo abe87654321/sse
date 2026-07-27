@@ -137,4 +137,59 @@ export class OwlStore {
   clear(): void {
     this.store = new Store();
   }
+
+  validateGraph(): string[] {
+    const warnings: string[] = [];
+    const graph = this.getGraph();
+    const nodeSet = new Set(graph.nodes.map(n => n.id));
+
+    for (const e of graph.edges) {
+      if (!nodeSet.has(e.from)) warnings.push(`关系 "${e.label}" 的来源实体不存在`);
+      if (!nodeSet.has(e.to)) warnings.push(`关系 "${e.label}" 的目标实体不存在`);
+    }
+
+    const connectedIds = new Set<string>();
+    for (const e of graph.edges) { connectedIds.add(e.from); connectedIds.add(e.to); }
+    for (const id of nodeSet) {
+      if (!connectedIds.has(id)) {
+        const node = graph.nodes.find(n => n.id === id);
+        warnings.push(`实体 "${node?.label || id}" 是孤立节点，没有任何关系连接`);
+      }
+    }
+
+    const persons = this.queryByType('Person');
+    for (const p of persons) {
+      const hasDept = graph.edges.some(e => e.from === p.uri && e.label === 'belongsTo');
+      if (!hasDept) warnings.push(`人员 ${p.properties.name || p.uri} 未绑定部门（缺少 belongsTo 关系）`);
+    }
+
+    return warnings;
+  }
+
+  async saveToDb(): Promise<void> {
+    const { pool } = await import('@sse/db');
+    const graph = this.getGraph();
+    await pool.query(
+      `INSERT INTO ontology_snapshots (graph) VALUES ($1)`,
+      [JSON.stringify(graph)]
+    );
+  }
+
+  async loadFromDb(): Promise<void> {
+    const { pool } = await import('@sse/db');
+    const { rows } = await pool.query(
+      'SELECT graph FROM ontology_snapshots ORDER BY created_at DESC LIMIT 1'
+    );
+    if (rows.length === 0) return;
+    const graph = rows[0].graph;
+    if (!graph || !graph.nodes) return;
+    this.clear();
+    for (const node of (graph.nodes as any[])) {
+      const uri = node.id;
+      this.addEntity(uri, node.type, node.properties || {});
+    }
+    for (const edge of (graph.edges as any[])) {
+      this.addRelation(edge.from, edge.predicate || edge.label, edge.to);
+    }
+  }
 }
