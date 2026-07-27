@@ -64,14 +64,14 @@
     <div class="card legend-panel">
       <h4>图例</h4>
       <div class="legend-grid">
-        <div class="legend-item"><span class="legend-dot" style="background:#f97316"></span> Person (人员)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#6366f1"></span> Department (部门)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#10b981"></span> Report (报销单)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#3b82f6"></span> ExpenseItem (费用项)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#ef4444"></span> Invoice (发票)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#ec4899"></span> ApprovalRule (规则)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#14b8a6"></span> Approver (审批人)</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#a855f7"></span> Company (公司)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#e878b0"></span> Person (人员)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#68a3e8"></span> Department (部门)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#58c4b8"></span> Report (报销单)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#6ea8f0"></span> ExpenseItem (费用项)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#e88080"></span> Invoice (发票)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#d878e0"></span> ApprovalRule (规则)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#58c4d0"></span> Approver (审批人)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#f5c842"></span> Company (公司)</div>
       </div>
     </div>
   </div>
@@ -106,16 +106,23 @@ let nodesData: DataSet<any> | null = null
 let edgesData: DataSet<any> | null = null
 
 const COLORS: Record<string, string> = {
-  Person: '#f97316', Department: '#6366f1', Company: '#a855f7',
-  Report: '#10b981', DraftReport: '#94a3b8', PendingReport: '#f59e0b',
-  ApprovedReport: '#10b981', ExpenseItem: '#3b82f6', Invoice: '#ef4444',
-  ApprovalRule: '#ec4899', Approver: '#14b8a6', Unknown: '#6b7280',
+  Person: '#e878b0', Department: '#68a3e8', Company: '#f5c842',
+  Report: '#58c4b8', DraftReport: '#c4c9d0', PendingReport: '#f0b060',
+  ApprovedReport: '#58c4b8', ExpenseItem: '#6ea8f0', Invoice: '#e88080',
+  ApprovalRule: '#d878e0', Approver: '#58c4d0', Unknown: '#999',
 }
 
 const SHAPES: Record<string, string> = {
   Person: 'dot', Department: 'diamond', Company: 'hexagon',
   ExpenseItem: 'triangle', Invoice: 'star', ApprovalRule: 'square',
   Approver: 'dot', Unknown: 'dot',
+}
+
+const BORDER_COLORS: Record<string, string> = {
+  Person: '#d06090', Department: '#4888c8', Company: '#d4a820',
+  Report: '#38a898', DraftReport: '#a0a5ac', PendingReport: '#d09040',
+  ApprovedReport: '#38a898', ExpenseItem: '#4e88d0', Invoice: '#c86060',
+  ApprovalRule: '#b858c0', Approver: '#38a8b0', Unknown: '#777',
 }
 
 watch(selectedNode, (node) => {
@@ -125,21 +132,27 @@ watch(selectedNode, (node) => {
 })
 
 function buildVisData() {
-  const nodes = graph.value.nodes.map((n: any) => ({
-    id: n.id,
-    label: n.label || n.id.split('/').pop(),
-    color: { background: COLORS[n.type] || COLORS.Unknown, border: '#1e1e2e', highlight: { background: COLORS[n.type] || COLORS.Unknown, border: '#fff' } },
-    shape: SHAPES[n.type] || 'dot',
-    size: 30,
-    font: { color: '#e2e8f0', size: 12, face: 'Inter, sans-serif' },
-    title: `${n.type}: ${n.label}\n${JSON.stringify(n.properties || {}, null, 2)}`,
-  }))
+  const nodes = graph.value.nodes.map((n: any) => {
+    const bg = COLORS[n.type] || COLORS.Unknown
+    const border = BORDER_COLORS[n.type] || BORDER_COLORS.Unknown
+    return {
+      id: n.id,
+      label: n.label || n.id.split('/').pop(),
+      color: { background: bg, border: border, highlight: { background: bg, border: border } },
+      shape: SHAPES[n.type] || 'dot',
+      size: 20,
+      shadow: { enabled: true, color: 'rgba(0,0,0,0.12)', size: 6, x: 1, y: 2 },
+      font: { color: '#444', size: 11, face: 'Inter, sans-serif' },
+      title: `${n.type}: ${n.label}\n${JSON.stringify(n.properties || {}, null, 2)}`,
+    }
+  })
   const edges = graph.value.edges.map((e: any) => ({
     id: e.id, from: e.from, to: e.to, label: e.label,
-    arrows: 'to',
-    color: { color: '#64748b', highlight: '#f59e0b' },
-    font: { color: '#94a3b8', size: 10, align: 'middle' },
-    smooth: { type: 'curvedCW', roundness: 0.2 },
+    arrows: { to: { enabled: true, scaleFactor: 0.7 } },
+    color: { color: '#bbb', highlight: '#888' },
+    font: { color: '#999', size: 9, align: 'middle', background: 'rgba(255,255,255,0.7)' },
+    smooth: false,
+    width: 1.5,
   }))
   return { nodes: new DataSet(nodes), edges: new DataSet(edges) }
 }
@@ -304,7 +317,7 @@ onUnmounted(() => { if (network) network.destroy() })
 }
 .warnings-panel ul { margin: 4px 0 0 16px; padding: 0; }
 .warnings-panel li { margin-bottom: 2px; }
-.graph-container { height: 540px; padding: 0; overflow: hidden; border-radius: var(--radius-md); background: #1a1a2e; }
+.graph-container { height: 540px; padding: 0; overflow: hidden; border-radius: var(--radius-md); background: #f5f6fa; }
 .properties-panel { margin-top: 12px; padding: 16px 20px; }
 .properties-panel h4 { margin: 0 0 10px; font-size: 0.95rem; color: var(--accent-coral); }
 .prop-item { margin-bottom: 6px; font-size: 0.85rem; display: flex; align-items: center; }
