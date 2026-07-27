@@ -91,6 +91,11 @@ export class OwlStore {
     const seenNodes = new Set<string>();
     const rdfType = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
 
+    const typeIndex = new Map<string, string>();
+    for (const quad of this.store.getQuads(null, this.store.createNamedNode(rdfType), null, null)) {
+      typeIndex.set(quad.subject.value, quad.object.value);
+    }
+
     for (const quad of this.store.getQuads(null, null, null, null)) {
       const subjectUri = quad.subject.value;
       const predicateUri = quad.predicate.value;
@@ -98,15 +103,15 @@ export class OwlStore {
 
       if (!seenNodes.has(subjectUri)) {
         seenNodes.add(subjectUri);
-        const typeQuad = this.store.getQuads(quad.subject, this.store.createNamedNode(rdfType), null, null)[0];
-        const type = typeQuad ? typeQuad.object.value.replace(this.baseUri, '') : 'Unknown';
+        const typeUri = typeIndex.get(subjectUri) || '';
+        const type = typeUri.replace(this.baseUri, '') || 'Unknown';
         const shortId = subjectUri.replace(this.baseUri, '').replace(/^https:\/\/sse\.local\//, '');
         nodes.push({ id: subjectUri, label: shortId, type, properties: {} });
       }
 
       if (predicateUri === rdfType) continue;
 
-      const isObjectLiteral = !objectValue.startsWith('http');
+      const isObjectLiteral = quad.object.termType === 'Literal';
       const propertyName = predicateUri.replace(this.baseUri, '');
 
       if (isObjectLiteral) {
@@ -115,8 +120,8 @@ export class OwlStore {
       } else {
         if (!seenNodes.has(objectValue)) {
           seenNodes.add(objectValue);
-          const objTypeQuad = this.store.getQuads(this.store.createNamedNode(objectValue), this.store.createNamedNode(rdfType), null, null)[0];
-          const objType = objTypeQuad ? objTypeQuad.object.value.replace(this.baseUri, '') : 'Unknown';
+          const objTypeUri = typeIndex.get(objectValue) || '';
+          const objType = objTypeUri.replace(this.baseUri, '') || 'Unknown';
           const shortId = objectValue.replace(this.baseUri, '').replace(/^https:\/\/sse\.local\//, '');
           nodes.push({ id: objectValue, label: shortId, type: objType, properties: {} });
         }
