@@ -1,8 +1,8 @@
 <template>
   <div class="ontology-page">
     <div class="ontology-title-row">
-      <h1 class="ontology-title">Ontology Graph</h1>
-      <p class="ontology-subtitle">Semantic visualization of expenses, people, and organizations</p>
+      <h1 class="ontology-title">本体图谱</h1>
+      <p class="ontology-subtitle">报销单、人员、组织的语义关系可视化</p>
       <div class="header-spacer"></div>
       <button class="btn-secondary btn-sm" @click="syncFromDB" :disabled="syncing">从数据库同步</button>
     </div>
