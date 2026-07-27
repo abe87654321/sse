@@ -28,3 +28,8 @@ export interface ActionResult {
   }
   notified: string[]
 }
+
+export interface GraphExtraction {
+  entities: Array<{ uri: string; type: string; properties: Record<string, string> }>;
+  relations: Array<{ from: string; to: string; predicate: string }>;
+}
