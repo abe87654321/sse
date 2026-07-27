@@ -79,16 +79,23 @@ OCR结果: "${ocrText}"
 }
 
 注意:
-1. uri 使用简短的英文ID（如 person/alice, report/RE001, item/001）
+1. uri 使用简短英文ID（如 person/alice, report/RE001, item/001）
 2. 每个实体至少要有 type 和一个识别属性
 3. 关系必须连接两个已有实体的 uri
 4. 如果描述提到了组织或部门也要提取`;
 
-    const result = await this.provider.analyzeText(text, prompt);
+    let result: string;
+    try {
+      result = await this.provider.analyzeText(text, prompt);
+    } catch (err: any) {
+      throw new Error(`AI 模型调用失败: ${err.message || '请检查 Ollama 服务是否启动，以及 ai-config.json 中的端点配置是否正确'}`);
+    }
+
     try {
       const jsonMatch = result.match(/\{[\s\S]*\}/);
       if (jsonMatch) return JSON.parse(jsonMatch[0]);
     } catch { /* fall through */ }
-    return { entities: [], relations: [] };
+
+    throw new Error(`AI 返回格式异常，未能提取到有效 JSON: ${result.substring(0, 200)}`);
   }
 }

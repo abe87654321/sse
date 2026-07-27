@@ -5,6 +5,7 @@ export interface AIProviderConfig {
   endpoint: string;
   modelName?: string;
   apiKey?: string;
+  maxTokens?: number;
 }
 
 export interface IAIProvider {

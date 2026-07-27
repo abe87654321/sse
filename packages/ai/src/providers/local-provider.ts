@@ -29,6 +29,8 @@ export class LocalProvider implements IAIProvider {
       ];
     }
 
+    const maxTokens = this.config.maxTokens || 4096;
+
     const res = await fetch(`${this.config.endpoint}`, {
       method: 'POST',
       headers: {
@@ -39,7 +41,7 @@ export class LocalProvider implements IAIProvider {
         model: this.config.modelName,
         messages,
         temperature: 0.1,
-        max_tokens: 2000,
+        max_tokens: maxTokens,
       }),
     });
 

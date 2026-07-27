@@ -52,7 +52,13 @@ router.post('/from-text', asyncWrap(async (req, res) => {
   const { text } = req.body;
   if (!text) throw new AppError(400, 'INVALID_PARAMS', '请提供 text 描述');
 
-  const extraction = await getEngine().extractor.extractGraph(text);
+  let extraction;
+  try {
+    extraction = await getEngine().extractor.extractGraph(text);
+  } catch (err: any) {
+    res.status(503).json({ error: { code: 'AI_SERVICE_UNAVAILABLE', message: err.message || 'AI 模型调用失败' } });
+    return;
+  }
 
   const store = getEngine().store;
   const baseUri = 'https://sse.local/';
