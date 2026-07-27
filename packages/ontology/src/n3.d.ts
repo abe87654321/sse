@@ -4,6 +4,7 @@ declare module 'n3' {
     addQuads(quads: any[]): void;
     getQuads(subject: any, predicate: any, object: any, graph: any): any[];
     match(subject: any, predicate: any, object: any, graph?: any): any[];
+    removeMatches(subject: any, predicate: any, object: any, graph?: any): void;
     createNamedNode(iri: string): any;
     createLiteral(value: string): any;
   }
