@@ -67,7 +67,7 @@
       <div class="legend-grid">
         <div class="legend-item"><span class="legend-shape shape-dot" style="background:#e878b0"></span> Person (人员)</div>
         <div class="legend-item"><span class="legend-shape shape-diamond" style="background:#5898e0"></span> Department (部门)</div>
-        <div class="legend-item"><span class="legend-shape shape-box" style="background:#e8b040"></span> ExpenseItem (费用项)</div>
+        <div class="legend-item"><span class="legend-shape shape-box" style="background:#e8c820"></span> ExpenseItem (费用项)</div>
         <div class="legend-item"><span class="legend-shape shape-dot" style="background:#48b8a8"></span> Report (报销单)</div>
         <div class="legend-item"><span class="legend-shape shape-star" style="background:#e87870"></span> Invoice (发票)</div>
         <div class="legend-item"><span class="legend-shape shape-square" style="background:#c080e0"></span> ApprovalRule (规则)</div>
@@ -108,8 +108,8 @@ let edgesData: DataSet<any> | null = null
 
 const COLORS: Record<string, string> = {
   Person: '#e878b0', Department: '#5898e0', Company: '#88c040',
-  Report: '#48b8a8', DraftReport: '#c4c9d0', PendingReport: '#f0b060',
-  ApprovedReport: '#48b8a8', ExpenseItem: '#e8b040', Invoice: '#e87870',
+  Report: '#48b8a8', DraftReport: '#48b8a8', PendingReport: '#48b8a8',
+  ApprovedReport: '#48b8a8', ExpenseItem: '#e8c820', Invoice: '#e87870',
   ApprovalRule: '#c080e0', Approver: '#48b0c8', Unknown: '#999',
 }
 
