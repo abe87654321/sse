@@ -91,6 +91,12 @@ const routes: RouteRecordRaw[] = [
         name: 'AdminMessages',
         component: () => import('@/pages/AdminMessages.vue'),
         meta: { title: '消息管理', requiresAdmin: true }
+      },
+      {
+        path: '/ontology',
+        name: 'ontology',
+        component: () => import('../pages/Ontology.vue'),
+        meta: { title: '本体可视化', icon: 'Share' },
       }
     ]
   }
