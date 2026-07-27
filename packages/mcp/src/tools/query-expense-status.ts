@@ -26,9 +26,11 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
   const query = args.query as string;
   if (!query) return errorResult("INVALID_PARAMS", "请提供 query 参数");
   try {
-    const defaults = { fillEngine: { endpoint: "http://localhost:11434/v1/chat/completions", model: "llama3.1:8b" } };
+    const defaults = { fillEngine: { endpoint: "http://localhost:11434/v1/chat/completions", model: "llama3.2-vision" } };
     let cfg = defaults;
     try { if (existsSync(CONFIG_PATH)) { const saved = JSON.parse(readFileSync(CONFIG_PATH, "utf-8")); cfg = { ...defaults, fillEngine: { ...defaults.fillEngine, ...(saved.fillEngine || {}) } }; } } catch { /* use defaults */ }
+    if (process.env.AI_ENDPOINT) cfg.fillEngine.endpoint = process.env.AI_ENDPOINT;
+    if (process.env.AI_MODEL) cfg.fillEngine.model = process.env.AI_MODEL;
     const extractor = new EntityExtractor(cfg.fillEngine.endpoint, cfg.fillEngine.model);
     const extractPrompt = `从查询中提取过滤条件返回JSON: { "name": "人名或null", "status": "pending/approved/rejected/paid或null", "keyword": "关键词或null" }\n查询: "${query}"`;
     const parsed = await (extractor as any).provider.analyzeText(query, extractPrompt);
