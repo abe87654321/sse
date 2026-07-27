@@ -48,8 +48,18 @@ router.post('/submit-from-text', asyncWrap(async (req, res) => {
 }));
 
 router.get('/sync', asyncWrap(async (_req, res) => {
+  const store = getEngine().store;
   await getEngine().mapper.syncAll();
-  res.json({ message: '本体同步完成' });
+  const warnings = store.validateGraph();
+  const graph = store.getGraph();
+  try { await store.saveToDb(); } catch { /* best effort */ }
+  try {
+    const dir = join(process.cwd(), 'data', 'ontology');
+    const fs = await import('fs');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    await store.saveToTurtle(join(dir, 'sse.owl'));
+  } catch { /* best effort */ }
+  res.json({ message: '本体同步完成', warnings, graph });
 }));
 
 router.get('/query', asyncWrap(async (req, res) => {
@@ -84,8 +94,17 @@ router.post('/from-text', asyncWrap(async (req, res) => {
     store.addRelation(fromUri, rel.predicate, toUri);
   }
 
+  const warnings = store.validateGraph();
   const graph = store.getGraph();
-  res.json({ entities_added: extraction.entities.length, relations_added: extraction.relations.length, graph });
+  try { await store.saveToDb(); } catch { /* best effort */ }
+  try {
+    const dir = join(process.cwd(), 'data', 'ontology');
+    const fs = await import('fs');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    await store.saveToTurtle(join(dir, 'sse.owl'));
+  } catch { /* best effort */ }
+
+  res.json({ entities_added: extraction.entities.length, relations_added: extraction.relations.length, warnings, graph });
 }));
 
 router.get('/graph', asyncWrap(async (_req, res) => {
@@ -99,27 +118,58 @@ router.put('/entity', asyncWrap(async (req, res) => {
   const store = getEngine().store;
   store.deleteEntity(uri);
   store.addEntity(uri, type, properties || {});
+  try {
+    const dir = join(process.cwd(), 'data', 'ontology');
+    const fs = await import('fs');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    await store.saveToTurtle(join(dir, 'sse.owl'));
+    await store.saveToDb();
+  } catch { /* best effort */ }
   res.json({ message: '实体已保存', uri });
 }));
 
 router.delete('/entity', asyncWrap(async (req, res) => {
   const uri = req.query.uri as string;
   if (!uri) throw new AppError(400, 'INVALID_PARAMS', '请提供 uri 参数');
-  getEngine().store.deleteEntity(uri);
+  const store = getEngine().store;
+  store.deleteEntity(uri);
+  try {
+    const dir = join(process.cwd(), 'data', 'ontology');
+    const fs = await import('fs');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    await store.saveToTurtle(join(dir, 'sse.owl'));
+    await store.saveToDb();
+  } catch { /* best effort */ }
   res.json({ message: '实体已删除' });
 }));
 
 router.post('/relation', asyncWrap(async (req, res) => {
   const { from, to, predicate } = req.body;
   if (!from || !to || !predicate) throw new AppError(400, 'INVALID_PARAMS', '请提供 from、to 和 predicate');
-  getEngine().store.addRelation(from, predicate, to);
+  const store = getEngine().store;
+  store.addRelation(from, predicate, to);
+  try {
+    const dir = join(process.cwd(), 'data', 'ontology');
+    const fs = await import('fs');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    await store.saveToTurtle(join(dir, 'sse.owl'));
+    await store.saveToDb();
+  } catch { /* best effort */ }
   res.json({ message: '关系已添加', from, predicate, to });
 }));
 
 router.delete('/relation', asyncWrap(async (req, res) => {
   const { from, to, predicate } = req.body;
   if (!from || !to || !predicate) throw new AppError(400, 'INVALID_PARAMS', '请提供 from、to 和 predicate');
-  getEngine().store.deleteRelation(from, predicate, to);
+  const store = getEngine().store;
+  store.deleteRelation(from, predicate, to);
+  try {
+    const dir = join(process.cwd(), 'data', 'ontology');
+    const fs = await import('fs');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    await store.saveToTurtle(join(dir, 'sse.owl'));
+    await store.saveToDb();
+  } catch { /* best effort */ }
   res.json({ message: '关系已删除' });
 }));
 
