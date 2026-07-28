@@ -250,14 +250,13 @@ onMounted(async () => {
 
     if (report.value && report.value.status !== 'draft') {
       try {
-        const approvalRes = await api.get(`/expenses/${route.params.id}/approvals`)
-        const records = approvalRes.data?.records || approvalRes.data || []
+        const records = data.approvalRecords || []
         timeline.value = records.map((r: any, i: number, arr: any[]) => ({
-          title: r.name || r.step || `审批步骤${i + 1}`,
-          desc: r.result === 'approved' ? `${r.approverName || '审批人'} 审批通过` : r.result === 'rejected' ? `${r.approverName || '审批人'} 驳回` : '待审批',
-          time: r.createdAt ? formatDate(r.createdAt) : '',
+          title: r.step || `审批步骤${i + 1}`,
+          desc: r.result === 'approved' ? '审批通过' : r.result === 'rejected' ? '已驳回' : '待审批',
+          time: r.stepStartedAt ? formatDate(r.stepStartedAt) : '',
           done: r.result === 'approved',
-          active: r.result === 'pending' || (i === arr.length - 1 && r.result !== 'rejected'),
+          active: r.result === 'pending',
         }))
       } catch { /* approvals optional */ }
     }
