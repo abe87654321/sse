@@ -463,3 +463,82 @@ docs/2026-07-26-ontology-design.md
 ---
 
 > 文档位置：`E:\app\opencode\sse\docs\2026-07-26-sse-process.md`
+
+---
+
+# SSE 报销系统 — 开发过程记录（v2.4）
+
+> 日期：2026-07-28 | 会话记录
+
+---
+
+## 阶段十一：人员删除功能
+
+### 设计决策
+- 三种删除方式：硬删除（无关联数据直接 DELETE）、软删除（status=deleted + deleted_at）、级联硬删除（清所有衍生数据）
+- status 扩展为 `active` / `disabled` / `deleted`，deleted 不可逆
+- 前端删除按钮改为下拉菜单，新增活跃/已禁用/已删除标签页
+
+### 修复问题
+- `approval_records.approver_id` 为 TEXT 类型（存储角色字符串），`getRelatedDataCount()` 中需 `$1::text` 比较
+- `notification_logs` 无 `sender_id` 列，已从查询移除
+- `identity_mappings` 表可能不存在，改为逐个查询 + try-catch 容错
+- 操作列宽度从 80px 扩至 140px + `white-space: nowrap`
+- 新建按钮仅活跃标签页显示
+
+### 产出
+- `docs/2026-07-28-user-deletion-design.md`
+- `docs/2026-07-28-user-deletion-plan.md`
+
+### Git 提交
+```
+bb776e3 feat: add deleted_at column to users table
+3a9af0f feat: add deletedAt field to User type
+a9b60d3 feat: add user delete methods to IUserRepo interface
+98f1e42 feat: implement user delete methods and update mapUser for deleted_at
+6ed5e5e feat: implement three user deletion types (hard/soft/cascade) in admin routes
+13fa588 feat: add delete dropdown menu, status tabs, and deleted user handling
+483964f fix: cast types in getRelatedDataCount for varchar columns
+b1a06cf fix: make getRelatedDataCount and cascadeDelete resilient to missing tables
+f6b500b fix: hide new user button on disabled tab in admin users
+```
+
+---
+
+## 阶段十二：审批引擎设计文档同步 + 最简审批流程
+
+### 设计文档更新
+- `2026-07-06-sse-design.md` v2.2 → v2.3：§4 审批引擎新增 §4.3 完整 API 流程、§4.4 审批人双语义解析、§4.5 两阶段提醒实际逻辑、§4.6 最简审批流程（兜底规则 + 同人检测降级）
+- 英文版同步更新
+- 新增 `docs/2026-07-28-fallback-approval-design.md`
+
+### 最简审批流程实现
+- **方案 C**：兜底规则（priority=9999 全范围规则）+ 提交/审批时同人检测降级
+- `ApprovalEngine` 新增 `resolveApprovers()` 和 `dedupeApprovalChain()` 方法
+- 提交流程（`expenses.ts`）和审批流程（`approvals.ts`）均集成降级检测
+- 不新增 DB 字段，降级后直接修改本地 `rule.approvalChain`
+
+### Git 提交
+```
+1e42dff feat: add resolveApprovers and dedupeApprovalChain to ApprovalEngine
+（expenses.ts dedup commit）
+b39260b feat: apply dedup detection on approval progression for effective chain
+```
+
+---
+
+## 待办模块汇总
+
+| 优先级 | 模块 | 说明 | 状态 |
+|--------|------|------|------|
+| — | 人员删除功能 | 三种删除方式 | ✅ 已完成 |
+| — | 最简审批流程 | 兜底规则 + 同人检测降级 | ✅ 已完成 |
+| P0 | 事务性消息接入 | 驳回/付款等 API 端点调用 NotificationEngine.send() | 未开始 |
+| P1 | 邮件/SMS 真实通道 | 当前 dev/log 模式，需配置 SMTP + 阿里云短信 | 未开始 |
+
+---
+
+## 下次会话建议
+
+1. **P0** 事务性消息接入 — 驳回/付款等 API 端点调用 NotificationEngine.send()
+2. **P1** 配置真实邮件/SMS 通道
