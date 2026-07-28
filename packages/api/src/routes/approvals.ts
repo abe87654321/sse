@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { PgApprovalRecordRepo, PgExpenseRepo, PgApprovalRuleRepo, pool } from '@sse/db';
+import { PgApprovalRecordRepo, PgExpenseRepo, PgApprovalRuleRepo, PgUserRepo, pool } from '@sse/db';
 import { ApprovalEngine } from '@sse/core';
 import { ApprovalResult, ReportStatus, UserRole } from '@sse/shared';
 import { authMiddleware } from '@sse/auth';
@@ -128,6 +128,18 @@ router.post(
       await expenseRepo.updateStatus(reportId, ReportStatus.APPROVED);
       res.json({ message: '审批成功（无匹配规则，直接通过）', result: ApprovalResult.APPROVED });
       return;
+    }
+
+    if (matchedRule.approvalChain.length > 1) {
+      const userRepo = new PgUserRepo();
+      const reporter = await userRepo.findById(report.userId);
+      const dept = reporter?.department || '';
+      const { effectiveChain, merged } = await engine.dedupeApprovalChain(
+        matchedRule, userRepo, dept
+      );
+      if (merged) {
+        matchedRule.approvalChain = effectiveChain;
+      }
     }
 
     if (engine.isLastStep(matchedRule, pendingRecord.step)) {
