@@ -131,6 +131,29 @@ router.post(
   })
 );
 
+// ========== 角色校验 ==========
+
+router.get(
+  '/users/validate',
+  asyncWrap(async (_req, res) => {
+    const { rows } = await pool.query(
+      "SELECT role, COUNT(*)::int as count FROM users WHERE status = 'active' GROUP BY role"
+    );
+    const result: Record<string, number> = {
+      employee: 0,
+      dept_approver: 0,
+      finance: 0,
+      admin: 0,
+    };
+    for (const row of rows) {
+      if (result.hasOwnProperty(row.role)) {
+        result[row.role] = row.count;
+      }
+    }
+    res.json(result);
+  })
+);
+
 router.get(
   '/users/:id',
   asyncWrap(async (req, res) => {
@@ -340,29 +363,6 @@ router.delete(
 
     await ruleRepo.delete(id);
     res.json({ message: '规则已删除' });
-  })
-);
-
-// ========== 角色校验 ==========
-
-router.get(
-  '/users/validate',
-  asyncWrap(async (_req, res) => {
-    const { rows } = await pool.query(
-      "SELECT role, COUNT(*)::int as count FROM users WHERE status = 'active' GROUP BY role"
-    );
-    const result: Record<string, number> = {
-      employee: 0,
-      dept_approver: 0,
-      finance: 0,
-      admin: 0,
-    };
-    for (const row of rows) {
-      if (result.hasOwnProperty(row.role)) {
-        result[row.role] = row.count;
-      }
-    }
-    res.json(result);
   })
 );
 
