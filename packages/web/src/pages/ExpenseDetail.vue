@@ -15,14 +15,14 @@
       </div>
       <div class="header-spacer"></div>
       <div class="header-actions">
-        <template v-if="report?.status === 'draft'">
+        <template v-if="report?.status === 'draft' || report?.status === 'rejected'">
           <button class="btn-secondary btn-sm" @click="$router.push(`/expenses/${report.id}/edit`)">编辑</button>
-          <button class="btn-danger-outline btn-sm" @click="handleDelete" :disabled="deleting">{{ deleting ? '删除中...' : '删除' }}</button>
+          <button v-if="report?.status !== 'rejected'" class="btn-danger-outline btn-sm" @click="handleDelete" :disabled="deleting">{{ deleting ? '删除中...' : '删除' }}</button>
           <button class="btn-primary btn-sm" @click="handleSubmit">提交审批</button>
         </template>
         <template v-if="report?.status === 'pending'">
-          <button class="btn-primary btn-sm" style="background: linear-gradient(135deg, var(--accent-mint), #69db7c);">审批通过</button>
-          <button class="btn-danger btn-sm">驳回</button>
+          <button class="btn-primary btn-sm" style="background: linear-gradient(135deg, var(--accent-mint), #69db7c);" @click="handleApprove">审批通过</button>
+          <button class="btn-danger btn-sm" @click="handleReject">驳回</button>
         </template>
       </div>
     </div>
@@ -208,6 +208,26 @@ async function handleSubmit() {
     router.replace('/expenses')
   } catch (e: any) {
     alert(e?.response?.data?.error?.message || '提交失败')
+  }
+}
+
+async function handleApprove() {
+  try {
+    await api.post(`/approvals/${route.params.id}/approve`, {})
+    router.replace('/expenses')
+  } catch (e: any) {
+    alert(e?.response?.data?.error?.message || '审批失败')
+  }
+}
+
+async function handleReject() {
+  const comment = prompt('请输入驳回原因：')
+  if (!comment) return
+  try {
+    await api.post(`/approvals/${route.params.id}/reject`, { comment })
+    router.replace('/expenses')
+  } catch (e: any) {
+    alert(e?.response?.data?.error?.message || '驳回失败')
   }
 }
 

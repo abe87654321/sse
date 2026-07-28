@@ -179,8 +179,8 @@ router.put(
     if (report.userId !== req.user!.userId) {
       throw new AppError(403, 'UNAUTHORIZED', '无权修改此报销单');
     }
-    if (report.status !== ReportStatus.DRAFT) {
-      throw new AppError(400, 'INVALID_PARAMS', '只能修改草稿状态的报销单');
+    if (report.status !== ReportStatus.DRAFT && report.status !== ReportStatus.REJECTED) {
+      throw new AppError(400, 'INVALID_PARAMS', '只能修改草稿或已驳回状态的报销单');
     }
 
     const client = await pool.connect();
@@ -249,7 +249,7 @@ router.post(
     const report = await expenseRepo.findById(id);
     if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
     if (report.userId !== req.user!.userId) throw new AppError(403, 'UNAUTHORIZED', '无权操作');
-    if (report.status !== ReportStatus.DRAFT) throw new AppError(400, 'INVALID_PARAMS', '只能提交草稿状态的报销单');
+    if (report.status !== ReportStatus.DRAFT && report.status !== ReportStatus.REJECTED) throw new AppError(400, 'INVALID_PARAMS', '只能提交草稿或已驳回状态的报销单');
 
     const { rows: items } = await pool.query(
       'SELECT category_id FROM expense_items WHERE report_id = $1',
