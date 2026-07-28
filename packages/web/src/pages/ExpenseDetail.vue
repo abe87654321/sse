@@ -95,6 +95,7 @@
         <div class="detail-side">
           <div class="card">
             <h3 class="card-section-title font-heading">审批流程</h3>
+            <div v-if="timeline.length > 0 && timeline[0].rule" class="rule-name">规则：{{ timeline[0].rule }}</div>
             <div v-if="timeline.length === 0" class="no-data">暂无审批记录</div>
             <div v-else class="timeline">
               <div v-for="(step, i) in timeline" :key="i" class="timeline-step" :class="{ last: i === timeline.length - 1 }">
@@ -152,7 +153,7 @@ interface Report {
 const loading = ref(true)
 const report = ref<Report | null>(null)
 const categories = ref<Category[]>([])
-const timeline = ref<Array<{ title: string; desc: string; time: string; done: boolean; active: boolean }>>([])
+const timeline = ref<Array<{ title: string; desc: string; time: string; rule?: string; done: boolean; active: boolean }>>([])
 const deleting = ref(false)
 
 function formatDate(dateStr?: string) {
@@ -251,10 +252,16 @@ onMounted(async () => {
     if (report.value && report.value.status !== 'draft') {
       try {
         const records = data.approvalRecords || []
+        const ruleName = data.ruleName || ''
         timeline.value = records.map((r: any, i: number, arr: any[]) => ({
-          title: r.step || `审批步骤${i + 1}`,
-          desc: r.result === 'approved' ? '审批通过' : r.result === 'rejected' ? '已驳回' : '待审批',
-          time: r.stepStartedAt ? formatDate(r.stepStartedAt) : '',
+          title: `第${r.step}步${r.approverName ? ` — ${r.approverName}` : ''}`,
+          desc: r.result === 'approved'
+            ? `审批通过${r.comment ? `（${r.comment}）` : ''}`
+            : r.result === 'rejected'
+              ? `驳回${r.comment ? `：${r.comment}` : ''}`
+              : '待审批',
+          time: r.approvedAt ? formatDate(r.approvedAt) : (r.stepStartedAt ? formatDate(r.stepStartedAt) : ''),
+          rule: i === 0 ? ruleName : '',
           done: r.result === 'approved',
           active: r.result === 'pending',
         }))
@@ -345,6 +352,7 @@ onMounted(async () => {
 
 .timeline-title { font-size: 0.9rem; font-weight: 600; color: var(--text-primary); }
 .timeline-desc { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
+.rule-name { font-size: 0.78rem; color: var(--accent-sky); margin-bottom: 10px; padding: 4px 10px; background: var(--accent-sky-bg); border-radius: var(--radius-sm); display: inline-block; }
 .timeline-time { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
 
 .attachment-list { display: flex; flex-direction: column; gap: 8px; }

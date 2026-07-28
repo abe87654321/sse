@@ -147,6 +147,33 @@ router.get(
     ]);
 
     const items = itemsRes.rows.map(mapItemRow);
+
+    // enrich approval records with approver names
+    const enrichedRecords = await Promise.all(records.map(async (r) => {
+      let approverName = r.approverId;
+      const { rows: userRows } = await pool.query('SELECT name, role FROM users WHERE id = $1::uuid', [r.approverId]).catch(() => ({ rows: [] as any[] }));
+      if (userRows.length > 0) {
+        approverName = userRows[0].name;
+      } else {
+        const roleLabels: Record<string, string> = { dept_approver: '部门审批人', finance: '财务', admin: '管理员' };
+        approverName = roleLabels[r.approverId] || r.approverId;
+      }
+      return { ...r, approverName, comment: r.comment || undefined };
+    }));
+
+    // match rule name
+    const categoryRows = items.length > 0
+      ? await pool.query('SELECT category_id FROM expense_items WHERE report_id = $1', [report.id])
+      : { rows: [] as any[] };
+    const categoryIds = categoryRows.rows.map((r: any) => r.category_id);
+    let ruleName = '';
+    try {
+      const ApprovalEngine = (await import('@sse/core')).ApprovalEngine;
+      const engine = new ApprovalEngine(ruleRepo, recordRepo);
+      const matchedRule = await engine.matchRule(report.totalAmount, categoryIds);
+      ruleName = matchedRule?.name || '';
+    } catch { /* rule matching optional */ }
+
     const itemIds = items.map((i: any) => i.id);
     let invoices: any[] = [];
     if (itemIds.length > 0) {
@@ -161,7 +188,8 @@ router.get(
       report,
       items,
       invoices,
-      approvalRecords: records,
+      approvalRecords: enrichedRecords,
+      ruleName,
     });
   })
 );
