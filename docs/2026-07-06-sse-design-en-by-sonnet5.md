@@ -429,6 +429,22 @@ The scheduler (`notifications/src/scheduler.ts`) starts with the API server, run
 
 > **Design vs. Implementation Gap**: The current implementation hardcodes a 24-hour threshold and does not consume `ApprovalChainStep.reminderAfterHours` / `escalateAfterHours` (per-step configurable time windows) or `escalate_to` (escalation target resolution). These fields are reserved in the type definitions and data model; the scheduler needs future alignment.
 
+### 4.6 Minimal Approval (Fallback Rule)
+
+In small companies, one person often holds multiple roles (e.g., both department approver and finance). The standard approval chain `dept_approver → finance` forces the same person to approve the same report twice. The system resolves this via a **fallback rule + deduplication on detect**:
+
+**Fallback Rule**: A rule with `priority=9999`, full amount range (`[0, 99999999)`), no category filter, and a single-step chain with a designated assignee. `matchRule()` is unchanged — when no higher-priority rule matches, this rule naturally returns.
+
+**Deduplication on Detect**: Upon report submission (`POST /expenses/:id/submit`), after `matchRule()` returns a rule, resolve the actual approvers for each step:
+
+1. Role-based step → `userRepo.findByRole(role, department)`
+2. Assignee-based step → `userRepo.findById(assigneeId)`
+3. Compare approver sets across steps; if all resolve to the same person or partially overlap → merge into a single step
+4. Notify all admins upon deduplication
+5. Subsequent approval progression references the actual effective steps rather than the original rule chain, preventing step misalignment
+
+> Detailed design: `docs/2026-07-28-fallback-approval-design.md`.
+
 ---
 
 ## 5. Permission Design (RBAC)
