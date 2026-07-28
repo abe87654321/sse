@@ -15,6 +15,7 @@ export type User = {
   parentId?: string;
   status: string;
   notify_prefs?: NotifyPrefs;
+  deletedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 };
