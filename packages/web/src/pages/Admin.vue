@@ -66,7 +66,7 @@
       <div class="category-checkboxes" style="margin-top:14px">
         <label class="cat-label">适用类别</label>
         <div class="cat-list">
-          <label v-for="cat in categoryOptions" :key="cat" class="cat-item"><input type="checkbox" :value="cat" v-model="ruleForm.categories" /><span>{{ cat }}</span></label>
+          <label v-for="cat in categoryOptions" :key="cat" class="cat-item"><input type="checkbox" :value="cat" v-model="ruleForm.categoryIds" /><span>{{ cat }}</span></label>
         </div>
       </div>
       <div style="margin-top:16px"><WorkflowDesigner v-model:steps="ruleForm.approvalChain" /></div>
@@ -111,7 +111,7 @@ const rules = ref<any[]>([])
 const selectedRuleId = ref('')
 const ruleSaving = ref(false)
 const categoryOptions = ['交通', '住宿', '餐饮', '招待', '办公用品', '通讯', '培训', '其他']
-const ruleForm = reactive<any>({ name: '', minAmount: 0, maxAmount: 999999, approvalChain: [], priority: 10, categories: [] as string[] })
+const ruleForm = reactive<any>({ name: '', minAmount: 0, maxAmount: 999999, approvalChain: [], priority: 10, categoryIds: [] as string[] })
 
 onMounted(async () => {
   try {
@@ -142,14 +142,14 @@ function roleLabel(r: string) { const m: any = { admin: '管理员', dept_approv
 
 function resetRuleForm() {
   selectedRuleId.value = ''
-  Object.assign(ruleForm, { name: '', minAmount: 0, maxAmount: 999999, approvalChain: [], priority: 10, categories: [] })
+  Object.assign(ruleForm, { name: '', minAmount: 0, maxAmount: 999999, approvalChain: [], priority: 10, categoryIds: [] })
 }
 
 async function loadRule() {
   if (!selectedRuleId.value) return
   const r = rules.value.find(x => x.id === selectedRuleId.value)
   if (!r) return
-  Object.assign(ruleForm, { name: r.name, minAmount: r.minAmount, maxAmount: r.maxAmount, approvalChain: r.approvalChain || [], priority: r.priority, categories: r.categories || [] })
+  Object.assign(ruleForm, { name: r.name, minAmount: r.minAmount, maxAmount: r.maxAmount, approvalChain: r.approvalChain || [], priority: r.priority, categoryIds: r.categoryIds || [] })
 }
 
 async function saveRule() {
