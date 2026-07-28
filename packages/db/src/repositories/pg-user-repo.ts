@@ -71,9 +71,14 @@ export class PgUserRepo implements IUserRepo {
   }
 
   async cascadeDelete(id: string): Promise<void> {
-    await pool.query('DELETE FROM identity_mappings WHERE local_user_id = $1', [id]);
+    const optionalTables = [
+      'DELETE FROM identity_mappings WHERE local_user_id = $1',
+      'DELETE FROM system_messages WHERE sender_id = $1',
+    ];
+    for (const sql of optionalTables) {
+      try { await pool.query(sql, [id]); } catch { /* table may not exist */ }
+    }
     await pool.query('DELETE FROM notification_logs WHERE recipient_id = $1::uuid', [id]);
-    await pool.query('DELETE FROM system_messages WHERE sender_id = $1', [id]);
     await pool.query('DELETE FROM invoices WHERE item_id IN (SELECT id FROM expense_items WHERE report_id IN (SELECT id FROM expense_reports WHERE user_id = $1))', [id]);
     await pool.query('DELETE FROM expense_items WHERE report_id IN (SELECT id FROM expense_reports WHERE user_id = $1)', [id]);
     await pool.query('DELETE FROM approval_records WHERE report_id IN (SELECT id FROM expense_reports WHERE user_id = $1)', [id]);
@@ -82,16 +87,20 @@ export class PgUserRepo implements IUserRepo {
   }
 
   async getRelatedDataCount(id: string): Promise<number> {
-    const { rows } = await pool.query(
-      `SELECT
-        COALESCE((SELECT COUNT(*) FROM expense_reports WHERE user_id = $1), 0) +
-        COALESCE((SELECT COUNT(*) FROM approval_records WHERE approver_id = $1::text), 0) +
-        COALESCE((SELECT COUNT(*) FROM notification_logs WHERE recipient_id = $1::uuid), 0) +
-        COALESCE((SELECT COUNT(*) FROM system_messages WHERE sender_id = $1), 0) +
-        COALESCE((SELECT COUNT(*) FROM identity_mappings WHERE local_user_id = $1), 0)
-        AS total`,
-      [id]
-    );
-    return parseInt(rows[0].total, 10);
+    const queries: { sql: string; params: any[] }[] = [
+      { sql: 'SELECT COUNT(*)::int AS cnt FROM expense_reports WHERE user_id = $1', params: [id] },
+      { sql: 'SELECT COUNT(*)::int AS cnt FROM approval_records WHERE approver_id = $1::text', params: [id] },
+      { sql: 'SELECT COUNT(*)::int AS cnt FROM notification_logs WHERE recipient_id = $1::uuid', params: [id] },
+      { sql: 'SELECT COUNT(*)::int AS cnt FROM system_messages WHERE sender_id = $1', params: [id] },
+      { sql: 'SELECT COUNT(*)::int AS cnt FROM identity_mappings WHERE local_user_id = $1', params: [id] },
+    ];
+    let count = 0;
+    for (const { sql, params } of queries) {
+      try {
+        const { rows } = await pool.query(sql, params);
+        count += rows[0].cnt;
+      } catch { /* table may not exist, skip */ }
+    }
+    return count;
   }
 }
