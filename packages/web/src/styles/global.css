@@ -351,7 +351,7 @@ textarea { resize: vertical; min-height: 80px; }
 .data-table tbody tr { transition: background var(--transition); }
 .data-table tbody tr:nth-child(even) { background: rgba(255, 248, 245, 0.5); }
 .data-table tbody tr:hover { background: var(--bg-hover); cursor: pointer; }
-.data-table .col-action { width: 80px; }
+.data-table .col-action { width: 140px; white-space: nowrap; }
 
 .table-link {
   color: var(--accent-coral);
