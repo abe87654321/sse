@@ -131,6 +131,17 @@ router.post(
   })
 );
 
+router.get(
+  '/users/:id',
+  asyncWrap(async (req, res) => {
+    const user = await userRepo.findById(req.params.id);
+    if (!user) {
+      throw new AppError(404, 'NOT_FOUND', '用户不存在');
+    }
+    res.json(user);
+  })
+);
+
 router.put(
   '/users/:id',
   asyncWrap(async (req, res) => {
