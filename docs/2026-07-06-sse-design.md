@@ -1,8 +1,10 @@
 # 报销系统 (SSE) — 需求设计文档
 
-> 日期：2026-07-06 | 版本：v2.0 | 状态：待审核
+> 日期：2026-07-06 | 版本：v2.2 | 状态：已同步实现
 >
 > **v1.0 → v2.0 变更记录：** 发票存储从 PostgreSQL BYTEA 迁移至对象存储（§2.4, §3.2, §7）；新增 SMS/邮件提醒与升级机制，含 NotificationLog 表和 notifications/ 包（§3.2, §4.4）；新增完整 MCP 工具 Schema、分页、错误约定、限流、版本化（§6）；新增上传校验细则（§7.3）；MCP 认证与用户 JWT 解耦（§5.3, §6.4）。
+>
+> **v2.1 → v2.2 变更记录：** §4 审批引擎重写以反映实际实现——补全提交/审批/驳回的完整 API 流程（§4.3）、审批人角色/UUID 双语义解析规则（§4.4）、两阶段提醒逻辑（§4.5）；标注设计 vs 实现的 24h 硬编码与 escalate_to 未消费差距。
 
 ---
 
@@ -384,18 +386,56 @@ ApprovalRule（独立配置表，不直接关联报销单）
 
 ### 4.3 审批流程
 
-- 每一步审批完成后，状态自动推进到下一步
-- 任一步骤驳回，报销单回到"已驳回"状态，通知申请人
-- 申请人可修改报销单后重新提交，从步骤 1 重新开始
+**提交阶段**（`api/routes/expenses.ts — POST /:id/submit`）：
 
-### 4.4 提醒与升级
+1. 校验用户身份（仅草稿、仅本人）
+2. 聚合 `expense_items` 的金额和类别
+3. 调用 `ApprovalEngine.matchRule(totalAmount, categoryIds)` 匹配审批规则
+4. 若有匹配规则且审批链首步有效，调用 `startApproval()` 创建第一条 `ApprovalRecord`（`result=pending`）
+5. 更新报表：`status=pending, current_step=1, submitted_at=NOW()`
 
-调度器（`notifications/src/scheduler.ts`）定期运行（如每 15 分钟），扫描 `result` 为待审批的 `ApprovalRecord` 记录：
+**审批阶段**（`api/routes/approvals.ts`）：
 
-1. **提醒**：若 `now - step_started_at >= reminder_after_hours`（取自规则 `approval_chain` 配置，默认 48 小时），且 `reminder_sent_at` 仍为空，向当前审批人发送 SMS + 邮件，然后设置 `reminder_sent_at`。每步最多发送一次提醒。
-2. **升级**（若该步骤配置了升级）：若 `now - step_started_at >= escalate_after_hours`（默认 96 小时），且 `escalated_at` 仍为空，额外通知 `escalate_to` 目标（审批人的上级通过 `parent_id` 查找，或固定角色如 admin），然后设置 `escalated_at`。升级不会自动重新指派审批——仅通知干系人，由其手动处理。
-3. 每次发送（成功或失败）均记录到 `NotificationLog`，确保发送历史可审计，且调度器重启后不会重复发送。
-4. `reminder_after_hours` 和 `escalate_after_hours` 均为按步骤可配置，而非硬编码，不同类型审批（如高额审批）可配置更严格的时间窗口。
+- **通过（`POST /approvals/:reportId/approve`）**：
+  1. 查找当前步骤的 pending 记录（匹配审批人角色），调用 `approveStep(PENDING→APPROVED)`
+  2. 重新运行 `matchRule()` 获取最新规则（规则变更即时生效）
+  3. 判断是否末步——不是则 `createNextStep()` 推进到 `current_step+1`，是则报表变更为 `APPROVED`
+  4. 若未匹配到规则，或 `createNextStep()` 返回 null，直接变更为 `APPROVED`
+
+- **驳回（`POST /approvals/:reportId/reject`）**：
+  1. 要求填写驳回原因（非空 `comment`）
+  2. 查找匹配的 pending 记录，调用 `approveStep(PENDING→REJECTED)`
+  3. 报表变更为 `REJECTED`，不创建后续步骤，不清除已有步骤
+  4. 申请人可修改报销单后重新提交，从步骤 1 重新开始
+
+- **并发控制**：当前无乐观锁或分布式锁，依赖 PostgreSQL 行级锁。同一报表被多人同时审批存在竞态风险。
+
+- **规则变更对在途审批的影响**：每次审批操作都重新运行 `matchRule()`，若审批链配置在审批中途被修改，后续步骤会按新规则匹配，可能导致行为不一致。
+
+### 4.4 审批人解析
+
+`ApprovalRecord.approver_id` 字段承载两种语义：
+
+| 值类型 | 示例 | 解析方式 |
+|--------|------|---------|
+| 角色字符串 | `"dept_approver"`, `"finance"` | 查询同部门内该角色的所有活跃用户 |
+| UUID | `"550e8400-..."` | 直接查找该用户 |
+
+运行时通过正则 `/^[0-9a-f-]{36}$/i` 区分。通知调度器按角色解析时，向该部门该角色的**所有**在职用户发送提醒。
+
+### 4.5 提醒与升级
+
+调度器（`notifications/src/scheduler.ts`）随 API 服务启动，每 15 分钟执行一次：
+
+1. 查询 `approval_records.result = 'pending' AND step_started_at < NOW() - 24小时`，JOIN 确认关联规则仍为激活状态
+2. **两阶段判断**：
+   - `reminder_sent_at` 为空 → 发送**提醒**（SMS + 邮件），设置 `reminder_sent_at`
+   - `reminder_sent_at` 已有值 → 发送**升级催办**（SMS + 邮件），设置 `escalated_at`
+3. 通知对象：按 §4.4 的审批人解析规则查找，向所有匹配的审批人发送
+4. 每次发送（成功或失败）均记录到 `NotificationLog`，确保不重复发送
+5. 发送失败不重试、不阻塞调度器继续处理其他记录
+
+> **设计 vs 实现差距**：当前实现硬编码 24 小时阈值，未消费 `ApprovalChainStep.reminderAfterHours` / `escalateAfterHours`（按步骤可配置的时间窗口）；也未消费 `escalate_to` 字段（升级目标解析）。这些字段在类型定义和数据模型中已预留，调度器需后续对齐。
 
 ---
 

@@ -13,7 +13,7 @@ const router = Router();
 const userRepo = new PgUserRepo();
 const ruleRepo = new PgApprovalRuleRepo();
 
-const USER_COLUMNS = 'id, name, phone, email, department, role, parent_id, status, created_at, updated_at';
+const USER_COLUMNS = 'id, name, phone, email, department, role, parent_id, status, deleted_at, created_at, updated_at';
 
 // ========== 简易内存限流 ==========
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -90,9 +90,19 @@ router.use(requireRole(UserRole.ADMIN));
 
 router.get(
   '/users',
-  asyncWrap(async (_req, res) => {
-    const users = await userRepo.findAll();
-    res.json(users);
+  asyncWrap(async (req, res) => {
+    const include = req.query.include as string | undefined;
+    if (include === 'deleted') {
+      const { rows } = await pool.query(
+        `SELECT ${USER_COLUMNS} FROM users WHERE status = 'deleted' ORDER BY name`
+      );
+      res.json(rows.map(mapUserRow));
+      return;
+    }
+    const { rows } = await pool.query(
+      `SELECT ${USER_COLUMNS} FROM users WHERE status != 'deleted' ORDER BY name`
+    );
+    res.json(rows.map(mapUserRow));
   })
 );
 
@@ -132,6 +142,10 @@ router.put(
       throw new AppError(404, 'NOT_FOUND', '用户不存在');
     }
 
+    if (status !== undefined && user.status === 'deleted') {
+      throw new AppError(400, 'INVALID_PARAMS', '已删除的用户不可修改状态');
+    }
+
     const fields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -164,18 +178,28 @@ router.delete(
   '/users/:id',
   asyncWrap(async (req, res) => {
     const { id } = req.params;
+    const deleteType = (req.query.type as string) || 'soft';
 
     const user = await userRepo.findById(id);
     if (!user) {
       throw new AppError(404, 'NOT_FOUND', '用户不存在');
     }
 
-    await pool.query(
-      "UPDATE users SET status = 'disabled', updated_at = NOW() WHERE id = $1",
-      [id]
-    );
-
-    res.json({ message: '用户已禁用' });
+    if (deleteType === 'hard') {
+      const relatedCount = await userRepo.getRelatedDataCount(id);
+      if (relatedCount > 0) {
+        throw new AppError(409, 'HAS_RELATED_DATA',
+          `该用户存在 ${relatedCount} 条业务数据（报销单/审批记录/通知日志），请使用软删除或级联删除`);
+      }
+      await userRepo.hardDelete(id);
+      res.json({ message: '用户已永久删除' });
+    } else if (deleteType === 'cascade') {
+      await userRepo.cascadeDelete(id);
+      res.json({ message: '用户及所有关联数据已永久删除' });
+    } else {
+      await userRepo.softDelete(id);
+      res.json({ message: '用户已删除', deletedAt: new Date().toISOString() });
+    }
   })
 );
 
@@ -517,6 +541,7 @@ function mapUserRow(row: any) {
     role: row.role,
     parentId: row.parent_id ?? undefined,
     status: row.status,
+    deletedAt: row.deleted_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

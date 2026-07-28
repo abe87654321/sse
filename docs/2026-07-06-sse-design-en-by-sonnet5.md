@@ -1,8 +1,10 @@
 # SSE (Smart Staff Expense) — System Design Document
 
-> Date: 2026-07-06 | Version: v2.0 | Status: Pending Review
+> Date: 2026-07-06 | Version: v2.2 | Status: Synced with implementation
 >
 > **Changelog from v1.0:** Invoice storage moved from Postgres BYTEA to object storage (§2.4, §3.2, §7); added SMS/email reminder + escalation design with new `NotificationLog` table and `notifications/` package (§3.2, §4.4); added full MCP tool schemas, pagination, error contract, rate limiting, and versioning (§6); added upload validation detail (§7.3); decoupled MCP auth from user JWT (§5.3, §6.4).
+>
+> **Changelog v2.1 → v2.2:** §4 Approval Engine rewritten to reflect actual implementation — added full API flows for submission/approval/rejection (§4.3), dual-semantics approver resolution (role string vs UUID, §4.4), two-stage reminder logic (§4.5); documented design vs. implementation gap of 24h hardcoded threshold and unconsumed `escalate_to` field.
 
 ---
 
@@ -376,18 +378,56 @@ Draft ──submit──> Pending ──all approved──> Approved ──paid�
 
 ### 4.3 Approval Workflow
 
-- After each step is approved, status advances to the next step automatically
-- Any step rejection returns the report to "Rejected" status, notifying the applicant
-- Applicant can modify and resubmit, starting from step 1
+**Submission Phase** (`api/routes/expenses.ts — POST /:id/submit`):
 
-### 4.4 Reminders & Escalation
+1. Validate identity (must be owner, must be DRAFT)
+2. Aggregate totals and category IDs from `expense_items`
+3. Call `ApprovalEngine.matchRule(totalAmount, categoryIds)` to find the matching rule
+4. If a rule is matched and the chain's first step is valid, call `startApproval()` to create the first `ApprovalRecord` (`result=pending`)
+5. Update report: `status=pending, current_step=1, submitted_at=NOW()`
 
-A scheduler (`notifications/src/scheduler.ts`) runs periodically (e.g. every 15 min) and scans `ApprovalRecord` rows where `result` is still pending:
+**Approval Phase** (`api/routes/approvals.ts`):
 
-1. **Reminder**: if `now - step_started_at >= reminder_after_hours` (from the rule's `approval_chain`, default 48h) and `reminder_sent_at` is still null, send SMS + email to the current approver, then set `reminder_sent_at`. This guarantees at most one reminder per step.
-2. **Escalation** (if configured on the step): if `now - step_started_at >= escalate_after_hours` (default 96h) and `escalated_at` is still null, additionally notify the resolved `escalate_to` target (the approver's supervisor via `parent_id`, or a fixed role such as admin), then set `escalated_at`. Escalation does not reassign the approval automatically — it notifies a human who can manually reassign or nudge the approver.
-3. Every send (success or failure) is recorded in `NotificationLog`, so delivery history is auditable and duplicate sends are prevented even if the scheduler restarts.
-4. Both `reminder_after_hours` and `escalate_after_hours` are per-step config, not hardcoded, so different rules (e.g. high-value approvals) can use tighter timeouts.
+- **Approve (`POST /approvals/:reportId/approve`)**:
+  1. Find the current step's pending record (matching approver role), call `approveStep(PENDING→APPROVED)`
+  2. Re-run `matchRule()` with current report data (rule changes take effect immediately for in-flight reports)
+  3. If not last step → `createNextStep()` advances to `current_step+1`; if last step → report status set to `APPROVED`
+  4. If no rule matched, or `createNextStep()` returns null → report status set to `APPROVED`
+
+- **Reject (`POST /approvals/:reportId/reject`)**:
+  1. Requires a non-empty `comment`
+  2. Find matching pending record, call `approveStep(PENDING→REJECTED)`
+  3. Report status set to `REJECTED`; no further steps created; existing steps preserved
+  4. Applicant can modify and resubmit, starting from step 1
+
+- **Concurrency**: No optimistic locking or distributed lock. Relies on PostgreSQL row-level locking. Simultaneous approvals by multiple users on the same report carry a race-condition risk.
+
+- **In-flight rule changes**: `matchRule()` re-runs on every approval action. If the approval chain is modified while a report is in-flight, subsequent steps follow the new rule, which may produce unexpected behavior.
+
+### 4.4 Approver Resolution
+
+`ApprovalRecord.approver_id` carries two semantics:
+
+| Value type | Example | Resolution |
+|-----------|---------|------------|
+| Role string | `"dept_approver"`, `"finance"` | Query all active users with that role in the same department |
+| UUID | `"550e8400-..."` | Look up that specific user |
+
+Disambiguated at runtime via regex `/^[0-9a-f-]{36}$/i`. The scheduler resolves role-based approvers to **all** active users with that role in the department.
+
+### 4.5 Reminders & Escalation
+
+The scheduler (`notifications/src/scheduler.ts`) starts with the API server, running every 15 minutes:
+
+1. Query: `approval_records.result = 'pending' AND step_started_at < NOW() - 24 hours`, joining to confirm the associated rule is still active
+2. **Two-stage logic**:
+   - `reminder_sent_at` is null → send **reminder** (SMS + email), set `reminder_sent_at`
+   - `reminder_sent_at` already set → send **escalation** (SMS + email), set `escalated_at`
+3. Recipients: resolved per §4.4 approver resolution rules; reminders go to all matching approvers
+4. Every send (success or failure) is recorded in `NotificationLog`, preventing duplicate sends on scheduler restart
+5. Send failures are not retried and do not block the scheduler from processing other records
+
+> **Design vs. Implementation Gap**: The current implementation hardcodes a 24-hour threshold and does not consume `ApprovalChainStep.reminderAfterHours` / `escalateAfterHours` (per-step configurable time windows) or `escalate_to` (escalation target resolution). These fields are reserved in the type definitions and data model; the scheduler needs future alignment.
 
 ---
 
