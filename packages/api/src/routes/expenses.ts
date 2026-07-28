@@ -4,6 +4,7 @@ import {
   PgInvoiceRepo,
   PgApprovalRuleRepo,
   PgApprovalRecordRepo,
+  PgUserRepo,
   pool,
 } from '@sse/db';
 import { ReportService } from '@sse/core';
@@ -259,6 +260,20 @@ router.post(
     const ApprovalEngine = (await import('@sse/core')).ApprovalEngine;
     const engine = new ApprovalEngine(ruleRepo, recordRepo);
     const matchedRule = await engine.matchRule(report.totalAmount, categoryIds);
+
+    let effectiveChain = matchedRule?.approvalChain;
+    if (matchedRule && matchedRule.approvalChain.length > 1) {
+      const userRepo = new PgUserRepo();
+      const reporter = await userRepo.findById(report.userId);
+      const dept = reporter?.department || '';
+      const { effectiveChain: dedupedChain, merged } = await engine.dedupeApprovalChain(
+        matchedRule, userRepo, dept
+      );
+      if (merged) {
+        effectiveChain = dedupedChain;
+        matchedRule.approvalChain = effectiveChain;
+      }
+    }
 
     let currentStep = 0;
     if (matchedRule && matchedRule.approvalChain.length > 0) {
