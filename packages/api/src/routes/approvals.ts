@@ -103,7 +103,8 @@ router.post(
 
     const records = await recordRepo.findByReportId(reportId);
     const pendingRecord = records.find(
-      (r) => r.result === ApprovalResult.PENDING && r.approverId === role
+      (r) => r.result === ApprovalResult.PENDING &&
+        (role === UserRole.ADMIN || r.approverId === role)
     );
 
     if (!pendingRecord) {
@@ -189,7 +190,8 @@ router.post(
 
     const records = await recordRepo.findByReportId(reportId);
     const pendingRecord = records.find(
-      (r) => r.result === ApprovalResult.PENDING && r.approverId === role
+      (r) => r.result === ApprovalResult.PENDING &&
+        (role === UserRole.ADMIN || r.approverId === role)
     );
 
     if (!pendingRecord) {
