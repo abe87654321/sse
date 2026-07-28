@@ -28,6 +28,19 @@
       </div>
     </div>
 
+    <!-- 状态标签页 -->
+    <div class="tabs-bar">
+      <button class="tab-btn" :class="{ active: activeTab === 'active' }" @click="switchTab('active')">
+        活跃<span class="tab-count">{{ activeCount }}</span>
+      </button>
+      <button class="tab-btn" :class="{ active: activeTab === 'disabled' }" @click="switchTab('disabled')">
+        已禁用<span class="tab-count">{{ disabledCount }}</span>
+      </button>
+      <button class="tab-btn" :class="{ active: activeTab === 'deleted' }" @click="switchTab('deleted')">
+        已删除<span class="tab-count">{{ deletedCount }}</span>
+      </button>
+    </div>
+
     <!-- 工具栏 -->
     <div class="toolbar">
       <select v-model="roleFilter" class="filter-select" aria-label="按角色筛选">
@@ -42,7 +55,7 @@
         aria-label="搜索用户"
       />
       <div class="toolbar-spacer"></div>
-      <button class="btn-primary" @click="openCreateModal">
+      <button v-if="activeTab !== 'deleted'" class="btn-primary" @click="openCreateModal">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
         </svg>
@@ -81,19 +94,35 @@
               </select>
             </td>
             <td>
-              <label class="toggle-wrap" :title="u.status === 'active' ? '点击禁用' : '点击启用'">
-                <input
-                  type="checkbox"
-                  :checked="u.status === 'active'"
-                  @change="toggleStatus(u)"
-                  :aria-label="`${u.status === 'active' ? '禁用' : '启用'} ${u.name}`"
-                />
-                <span class="toggle-slider"></span>
-              </label>
+              <template v-if="u.status === 'deleted'">
+                <span class="badge-deleted">已删除</span>
+              </template>
+              <template v-else>
+                <label class="toggle-wrap" :title="u.status === 'active' ? '点击禁用' : '点击启用'">
+                  <input
+                    type="checkbox"
+                    :checked="u.status === 'active'"
+                    @change="toggleStatus(u)"
+                    :aria-label="`${u.status === 'active' ? '禁用' : '启用'} ${u.name}`"
+                  />
+                  <span class="toggle-slider"></span>
+                </label>
+              </template>
             </td>
-            <td class="col-action">
-              <span class="table-link" role="button" tabindex="0" @click="openEditModal(u)" @keydown.enter="openEditModal(u)">编辑</span>
-            </td>
+              <td class="col-action">
+                <span v-if="u.status === 'deleted'" class="text-secondary" style="font-size:0.85rem">已删除于 {{ formatDate(u.deletedAt) }}</span>
+                <template v-else>
+                  <span class="table-link" role="button" tabindex="0" @click="openEditModal(u)" @keydown.enter="openEditModal(u)">编辑</span>
+                  <div class="delete-dropdown">
+                    <button class="table-link btn-delete" @click="toggleDeleteMenu(u.id)">删除</button>
+                    <div v-if="deleteMenuOpen === u.id" class="delete-menu" @mouseleave="deleteMenuOpen = null">
+                      <button @click="confirmDelete(u, 'hard')" :disabled="userRelatedCounts[u.id] > 0" :title="userRelatedCounts[u.id] > 0 ? '存在业务数据，无法硬删除' : ''">硬删除（无业务数据时可用）</button>
+                      <button @click="confirmDelete(u, 'soft')">软删除（员工离职/失效）</button>
+                      <button @click="confirmDelete(u, 'cascade')">级联删除（彻底清除所有数据）</button>
+                    </div>
+                  </div>
+                </template>
+              </td>
           </tr>
           <tr v-if="filteredUsers.length === 0">
             <td colspan="7">
@@ -222,6 +251,14 @@ const roleStats = ref<{ role: string; count: number }[]>([])
 const searchQuery = ref('')
 const roleFilter = ref('')
 
+const activeTab = ref<'active' | 'disabled' | 'deleted'>('active')
+const deleteMenuOpen = ref<string | null>(null)
+const userRelatedCounts = ref<Record<string, number>>({})
+const activeCount = ref(0)
+const disabledCount = ref(0)
+const deletedCount = ref(0)
+const allUsers = ref<any[]>([])
+
 const showModal = ref(false)
 const isEditing = ref(false)
 const editingId = ref<string | null>(null)
@@ -259,8 +296,22 @@ async function fetchStats() {
 
 async function fetchUsers() {
   try {
-    const { data } = await api.get('/admin/users')
-    users.value = data.users || data || []
+    const { data: activeData } = await api.get('/admin/users')
+    const activeUsers = activeData.users || activeData || []
+    const { data: deletedData } = await api.get('/admin/users', { params: { include: 'deleted' } })
+    const deletedUsers = deletedData.users || deletedData || []
+
+    allUsers.value = [...activeUsers, ...deletedUsers]
+    if (activeTab.value === 'deleted') {
+      users.value = deletedUsers
+    } else if (activeTab.value === 'disabled') {
+      users.value = activeUsers.filter((u: any) => u.status === 'disabled')
+    } else {
+      users.value = activeUsers.filter((u: any) => u.status === 'active')
+    }
+    activeCount.value = activeUsers.filter((u: any) => u.status === 'active').length
+    disabledCount.value = activeUsers.filter((u: any) => u.status === 'disabled').length
+    deletedCount.value = deletedUsers.length
   } catch {
     users.value = []
   }
@@ -375,6 +426,7 @@ async function changeRole(u: any, newRole: string) {
 }
 
 async function toggleStatus(u: any) {
+  if (u.status === 'deleted') return
   const newStatus = u.status === 'active' ? 'inactive' : 'active'
   const previousStatus = u.status
   u.status = newStatus
@@ -384,6 +436,45 @@ async function toggleStatus(u: any) {
   } catch {
     u.status = previousStatus
   }
+}
+
+function switchTab(tab: 'active' | 'disabled' | 'deleted') {
+  activeTab.value = tab
+  fetchUsers()
+}
+
+function toggleDeleteMenu(userId: string) {
+  deleteMenuOpen.value = deleteMenuOpen.value === userId ? null : userId
+}
+
+async function confirmDelete(u: any, type: 'hard' | 'soft' | 'cascade') {
+  deleteMenuOpen.value = null
+  const confirmTexts: Record<string, string> = {
+    hard: '确定要永久删除该用户？',
+    soft: '确定要删除该用户？删除后该用户无法登录和查看。',
+    cascade: '此操作将永久删除该用户及其所有报销单、审批记录、通知日志等数据，不可恢复！请输入用户名确认：'
+  }
+  if (type === 'cascade') {
+    const input = prompt(confirmTexts[type])
+    if (input !== u.name) {
+      alert('用户名不匹配，操作已取消')
+      return
+    }
+  } else {
+    if (!confirm(confirmTexts[type])) return
+  }
+  try {
+    await api.delete(`/admin/users/${u.id}`, { params: { type } })
+    await Promise.all([fetchUsers(), fetchStats()])
+  } catch (e: any) {
+    const msg = e?.response?.data?.error?.message || e?.response?.data?.error || e?.message || '操作失败'
+    alert(msg)
+  }
+}
+
+function formatDate(d?: string) {
+  if (!d) return ''
+  return new Date(d).toLocaleDateString('zh-CN')
 }
 </script>
 
@@ -606,5 +697,92 @@ async function toggleStatus(u: any) {
   .stats-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.tabs-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 0;
+}
+.tab-btn {
+  padding: 8px 16px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all var(--transition);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tab-btn:hover {
+  color: var(--text-primary);
+  border-bottom-color: var(--border);
+}
+.tab-btn.active {
+  color: var(--accent-coral);
+  border-bottom-color: var(--accent-coral);
+  font-weight: 600;
+}
+.tab-count {
+  font-size: 0.75rem;
+  background: var(--bg-hover);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+.delete-dropdown {
+  position: relative;
+  display: inline-block;
+}
+.btn-delete {
+  color: var(--accent-coral);
+  opacity: 0.7;
+}
+.btn-delete:hover {
+  opacity: 1;
+}
+.delete-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  z-index: 50;
+  min-width: 220px;
+  padding: 4px 0;
+}
+.delete-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 16px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.delete-menu button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.delete-menu button:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+.badge-deleted {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 0.8rem;
 }
 </style>
