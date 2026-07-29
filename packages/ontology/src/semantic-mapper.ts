@@ -16,7 +16,11 @@ export class SemanticMapper {
 
     const userUri = `https://sse.local/person/${user.id}`;
 
-    this.store.addEntity(reportUri, r.status === 'draft' ? 'DraftReport' : r.status === 'pending' ? 'PendingReport' : 'ApprovedReport', {
+    const reportType = r.status === 'draft' ? 'DraftReport'
+      : r.status === 'pending' ? 'PendingReport'
+      : r.status === 'paid' ? 'PaidReport'
+      : 'ApprovedReport';
+    this.store.addEntity(reportUri, reportType, {
       serialNo: r.serial_no,
       title: r.title,
       amount: String(r.total_amount),
