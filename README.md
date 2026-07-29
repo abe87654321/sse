@@ -43,7 +43,7 @@
 | 📝 **Smart Reimbursement** | Natural-language expense submission ("张三出差住宿600元") |
 | 🖼️ **Invoice OCR** | Upload PDF/OFD invoices, auto-extract data via AI vision models |
 | 🔀 **Configurable Approval** | Multi-step approval chains based on amount & category |
-| 🤖 **Ontology / Knowledge Graph** | OWL-based semantic model linking reports, people, and organizations |
+| 🤖 **Ontology / Knowledge Graph** | Semantic reasoning engine — multi-system data fusion, configurable inference rules, SPARQL cross-domain queries |
 | 🧠 **AI Semantic Engine** | LLM-powered entity extraction, category matching, and NL explanation |
 | 📊 **Statistics & Export** | Charts, monthly trends, Excel export |
 | 🔔 **Notifications** | In-app + SMS + Email with per-user preferences and delivery tracking |
@@ -97,7 +97,7 @@ Hexagonal Architecture (Ports & Adapters) — core business logic has zero frame
 | Database | PostgreSQL 16 (UUID PKs, JSONB, full-text) |
 | File Storage | MinIO (S3-compatible) |
 | AI / OCR | Ollama (local LLM) + MinerU / PaddleOCR |
-| Ontology | N3.js + RDF/JS + OWL 2 |
+| Ontology | N3.js + RDF/JS + Custom Reasoner |
 | Messaging | SMTP (nodemailer) + Aliyun SMS |
 | Protocol | MCP (@modelcontextprotocol/sdk) + SCIM 2.0 |
 | Auth | JWT + RBAC (4 roles) |
@@ -188,29 +188,48 @@ Draft ──submit──→ Pending ──all approved──→ Approved ──p
 
 ## 🤖 Ontology & Semantic Engine / 本体语义引擎
 
-Natural language → LLM extraction → ontology mapping → auto expense creation:
+### Why Ontology? / 本体层存在的意义
+
+本体层不是数据库的镜像副本，而是服务于三个数据库无法直接解决的场景：
+
+| 场景 | 说明 | 示例 |
+|------|------|------|
+| 🔗 **多系统数据融合** | SCIM/MDM 的用户、SSE 的报销单、财务系统的打款记录统一建模，通过 `sse:sameAs` 跨系统关联 | "张三(SCIM)"和"张三(SSE)"是同一人 |
+| 🧠 **可配置语义推理** | 管理员定义 IF-THEN 规则，系统自动推导新关系，不依赖硬编码逻辑 | "张三 belongsTo 技术部 + 技术部 partOf 总公司 → 张三 worksFor 总公司" |
+| 🔍 **SPARQL 跨域查询** | AI Agent 通过 MCP 用标准 SPARQL 查询跨表、跨系统的复杂关系 | "哪些人经手了同一张发票的所有报销？" |
+
+### Semantic Pipeline / 语义流水线
 
 ```
-"张三出差北京住宿600元"
-  → EntityExtractor: {person:"张三", amount:600, category:"住宿费"}
+Natural Language / 自然语言
+  → EntityExtractor (LLM): {person, amount, category}
   → SemanticMapper: Person → DB userId, category → DB categoryId
   → ActionReasoner: match approval rule, validate
   → ActionExecutor: POST /expenses → submit
-  → NL Explanation: "已为张三创建报销单，住宿费 ¥600，审批中。"
+  → NL Generator: explainable output
 ```
 
-**Endpoints (9):**
-- `POST /ontology/submit-from-text` — Natural language expense creation
-- `POST /ontology/from-text` — NL → ontology graph generation (LLM extraction)
-- `GET /ontology/graph` — Full ontology graph (nodes + edges)
-- `GET /ontology/sync` — Full ontology sync from DB
-- `GET /ontology/query?type=X` — Query ontology by class
-- `PUT /ontology/entity` — Create/update entity
-- `DELETE /ontology/entity?uri=...` — Delete entity
-- `POST /ontology/relation` — Create relation
-- `DELETE /ontology/relation` — Delete relation
+### API Endpoints / 端点 (9 + 2)
 
-**Visualization:** `/ontology` page — interactive Cytoscape.js graph with NL-to-graph generation, manual node/edge editing, and DB sync.
+| Endpoint | Description |
+|----------|-------------|
+| `POST /ontology/submit-from-text` | NL → expense creation |
+| `POST /ontology/from-text` | NL → ontology graph (LLM extraction) |
+| `GET /ontology/graph` | Full graph (role-scoped) |
+| `GET /ontology/sync` | Sync DB → ontology |
+| `GET /ontology/query?type=X` | Query by class |
+| `PUT /ontology/entity` | Create/update entity |
+| `DELETE /ontology/entity?uri=...` | Delete entity |
+| `POST /ontology/relation` | Create relation |
+| `DELETE /ontology/relation` | Delete relation |
+| `POST /ontology/reason` | Trigger reasoning engine |
+| `POST /ontology/sparql` | SPARQL cross-domain query |
+
+### Visualization / 可视化
+
+`/ontology` page — interactive vis-network graph with NL-to-graph generation, manual editing, role-scoped data, and reasoning results overlay.
+
+> 详细设计：[本体层设计](docs/2026-07-26-ontology-design.md) | [本体升级设计](docs/2026-07-29-ontology-upgrade-design.md)
 
 ---
 
