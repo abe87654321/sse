@@ -17,11 +17,25 @@
       <div class="header-actions">
         <template v-if="viewerActions">
           <button v-if="viewerActions.canEdit" class="btn-secondary btn-sm" @click="$router.push(`/expenses/${report.id}/edit`)">编辑</button>
-          <button v-if="viewerActions.canDelete" class="btn-danger-outline btn-sm" @click="handleDelete" :disabled="deleting">{{ deleting ? '删除中...' : '删除' }}</button>
+          <button v-if="viewerActions.canDelete" class="btn-danger-outline btn-sm" @click="confirmAction = 'delete'" :disabled="deleting">{{ deleting ? '删除中...' : '删除' }}</button>
           <button v-if="viewerActions.canSubmit" class="btn-primary btn-sm" @click="handleSubmit">提交审批</button>
           <button v-if="viewerActions.canApprove" class="btn-primary btn-sm" style="background: linear-gradient(135deg, var(--accent-mint), #69db7c);" @click="handleApprove">审批通过</button>
-          <button v-if="viewerActions.canReject" class="btn-danger btn-sm" @click="handleReject">驳回</button>
+          <button v-if="viewerActions.canReject" class="btn-danger btn-sm" @click="confirmAction = 'reject'">驳回</button>
         </template>
+      </div>
+    </div>
+
+    <div v-if="confirmAction" class="confirm-overlay" @click.self="confirmAction = null">
+      <div class="confirm-dialog">
+        <h3 v-if="confirmAction === 'delete'">确认删除</h3>
+        <h3 v-else>驳回原因</h3>
+        <p v-if="confirmAction === 'delete'" style="color:var(--text-secondary);margin-bottom:16px;">确认删除该报销记录？此操作不可撤销。</p>
+        <textarea v-if="confirmAction === 'reject'" v-model="rejectComment" placeholder="请输入驳回原因" rows="3"></textarea>
+        <div class="confirm-actions">
+          <button class="btn-secondary btn-sm" @click="confirmAction = null; rejectComment = ''">取消</button>
+          <button v-if="confirmAction === 'delete'" class="btn-danger btn-sm" @click="execDelete">确认删除</button>
+          <button v-else class="btn-danger btn-sm" @click="execReject" :disabled="!rejectComment.trim()">确认驳回</button>
+        </div>
       </div>
     </div>
 
@@ -141,6 +155,8 @@ const categories = ref<Category[]>([])
 const timeline = ref<Array<{ title: string; desc: string; time: string; rule?: string; done: boolean; active: boolean }>>([])
 const viewerActions = ref<{ canEdit: boolean; canSubmit: boolean; canDelete: boolean; canApprove: boolean; canReject: boolean } | null>(null)
 const deleting = ref(false)
+const confirmAction = ref<'delete' | 'reject' | null>(null)
+const rejectComment = ref('')
 
 function formatDate(dateStr?: string) {
   if (!dateStr) return '-'
@@ -176,8 +192,8 @@ async function downloadInvoiceFile(invoice: InvoiceItem) {
   }
 }
 
-async function handleDelete() {
-  if (!confirm('确认删除该报销记录？此操作不可撤销。')) return
+async function execDelete() {
+  confirmAction.value = null
   deleting.value = true
   try {
     await api.delete(`/expenses/${route.params.id}`)
@@ -186,6 +202,18 @@ async function handleDelete() {
     alert(e?.response?.data?.error?.message || '删除失败')
   } finally {
     deleting.value = false
+  }
+}
+
+async function execReject() {
+  if (!rejectComment.value.trim()) return
+  confirmAction.value = null
+  try {
+    await api.post(`/approvals/${route.params.id}/reject`, { comment: rejectComment.value })
+    rejectComment.value = ''
+    router.replace('/expenses')
+  } catch (e: any) {
+    alert(e?.response?.data?.error?.message || '驳回失败')
   }
 }
 
@@ -204,17 +232,6 @@ async function handleApprove() {
     router.replace('/expenses')
   } catch (e: any) {
     alert(e?.response?.data?.error?.message || '审批失败')
-  }
-}
-
-async function handleReject() {
-  const comment = prompt('请输入驳回原因：')
-  if (!comment) return
-  try {
-    await api.post(`/approvals/${route.params.id}/reject`, { comment })
-    router.replace('/expenses')
-  } catch (e: any) {
-    alert(e?.response?.data?.error?.message || '驳回失败')
   }
 }
 
@@ -349,6 +366,12 @@ onMounted(async () => {
 }
 .btn-danger-outline:hover { background: var(--danger, #e53e3e); color: #fff; }
 .btn-danger-outline:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.confirm-overlay { position: fixed; inset: 0; background: rgba(45,36,32,0.4); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 200; }
+.confirm-dialog { background: var(--bg-card); border-radius: var(--radius-lg); padding: 24px; width: 400px; max-width: 90vw; }
+.confirm-dialog h3 { margin-bottom: 12px; font-size: 1.1rem; }
+.confirm-dialog textarea { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); resize: vertical; font-size: 0.9rem; }
+.confirm-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
 
 @media (max-width: 900px) {
   .detail-grid { grid-template-columns: 1fr; }
