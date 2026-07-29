@@ -15,13 +15,13 @@ export function executeSparql(store: Store, sparql: string): Array<Record<string
     const binding: Record<string, string> = {};
     let match = true;
     for (const pat of patterns) {
-      const s = pat.subject.startsWith('?') ? binding[pat.subject] || quad.subject.value : pat.subject;
-      const p = pat.predicate.startsWith('?') ? binding[pat.predicate] || quad.predicate.value : pat.predicate;
-      const o = pat.object.startsWith('?') ? binding[pat.object] || quad.object.value : pat.object;
+      const s = pat.subject.startsWith('?') ? (binding[pat.subject] || quad.subject.value) : pat.subject;
+      const p = pat.predicate.startsWith('?') ? (binding[pat.predicate] || quad.predicate.value) : pat.predicate;
+      const o = pat.object.startsWith('?') ? (binding[pat.object] || quad.object.value) : pat.object;
       if (pat.subject.startsWith('?')) binding[pat.subject] = quad.subject.value;
       if (pat.predicate.startsWith('?')) binding[pat.predicate] = quad.predicate.value;
       if (pat.object.startsWith('?')) binding[pat.object] = quad.object.value;
-      if (s !== quad.subject.value || p !== quad.predicate.value || o !== quad.object.value) { match = false; break; }
+      if (!matchTerm(quad.subject.value, s) || !matchTerm(quad.predicate.value, p) || !matchTerm(quad.object.value, o)) { match = false; break; }
     }
     if (match) {
       const row: Record<string, string> = {};
@@ -30,4 +30,8 @@ export function executeSparql(store: Store, sparql: string): Array<Record<string
     }
   }
   return results;
+}
+
+function matchTerm(value: string, pattern: string): boolean {
+  return value === pattern || value.endsWith('#' + pattern) || value.endsWith('/' + pattern);
 }
