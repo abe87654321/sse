@@ -312,6 +312,7 @@ router.post(
     const ApprovalEngine = (await import('@sse/core')).ApprovalEngine;
     const engine = new ApprovalEngine(ruleRepo, recordRepo);
     const matchedRule = await engine.matchRule(report.totalAmount, categoryIds);
+    console.log('[Submit] totalAmount:', report.totalAmount, 'categoryIds:', categoryIds, 'matchedRule:', matchedRule?.name || 'NONE', 'chainLen:', matchedRule?.approvalChain?.length);
 
     let effectiveChain = matchedRule?.approvalChain;
     if (matchedRule && matchedRule.approvalChain.length > 1) {
@@ -330,10 +331,16 @@ router.post(
     let currentStep = 0;
     if (matchedRule && matchedRule.approvalChain.length > 0) {
       const firstStep = matchedRule.approvalChain[0];
+      console.log('[Submit] firstStep:', JSON.stringify(firstStep));
       if (firstStep.role || firstStep.assigneeId) {
         const record = await engine.startApproval(id, matchedRule);
+        console.log('[Submit] startApproval OK, record step:', record.step);
         currentStep = record.step;
+      } else {
+        console.log('[Submit] firstStep has no role or assigneeId, skipping startApproval');
       }
+    } else {
+      console.log('[Submit] no matchedRule or empty chain, skipping startApproval');
     }
 
     await pool.query(
