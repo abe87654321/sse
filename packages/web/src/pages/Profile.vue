@@ -126,7 +126,7 @@ import api from '../api/index'
 const auth = useAuthStore()
 const userInitial = computed(() => auth.user?.name?.charAt(0)?.toUpperCase() || 'U')
 const avatarFileInput = ref<HTMLInputElement | null>(null)
-const avatarPreview = ref(auth.user?.avatarUrl ? `/api/auth/profile/avatar?t=${Date.now()}` : '')
+const avatarPreview = ref(auth.user?.avatarUrl ?  `/api/auth/profile/avatar?userId=${auth.user?.id}` : '')
 
 function triggerAvatarInput() {
   avatarFileInput.value?.click()
@@ -137,7 +137,7 @@ async function handleAvatarChange(e: Event) {
   if (!file) return
   try {
     const res = await authApi.uploadAvatar(file)
-    const url = `/api/auth/profile/avatar?t=${Date.now()}`
+    const url =  `/api/auth/profile/avatar?userId=${auth.user?.id}`
     avatarPreview.value = url
     if (auth.user) {
       auth.user.avatarUrl = res.data.avatarUrl

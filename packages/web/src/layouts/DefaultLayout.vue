@@ -41,7 +41,7 @@
         <div class="sidebar-user" v-show="!collapsed">
           <div
             class="avatar avatar-coral"
-            :style="auth.user?.avatarUrl ? { backgroundImage: `url(/api/auth/profile/avatar?t=${Date.now()})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}"
+            :style="auth.user?.avatarUrl ? { backgroundImage: `url(/api/auth/profile/avatar?userId=${auth.user?.id})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}"
           >{{ auth.user?.avatarUrl ? '' : userInitial }}</div>
           <span class="sidebar-user-name" @click="$router.push('/profile')">{{ auth.user?.name }}</span>
         </div>
@@ -70,7 +70,7 @@
             <div
               class="avatar avatar-coral"
               style="width:34px;height:34px;font-size:0.8rem;"
-              :style="auth.user?.avatarUrl ? { backgroundImage: `url(/api/auth/profile/avatar?t=${Date.now()})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}"
+              :style="auth.user?.avatarUrl ? { backgroundImage: `url(/api/auth/profile/avatar?userId=${auth.user?.id})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}"
             >{{ auth.user?.avatarUrl ? '' : userInitial }}</div>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:4px;">
               <polyline points="6 9 12 15 18 9"/>

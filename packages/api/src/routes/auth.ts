@@ -85,6 +85,29 @@ router.post(
   })
 );
 
+router.get(
+  '/profile/avatar',
+  asyncWrap(async (req, res) => {
+    const targetUserId = (req.query.userId as string) || '';
+    if (!targetUserId) throw new AppError(400, 'INVALID_PARAMS', '缺少 userId');
+
+    const user = await userRepo.findById(targetUserId);
+    if (!user?.avatarUrl) throw new AppError(404, 'NOT_FOUND', '未上传头像');
+
+    const minio = new MinioStorage();
+    try {
+      const data = await minio.getObject(user.avatarUrl, 'avatars');
+      const ext = user.avatarUrl.split('.').pop()?.toLowerCase();
+      const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.send(data);
+    } catch {
+      throw new AppError(404, 'NOT_FOUND', '头像文件不存在');
+    }
+  })
+);
+
 router.use(authMiddleware);
 
 router.get(
@@ -131,27 +154,6 @@ router.post(
     await userRepo.updateAvatar(req.user!.userId, storageKey);
 
     res.json({ message: '头像上传成功', avatarUrl: storageKey });
-  })
-);
-
-router.get(
-  '/profile/avatar',
-  asyncWrap(async (req, res) => {
-    const targetUserId = (req.query.userId as string) || req.user!.userId;
-    const user = await userRepo.findById(targetUserId);
-    if (!user?.avatarUrl) throw new AppError(404, 'NOT_FOUND', '未上传头像');
-
-    const minio = new MinioStorage();
-    try {
-      const data = await minio.getObject(user.avatarUrl, 'avatars');
-      const ext = user.avatarUrl.split('.').pop()?.toLowerCase();
-      const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
-      res.setHeader('Content-Type', mime);
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      res.send(data);
-    } catch {
-      throw new AppError(404, 'NOT_FOUND', '头像文件不存在');
-    }
   })
 );
 
