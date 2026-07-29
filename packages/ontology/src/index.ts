@@ -5,6 +5,7 @@ export { ActionReasoner } from './action-reasoner';
 export { ActionExecutor } from './action-executor';
 export { NlpGenerator } from './nlp-generator';
 export { Reasoner } from './reasoner';
+export { executeSparql } from './sparql';
 export * from './types';
 
 import { OwlStore } from './owl-store';

@@ -221,4 +221,29 @@ router.delete('/relation', asyncWrap(async (req, res) => {
   res.json({ message: '关系已删除' });
 }));
 
+router.post('/reason', asyncWrap(async (_req, res) => {
+  const store = getEngine().store;
+  const { Reasoner } = await import('@sse/ontology');
+  const { PgReasoningRuleRepo } = await import('@sse/db');
+  const reasoner = new Reasoner(store);
+  const repo = new PgReasoningRuleRepo();
+  const rules = await repo.findActive();
+  const newTriples = reasoner.apply(rules);
+  try { await store.saveToDb(); } catch { /* best effort */ }
+  res.json({ message: `推理完成，新增 ${newTriples} 条三元组`, newTriples });
+}));
+
+router.post('/sparql', asyncWrap(async (req, res) => {
+  const { role } = req.user!;
+  if (role !== 'admin' && role !== 'finance') {
+    throw new AppError(403, 'UNAUTHORIZED', '仅管理员和财务可执行 SPARQL 查询');
+  }
+  const { query } = req.body;
+  if (!query) throw new AppError(400, 'INVALID_PARAMS', '请提供 query');
+  const store = getEngine().store;
+  const { executeSparql } = await import('@sse/ontology');
+  const results = executeSparql(store.getStore(), query);
+  res.json({ results, count: results.length });
+}));
+
 export { router as ontologyRoutes };

@@ -558,4 +558,32 @@ function mapUserRow(row: any) {
   };
 }
 
+// ========== 推理规则管理 ==========
+
+router.get('/reasoning-rules', asyncWrap(async (_req, res) => {
+  const { PgReasoningRuleRepo } = await import('@sse/db');
+  const rules = await new PgReasoningRuleRepo().findAll();
+  res.json(rules);
+}));
+
+router.post('/reasoning-rules', asyncWrap(async (req, res) => {
+  const { name, description, conditions, conclusion, priority, isActive } = req.body;
+  if (!name || !conditions || !conclusion) throw new AppError(400, 'INVALID_PARAMS', '名称、条件、结论不能为空');
+  const { PgReasoningRuleRepo } = await import('@sse/db');
+  const rule = await new PgReasoningRuleRepo().create({ name, description, conditions, conclusion, priority: priority ?? 0, isActive: isActive ?? true });
+  res.status(201).json(rule);
+}));
+
+router.put('/reasoning-rules/:id', asyncWrap(async (req, res) => {
+  const { PgReasoningRuleRepo } = await import('@sse/db');
+  await new PgReasoningRuleRepo().update(req.params.id, req.body);
+  res.json({ message: '更新成功' });
+}));
+
+router.delete('/reasoning-rules/:id', asyncWrap(async (req, res) => {
+  const { PgReasoningRuleRepo } = await import('@sse/db');
+  await new PgReasoningRuleRepo().delete(req.params.id);
+  res.json({ message: '已删除' });
+}));
+
 export { router as adminRoutes };
