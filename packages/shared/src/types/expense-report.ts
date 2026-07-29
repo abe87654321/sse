@@ -9,6 +9,9 @@ export type ExpenseReport = {
   currentStep: number;
   submittedAt?: Date;
   completedAt?: Date;
+  paidAt?: Date;
+  paidBy?: string;
+  paymentRef?: string;
   createdAt: Date;
   updatedAt: Date;
 };
