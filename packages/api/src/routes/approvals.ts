@@ -25,7 +25,7 @@ router.get(
   asyncWrap(async (req, res) => {
     const { role, department } = req.user!;
 
-    if (role !== UserRole.DEPT_APPROVER && role !== UserRole.ADMIN) {
+    if (role !== UserRole.DEPT_APPROVER && role !== UserRole.FINANCE && role !== UserRole.ADMIN) {
       throw new AppError(403, 'UNAUTHORIZED', '无权查看审批列表');
     }
 
@@ -42,6 +42,17 @@ router.get(
         ORDER BY ar.step_started_at DESC
       `;
       values = [ApprovalResult.PENDING];
+    } else if (role === UserRole.FINANCE) {
+      query = `
+        SELECT ar.*, er.serial_no, er.title, er.total_amount, er.user_id, u.name as applicant_name, u.department
+        FROM approval_records ar
+        JOIN expense_reports er ON er.id = ar.report_id
+        JOIN users u ON u.id = er.user_id
+        WHERE ar.result = $1
+          AND ar.approver_id = $2
+        ORDER BY ar.step_started_at DESC
+      `;
+      values = [ApprovalResult.PENDING, role];
     } else {
       query = `
         SELECT ar.*, er.serial_no, er.title, er.total_amount, er.user_id, u.name as applicant_name, u.department
