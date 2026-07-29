@@ -66,7 +66,7 @@
       <div class="category-checkboxes" style="margin-top:14px">
         <label class="cat-label">适用类别</label>
         <div class="cat-list">
-          <label v-for="cat in categoryOptions" :key="cat" class="cat-item"><input type="checkbox" :value="cat" v-model="ruleForm.categoryIds" /><span>{{ cat }}</span></label>
+          <label v-for="cat in categoryOptions" :key="cat.id" class="cat-item"><input type="checkbox" :value="cat.id" v-model="ruleForm.categoryIds" /><span>{{ cat.name }}</span></label>
         </div>
       </div>
       <div style="margin-top:16px"><WorkflowDesigner v-model:steps="ruleForm.approvalChain" /></div>
@@ -110,7 +110,7 @@ const users = ref<any[]>([])
 const rules = ref<any[]>([])
 const selectedRuleId = ref('')
 const ruleSaving = ref(false)
-const categoryOptions = ['交通', '住宿', '餐饮', '招待', '办公用品', '通讯', '培训', '其他']
+const categoryOptions = ref<{ id: string; name: string }[]>([])
 const ruleForm = reactive<any>({ name: '', minAmount: 0, maxAmount: 999999, approvalChain: [], priority: 10, categoryIds: [] as string[] })
 
 onMounted(async () => {
@@ -121,6 +121,7 @@ onMounted(async () => {
   } catch {}
   fetchModels()
   try { rules.value = (await api.get('/admin/rules')).data || [] } catch {}
+  try { const r = await api.get('/categories'); categoryOptions.value = r.data || [] } catch {}
 })
 
 async function fetchModels() {
