@@ -18,6 +18,7 @@ import * as explainDecisionTool from "./tools/explain-decision.js";
 import * as getEntityNetworkTool from "./tools/get-entity-network.js";
 import * as validateExpenseTool from "./tools/validate-expense.js";
 import * as queryOntologyTool from "./tools/query-ontology.js";
+import * as querySparqlTool from "./tools/query-sparql.js";
 import type { ToolDefinition, ToolResult } from "./tools/types.js";
 
 interface ToolEntry {
@@ -39,6 +40,7 @@ const allTools: ToolEntry[] = [
   getEntityNetworkTool,
   validateExpenseTool,
   queryOntologyTool,
+  querySparqlTool,
 ];
 
 const toolMap = new Map(allTools.map((t) => [t.definition.name, t]));

@@ -52,15 +52,15 @@ export class IdentityBridge {
       [name, phone, email || null, department, role, status, 'scim_managed_no_pwd']
     );
 
-      await pool.query(
-        'INSERT INTO identity_mappings (local_user_id, external_id, source) VALUES ($1,$2,$3)',
-        [created[0].id, externalId, source]
-      );
+    await pool.query(
+      'INSERT INTO identity_mappings (local_user_id, external_id, source) VALUES ($1,$2,$3)',
+      [created[0].id, externalId, source]
+    );
 
-      await syncUserToOntology({ id: created[0].id, name, phone, department }, 'scim', externalId);
+    await syncUserToOntology({ id: created[0].id, name, phone, department }, 'scim', externalId);
 
-      return { localUserId: created[0].id, created: true };
-    }
+    return { localUserId: created[0].id, created: true };
+  }
 
   async syncFromMdmEvent(event: MdmUserEvent): Promise<void> {
     const { rows } = await pool.query(
@@ -100,4 +100,40 @@ export class IdentityBridge {
     );
     await syncUserToOntology({ id: created[0].id, name: d.name, phone: d.phone, department: d.department }, 'mdm_service', event.userId);
   }
+}
+
+async function syncUserToOntology(user: { id: string; name: string; phone: string; department: string }, source: string, externalId?: string) {
+  try {
+    const configPath = join(process.cwd(), 'ai-config.json');
+    let endpoint = 'http://localhost:11434/v1/chat/completions';
+    let model = 'llama3.2-vision';
+    try {
+      if (existsSync(configPath)) {
+        const cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
+        endpoint = cfg.fillEngine?.endpoint || endpoint;
+        model = cfg.fillEngine?.model || model;
+      }
+    } catch { /* defaults */ }
+
+    const { OntologyEngine } = await import('@sse/ontology');
+    const engine = new OntologyEngine(endpoint, model);
+    engine.store.addEntity(
+      `https://sse.local/person/${user.id}`,
+      'Person',
+      { name: user.name || '', phone: user.phone || '', department: user.department || '', source, externalId: externalId || '' }
+    );
+    if (user.department) {
+      engine.store.addEntity(
+        `https://sse.local/dept/${user.department}`,
+        'Department',
+        { name: user.department }
+      );
+      engine.store.addRelation(
+        `https://sse.local/person/${user.id}`,
+        'sse:belongsTo',
+        `https://sse.local/dept/${user.department}`
+      );
+    }
+    await engine.store.saveToDb().catch(() => {});
+  } catch { /* ontology sync is best-effort */ }
 }
