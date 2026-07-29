@@ -128,7 +128,7 @@ async function handleApprove(item: ApprovalItem) {
   try {
     await api.post(`/approvals/${item.reportId}/approve`, {})
     showMessage('审批通过')
-    approvals.value = approvals.value.filter(a => a.reportId !== item.reportId)
+    await fetchApprovals()
   } catch (err: any) {
     showMessage(err.response?.data?.message || '操作失败', 'error')
   } finally {
@@ -154,7 +154,7 @@ async function confirmReject(item: ApprovalItem) {
   try {
     await api.post(`/approvals/${item.reportId}/reject`, { comment: rejectComment.value })
     showMessage('已驳回')
-    approvals.value = approvals.value.filter(a => a.reportId !== item.reportId)
+    await fetchApprovals()
     showRejectForm.value = ''
     rejectComment.value = ''
   } catch (err: any) {
