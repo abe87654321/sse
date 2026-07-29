@@ -7,8 +7,14 @@
     <div class="profile-grid">
       <div class="card profile-info-card">
         <div class="profile-avatar-section">
-          <div class="avatar avatar-coral" style="width:72px;height:72px;font-size:1.8rem;">{{ userInitial }}</div>
-          <button class="btn-secondary btn-sm" style="margin-top:12px;">更换头像</button>
+          <div
+            class="avatar avatar-coral"
+            :style="avatarPreview ? { backgroundImage: `url(${avatarPreview})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}"
+            style="width:72px;height:72px;font-size:1.8rem;cursor:pointer;"
+            @click="triggerAvatarInput"
+          >{{ avatarPreview ? '' : userInitial }}</div>
+          <input ref="avatarFileInput" type="file" accept="image/png,image/jpeg" style="display:none" @change="handleAvatarChange" />
+          <button class="btn-secondary btn-sm" style="margin-top:12px;" @click="triggerAvatarInput">更换头像</button>
         </div>
         <div class="profile-details">
           <div class="info-row">
@@ -119,6 +125,29 @@ import api from '../api/index'
 
 const auth = useAuthStore()
 const userInitial = computed(() => auth.user?.name?.charAt(0)?.toUpperCase() || 'U')
+const avatarFileInput = ref<HTMLInputElement | null>(null)
+const avatarPreview = ref(auth.user?.avatarUrl ? `/api/auth/profile/avatar?t=${Date.now()}` : '')
+
+function triggerAvatarInput() {
+  avatarFileInput.value?.click()
+}
+
+async function handleAvatarChange(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  try {
+    const res = await authApi.uploadAvatar(file)
+    const url = `/api/auth/profile/avatar?t=${Date.now()}`
+    avatarPreview.value = url
+    if (auth.user) {
+      auth.user.avatarUrl = res.data.avatarUrl
+      localStorage.setItem('user', JSON.stringify(auth.user))
+    }
+  } catch (err: any) {
+    alert(err?.response?.data?.error?.message || '上传失败')
+  }
+}
+
 const roleLabels: Record<string, string> = {
   admin: '系统管理员',
   finance: '财务',

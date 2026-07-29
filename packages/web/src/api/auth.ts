@@ -12,5 +12,13 @@ export const authApi = {
   },
   changePassword(data: { oldPassword: string; newPassword: string }) {
     return api.put('/auth/password', data)
-  }
+  },
+  uploadAvatar(file: File) {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post<{ message: string; avatarUrl: string }>(
+      '/auth/profile/avatar', formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+  },
 }

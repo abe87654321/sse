@@ -287,6 +287,10 @@ textarea { resize: vertical; min-height: 80px; }
 .avatar-sky { background: linear-gradient(135deg, var(--accent-sky), #74c0fc); }
 .avatar-mint { background: linear-gradient(135deg, var(--accent-mint), #69db7c); }
 .avatar-violet { background: linear-gradient(135deg, var(--accent-violet), #b197fc); }
+.avatar-img {
+  background-size: cover;
+  background-position: center;
+}
 
 /* Field */
 .field { display: flex; flex-direction: column; gap: 6px; }

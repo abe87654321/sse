@@ -9,7 +9,7 @@ export interface UserInfo {
   email?: string
   department?: string
   role: string
-  avatar?: string
+  avatarUrl?: string
 }
 
 export const useAuthStore = defineStore('auth', () => {
