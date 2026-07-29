@@ -649,6 +649,17 @@ join(__dirname, 'migrations', '001_initial.sql')
 
 重新 `pnpm --filter @sse/db build` 后再 migrate。
 
+### 本体 / 语义相关
+
+**Q: API 重启后本体可视化/SPARQL 查询返回空**
+
+API 重启后本体 Store 从 database 和 Turtle 文件异步恢复，可能尚未完成。手动执行同步：
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:3000/auth/login -H "Content-Type: application/json" -d '{"phone":"13800000000","password":"你的密码"}' | python3 -c "import json,sys; print(json.load(sys.stdin)['accessToken'])")
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3000/ontology/sync
+```
+
 ---
 
 > 文档位置：`E:\app\opencode\sse\docs\2026-07-06-sse-deployment.md`

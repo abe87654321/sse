@@ -253,6 +253,8 @@ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3000/admin/reasoning-
 
 ### TC3-1：基础 SPARQL 查询
 
+> **提示**：如果查询返回 0，先执行 `curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3000/ontology/sync` 确保本体内存中有数据。
+
 **操作**：
 ```bash
 curl -s -X POST http://localhost:3000/ontology/sparql \
@@ -273,12 +275,18 @@ for r in d['results'][:5]:
 
 ### TC3-2：查询特定关系（belongsTo）
 
+> **重要**：API 重启后本体 Store 为空，需先执行 `GET /ontology/sync` 从数据库恢复数据。否则所有查询返回 0。
+
 **操作**：
 ```bash
+# 确保本体中有数据（重启后必须执行）
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3000/ontology/sync
+
+# 查询 belongsTo 关系（注意：不能用 sse:belongsTo，实际存储为 belongsTo）
 curl -s -X POST http://localhost:3000/ontology/sparql \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"query": "SELECT ?person ?dept WHERE { ?person sse:belongsTo ?dept }"}' \
+  -d '{"query": "SELECT ?person ?dept WHERE { ?person belongsTo ?dept }"}' \
   | python3 -c "
 import json,sys
 d = json.load(sys.stdin)
