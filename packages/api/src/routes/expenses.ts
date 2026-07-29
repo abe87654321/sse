@@ -176,6 +176,7 @@ router.get(
 
     const isOwner = report.userId === userId;
     const isAdmin = role === UserRole.ADMIN;
+    const isFinance = role === UserRole.FINANCE;
     const isDraftOrRejected = report.status === ReportStatus.DRAFT || report.status === ReportStatus.REJECTED;
     const isPending = report.status === ReportStatus.PENDING;
 
@@ -197,6 +198,7 @@ router.get(
       canDelete: isAdmin || (isOwner && report.status === ReportStatus.DRAFT),
       canApprove: (!isApprovedOrPaid && isAdmin) || canApprove,
       canReject: (!isApprovedOrPaid && isAdmin) || canReject,
+      canPay: (isAdmin || isFinance) && report.status === ReportStatus.APPROVED,
     };
 
     const itemIds = items.map((i: any) => i.id);
@@ -217,6 +219,28 @@ router.get(
       ruleName,
       viewerActions,
     });
+  })
+);
+
+router.post(
+  '/:id/pay',
+  asyncWrap(async (req, res) => {
+    const { id } = req.params;
+    const { paymentRef, comment } = req.body;
+    const { role, userId } = req.user!;
+
+    if (role !== UserRole.FINANCE && role !== UserRole.ADMIN) {
+      throw new AppError(403, 'UNAUTHORIZED', '仅财务或管理员可执行打款');
+    }
+
+    const report = await expenseRepo.findById(id);
+    if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
+    if (report.status !== ReportStatus.APPROVED) {
+      throw new AppError(400, 'INVALID_PARAMS', '仅已通过的报销单可打款');
+    }
+
+    await expenseRepo.markPaid(id, userId, paymentRef);
+    res.json({ message: '已标记打款', paidAt: new Date().toISOString(), paymentRef: paymentRef || null });
   })
 );
 

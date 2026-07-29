@@ -14,6 +14,9 @@ function mapReport(row: any): ExpenseReport {
     submittedAt: row.submitted_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
     description: row.description ?? undefined,
+    paidAt: row.paid_at ?? undefined,
+    paidBy: row.paid_by ?? undefined,
+    paymentRef: row.payment_ref ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -201,6 +204,13 @@ export class PgExpenseRepo implements IExpenseRepo {
     );
 
     return rows[0];
+  }
+
+  async markPaid(id: string, paidBy: string, paymentRef?: string): Promise<void> {
+    await pool.query(
+      'UPDATE expense_reports SET status = $1, paid_at = NOW(), paid_by = $2, payment_ref = $3, updated_at = NOW() WHERE id = $4',
+      ['paid', paidBy, paymentRef || null, id]
+    );
   }
 
   async getUserSummary(userId: string, dateFrom?: string, dateTo?: string): Promise<any> {
