@@ -3,6 +3,7 @@ import { OntologyEngine } from '@sse/ontology';
 import { authMiddleware } from '@sse/auth';
 import { UserRole } from '@sse/shared';
 import { AppError } from '../middleware/error';
+import { PgUserRepo } from '@sse/db';
 import { getEngine } from './ontology-helpers';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -62,6 +63,22 @@ function filterGraph(graph: { nodes: any[]; edges: any[] }, role: string, userId
   };
 }
 
+async function attachAvatars(graph: { nodes: any[]; edges: any[] }): Promise<void> {
+  const userRepo = new PgUserRepo();
+  for (const node of graph.nodes) {
+    if (node.type !== 'Person') continue;
+    const p = node.properties || {};
+    const userId = p.userId || p.externalId;
+    if (!userId) continue;
+    try {
+      const user = await userRepo.findById(userId);
+      if (user?.avatarUrl) {
+        node.properties = { ...node.properties, avatarUrl: user.avatarUrl };
+      }
+    } catch { /* best effort */ }
+  }
+}
+
 router.post('/submit-from-text', asyncWrap(async (req, res) => {
   const { text } = req.body;
   if (!text) throw new AppError(400, 'INVALID_PARAMS', '请提供 text');
@@ -81,13 +98,17 @@ router.get('/sync', asyncWrap(async (req, res) => {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     await store.saveToTurtle(join(dir, 'sse.owl'));
   } catch { /* best effort */ }
+  await attachAvatars(graph);
   res.json({ message: '本体同步完成', warnings, graph });
 }));
 
 router.get('/query', asyncWrap(async (req, res) => {
   const type = req.query.type as string;
   if (!type) throw new AppError(400, 'INVALID_PARAMS', '请提供 type 参数');
-  res.json(getEngine().store.queryByType(type));
+  const result = getEngine().store.queryByType(type);
+  const g = { nodes: result, edges: [] as any[] };
+  await attachAvatars(g);
+  res.json(g.nodes);
 }));
 
 router.post('/from-text', asyncWrap(async (req, res) => {
@@ -126,11 +147,13 @@ router.post('/from-text', asyncWrap(async (req, res) => {
     await store.saveToTurtle(join(dir, 'sse.owl'));
   } catch { /* best effort */ }
 
+  await attachAvatars({ nodes: extraction.entities, edges: extraction.relations });
   res.json({ entities_added: extraction.entities.length, relations_added: extraction.relations.length, warnings, graph });
 }));
 
 router.get('/graph', asyncWrap(async (req, res) => {
   const graph = filterGraph(getEngine().store.getGraph(), req.user!.role, req.user!.userId, req.user!.department);
+  await attachAvatars(graph);
   res.json(graph);
 }));
 
