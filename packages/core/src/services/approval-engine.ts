@@ -96,9 +96,10 @@ export class ApprovalEngine {
     comment?: string,
   ): Promise<void> {
     const records = await this.recordRepo.findByReportId(reportId);
-    const record = records.find((r) => r.step === step);
-    if (record) {
-      await this.recordRepo.updateResult(record.id, result, comment);
+    for (const record of records) {
+      if (record.step === step && record.result === ApprovalResult.PENDING) {
+        await this.recordRepo.updateResult(record.id, result, comment);
+      }
     }
   }
 
