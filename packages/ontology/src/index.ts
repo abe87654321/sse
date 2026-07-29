@@ -4,6 +4,7 @@ export { EntityExtractor } from './entity-extractor';
 export { ActionReasoner } from './action-reasoner';
 export { ActionExecutor } from './action-executor';
 export { NlpGenerator } from './nlp-generator';
+export { Reasoner } from './reasoner';
 export * from './types';
 
 import { OwlStore } from './owl-store';

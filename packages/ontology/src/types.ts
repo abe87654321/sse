@@ -33,3 +33,10 @@ export interface GraphExtraction {
   entities: Array<{ uri: string; type: string; properties: Record<string, string> }>;
   relations: Array<{ from: string; to: string; predicate: string }>;
 }
+
+export { type ReasoningRule } from '@sse/shared';
+
+export interface SparqlResult {
+  results: Array<Record<string, string>>;
+  count: number;
+}

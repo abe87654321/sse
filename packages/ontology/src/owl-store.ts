@@ -55,10 +55,14 @@ export class OwlStore {
     }
   }
 
-  addRelation(fromUri: string, predicate: string, toUri: string): void {
+  addRelation(fromUri: string, predicate: string, toUri: string): boolean {
     const subject = namedNode(fromUri);
+    const predicateNode = namedNode(this.baseUri + predicate);
     const objectUri = toUri.startsWith('http') ? toUri : `${this.baseUri}${toUri}`;
-    this.store.addQuad(subject, namedNode(this.baseUri + predicate), namedNode(objectUri));
+    const objectNode = namedNode(objectUri);
+    if (this.store.countQuads(subject, predicateNode, objectNode, null) > 0) return false;
+    this.store.addQuad(subject, predicateNode, objectNode);
+    return true;
   }
 
   deleteEntity(uri: string): void {
@@ -71,6 +75,27 @@ export class OwlStore {
     const predicateNode = namedNode(this.baseUri + predicate);
     const objectUri = toUri.startsWith('http') ? toUri : `${this.baseUri}${toUri}`;
     this.store.removeMatches(subject, predicateNode, namedNode(objectUri), null);
+  }
+
+  getStore() {
+    return this.store;
+  }
+
+  query(subject: string, predicate: string, object: string): Array<Record<string, string>> {
+    const results: Array<Record<string, string>> = [];
+    for (const quad of this.store) {
+      const binding: Record<string, string> = {};
+      if (!this.matchTerm(quad.subject.value, subject, binding)) continue;
+      if (!this.matchTerm(quad.predicate.value, predicate, binding)) continue;
+      if (!this.matchTerm(quad.object.value, object, binding)) continue;
+      results.push(binding);
+    }
+    return results;
+  }
+
+  private matchTerm(value: string, pattern: string, binding: Record<string, string>): boolean {
+    if (pattern.startsWith('?')) { binding[pattern] = value; return true; }
+    return value === pattern || value.endsWith(pattern);
   }
 
   queryByType(type: string): Array<{ uri: string; properties: Record<string, string> }> {
