@@ -1,4 +1,6 @@
 import { pool } from '@sse/db';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 
 export interface ScimUser {
   userName: string
@@ -50,13 +52,15 @@ export class IdentityBridge {
       [name, phone, email || null, department, role, status, 'scim_managed_no_pwd']
     );
 
-    await pool.query(
-      'INSERT INTO identity_mappings (local_user_id, external_id, source) VALUES ($1,$2,$3)',
-      [created[0].id, externalId, source]
-    );
+      await pool.query(
+        'INSERT INTO identity_mappings (local_user_id, external_id, source) VALUES ($1,$2,$3)',
+        [created[0].id, externalId, source]
+      );
 
-    return { localUserId: created[0].id, created: true };
-  }
+      await syncUserToOntology({ id: created[0].id, name, phone, department }, 'scim', externalId);
+
+      return { localUserId: created[0].id, created: true };
+    }
 
   async syncFromMdmEvent(event: MdmUserEvent): Promise<void> {
     const { rows } = await pool.query(
@@ -81,6 +85,7 @@ export class IdentityBridge {
          WHERE id IN (SELECT local_user_id FROM identity_mappings WHERE external_id = $7 AND source = $8)`,
         [d.name, d.phone, d.email || null, d.department, d.role, d.status, event.userId, 'mdm']
       );
+      await syncUserToOntology({ id: rows[0].local_user_id, name: d.name, phone: d.phone, department: d.department }, 'mdm_service', event.userId);
       return;
     }
 
@@ -93,5 +98,6 @@ export class IdentityBridge {
       'INSERT INTO identity_mappings (local_user_id, external_id, source) VALUES ($1,$2,$3)',
       [created[0].id, event.userId, 'mdm']
     );
+    await syncUserToOntology({ id: created[0].id, name: d.name, phone: d.phone, department: d.department }, 'mdm_service', event.userId);
   }
 }

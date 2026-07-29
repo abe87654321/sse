@@ -99,6 +99,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '消息管理', requiresAdmin: true }
       },
       {
+        path: 'admin/reasoning-rules',
+        name: 'AdminReasoningRules',
+        component: () => import('@/pages/AdminReasoningRules.vue'),
+        meta: { title: '推理规则', requiresAdmin: true }
+      },
+      {
         path: '/ontology',
         name: 'ontology',
         component: () => import('../pages/Ontology.vue'),
