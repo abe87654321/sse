@@ -14,7 +14,7 @@ export function executeSparql(store: Store, sparql: string): Array<Record<string
     patterns.push({ subject: tokens[i], predicate: tokens[i + 1], object: tokens[i + 2] });
   }
 
-  for (const quad of store) {
+  for (const quad of store.getQuads(null, null, null, null)) {
     const binding: Record<string, string> = {};
     let match = true;
     for (const pat of patterns) {
