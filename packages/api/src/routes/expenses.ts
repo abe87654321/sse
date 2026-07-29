@@ -8,7 +8,7 @@ import {
   pool,
 } from '@sse/db';
 import { ReportService } from '@sse/core';
-import { ReportStatus, InvoiceFormat, UserRole } from '@sse/shared';
+import { ReportStatus, InvoiceFormat, UserRole, ApprovalResult } from '@sse/shared';
 import type { ExpenseQuery } from '@sse/core';
 import { authMiddleware } from '@sse/auth';
 import { uploadInvoice } from '../middleware/upload';
@@ -174,6 +174,29 @@ router.get(
       ruleName = matchedRule?.name || '';
     } catch { /* rule matching optional */ }
 
+    const isOwner = report.userId === userId;
+    const isAdmin = role === UserRole.ADMIN;
+    const isDraftOrRejected = report.status === ReportStatus.DRAFT || report.status === ReportStatus.REJECTED;
+    const isPending = report.status === ReportStatus.PENDING;
+
+    let canApprove = false;
+    let canReject = false;
+    if (isPending && !isOwner) {
+      const pendingRecord = records.find((r: { result: string; approverId: string }) => r.result === ApprovalResult.PENDING && r.approverId === role);
+      if (pendingRecord) {
+        canApprove = true;
+        canReject = true;
+      }
+    }
+
+    const viewerActions = {
+      canEdit: (isAdmin || (isOwner && isDraftOrRejected)),
+      canSubmit: (isAdmin || (isOwner && isDraftOrRejected)),
+      canDelete: (isAdmin || (isOwner && report.status === ReportStatus.DRAFT)),
+      canApprove: isAdmin || canApprove,
+      canReject: isAdmin || canReject,
+    };
+
     const itemIds = items.map((i: any) => i.id);
     let invoices: any[] = [];
     if (itemIds.length > 0) {
@@ -190,6 +213,7 @@ router.get(
       invoices,
       approvalRecords: enrichedRecords,
       ruleName,
+      viewerActions,
     });
   })
 );
@@ -329,10 +353,11 @@ router.delete(
     if (!report) {
       throw new AppError(404, 'NOT_FOUND', '报销单不存在');
     }
-    if (report.userId !== req.user!.userId) {
+    const isAdminDelete = req.user!.role === UserRole.ADMIN;
+    if (!isAdminDelete && report.userId !== req.user!.userId) {
       throw new AppError(403, 'UNAUTHORIZED', '无权删除此报销单');
     }
-    if (report.status !== ReportStatus.DRAFT) {
+    if (!isAdminDelete && report.status !== ReportStatus.DRAFT) {
       throw new AppError(400, 'INVALID_PARAMS', '只能删除草稿状态的报销单');
     }
 
