@@ -55,16 +55,13 @@ for n in d['nodes']:
 
 **操作**：
 ```bash
-# 模拟 MDM Webhook 推送用户更新事件
+# 模拟 MDM Webhook 推送用户创建事件
 curl -s -X POST http://localhost:3000/webhook/mdm \
   -H "Content-Type: application/json" \
   -d '{
     "event": "user.created",
     "userId": "mdm-test-001",
-    "name": "李四",
-    "phone": "13800000088",
-    "department": "产品部",
-    "role": "employee"
+    "data": {"name": "李四", "phone": "13800000088", "department": "产品部", "role": "employee", "status": "active"}
   }'
 
 # 查看部门节点是否自动创建
