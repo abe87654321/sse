@@ -1,6 +1,4 @@
 import { pool } from '@sse/db';
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
 
 export interface ScimUser {
   userName: string
@@ -104,36 +102,22 @@ export class IdentityBridge {
 
 async function syncUserToOntology(user: { id: string; name: string; phone: string; department: string }, source: string, externalId?: string) {
   try {
-    const configPath = join(process.cwd(), 'ai-config.json');
-    let endpoint = 'http://localhost:11434/v1/chat/completions';
-    let model = 'llama3.2-vision';
-    try {
-      if (existsSync(configPath)) {
-        const cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
-        endpoint = cfg.fillEngine?.endpoint || endpoint;
-        model = cfg.fillEngine?.model || model;
-      }
-    } catch { /* defaults */ }
-
-    const { OntologyEngine } = await import('@sse/ontology');
-    const engine = new OntologyEngine(endpoint, model);
-    engine.store.addEntity(
-      `https://sse.local/person/${user.id}`,
-      'Person',
-      { name: user.name || '', phone: user.phone || '', department: user.department || '', source, externalId: externalId || '' }
-    );
-    if (user.department) {
-      engine.store.addEntity(
-        `https://sse.local/dept/${user.department}`,
-        'Department',
-        { name: user.department }
-      );
-      engine.store.addRelation(
-        `https://sse.local/person/${user.id}`,
-        'sse:belongsTo',
-        `https://sse.local/dept/${user.department}`
-      );
+    const { getEngine } = await import('../routes/ontology-helpers');
+    const engine = getEngine();
+    const base = 'https://sse.local';
+    const personUri = `${base}/person/${user.id}`;
+    engine.store.addEntity(personUri, 'Person', { name: user.name, phone: user.phone, department: user.department, source, externalId: externalId || '' });
+    if (user.department && user.department !== '未分配') {
+      const deptUri = `${base}/dept/${user.department}`;
+      engine.store.addEntity(deptUri, 'Department', { name: user.department });
+      engine.store.addRelation(personUri, 'sse:belongsTo', deptUri);
     }
     await engine.store.saveToDb().catch(() => {});
+    try {
+      const dir = (await import('path')).join(process.cwd(), 'data', 'ontology');
+      const fs = await import('fs');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      await engine.store.saveToTurtle((await import('path')).join(dir, 'sse.owl'));
+    } catch { /* best effort */ }
   } catch { /* ontology sync is best-effort */ }
 }

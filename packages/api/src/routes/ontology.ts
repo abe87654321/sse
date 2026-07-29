@@ -3,37 +3,11 @@ import { OntologyEngine } from '@sse/ontology';
 import { authMiddleware } from '@sse/auth';
 import { UserRole } from '@sse/shared';
 import { AppError } from '../middleware/error';
+import { getEngine } from './ontology-helpers';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
 const router = Router();
-const CONFIG_PATH = join(process.cwd(), 'ai-config.json');
-
-function loadAiConfig() {
-  const defaults = {
-    fillEngine: {
-      endpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
-      model: process.env.AI_MODEL || 'llama3.2-vision',
-    },
-  };
-  try {
-    if (existsSync(CONFIG_PATH)) {
-      const saved = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-      return { ...defaults, fillEngine: { ...defaults.fillEngine, ...(saved.fillEngine || {}) } };
-    }
-  } catch { /* use defaults */ }
-  return defaults;
-}
-
-let engine: OntologyEngine;
-
-function getEngine(): OntologyEngine {
-  if (!engine) {
-    const cfg = loadAiConfig();
-    engine = new OntologyEngine(cfg.fillEngine.endpoint, cfg.fillEngine.model);
-  }
-  return engine;
-}
 
 function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => { Promise.resolve(fn(req, res, next)).catch(next); };
