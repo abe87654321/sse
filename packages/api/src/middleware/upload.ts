@@ -15,3 +15,16 @@ export const uploadInvoice = multer({
     }
   },
 });
+
+export const uploadAvatar = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = file.originalname.split('.').pop()?.toLowerCase();
+    if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
+      cb(null, true);
+    } else {
+      cb(new Error('仅支持 PNG 和 JPG 格式的图片'));
+    }
+  },
+});
