@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { OntologyEngine } from '@sse/ontology';
 import { authMiddleware } from '@sse/auth';
+import { UserRole } from '@sse/shared';
 import { AppError } from '../middleware/error';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -40,6 +41,53 @@ function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Prom
 
 router.use(authMiddleware);
 
+function filterGraph(graph: { nodes: any[]; edges: any[] }, role: string, userId: string, department: string) {
+  if (role === UserRole.ADMIN || role === UserRole.FINANCE) return graph;
+
+  const keepNodes = new Set<string>();
+
+  if (role === UserRole.DEPT_APPROVER && department) {
+    for (const node of graph.nodes) {
+      const label = (node.label || '').toLowerCase();
+      const nodeDept = (node.properties?.department || '').toLowerCase();
+      if (label === department.toLowerCase() || nodeDept === department.toLowerCase()) {
+        keepNodes.add(node.id);
+      }
+    }
+    // BFS one hop from department nodes
+    for (const edge of graph.edges) {
+      if (keepNodes.has(edge.from)) keepNodes.add(edge.to);
+      if (keepNodes.has(edge.to)) keepNodes.add(edge.from);
+    }
+  } else {
+    // Employee: find own person node
+    for (const node of graph.nodes) {
+      if (node.id.includes(userId)) {
+        keepNodes.add(node.id);
+        break;
+      }
+    }
+    if (keepNodes.size === 0) {
+      // fallback: try matching by label containing user's name pattern
+      for (const node of graph.nodes) {
+        if (node.type === 'Person') keepNodes.add(node.id);
+      }
+    }
+    // BFS two hops from owned nodes
+    for (let hop = 0; hop < 2; hop++) {
+      for (const edge of graph.edges) {
+        if (keepNodes.has(edge.from)) keepNodes.add(edge.to);
+        if (keepNodes.has(edge.to)) keepNodes.add(edge.from);
+      }
+    }
+  }
+
+  return {
+    nodes: graph.nodes.filter((n: any) => keepNodes.has(n.id)),
+    edges: graph.edges.filter((e: any) => keepNodes.has(e.from) && keepNodes.has(e.to)),
+  };
+}
+
 router.post('/submit-from-text', asyncWrap(async (req, res) => {
   const { text } = req.body;
   if (!text) throw new AppError(400, 'INVALID_PARAMS', '请提供 text');
@@ -47,11 +95,11 @@ router.post('/submit-from-text', asyncWrap(async (req, res) => {
   res.json(result);
 }));
 
-router.get('/sync', asyncWrap(async (_req, res) => {
+router.get('/sync', asyncWrap(async (req, res) => {
   const store = getEngine().store;
   await getEngine().mapper.syncAll();
   const warnings = store.validateGraph();
-  const graph = store.getGraph();
+  const graph = filterGraph(store.getGraph(), req.user!.role, req.user!.userId, req.user!.department);
   try { await store.saveToDb(); } catch { /* best effort */ }
   try {
     const dir = join(process.cwd(), 'data', 'ontology');
@@ -95,7 +143,7 @@ router.post('/from-text', asyncWrap(async (req, res) => {
   }
 
   const warnings = store.validateGraph();
-  const graph = store.getGraph();
+  const graph = filterGraph(store.getGraph(), req.user!.role, req.user!.userId, req.user!.department);
   try { await store.saveToDb(); } catch { /* best effort */ }
   try {
     const dir = join(process.cwd(), 'data', 'ontology');
@@ -107,8 +155,8 @@ router.post('/from-text', asyncWrap(async (req, res) => {
   res.json({ entities_added: extraction.entities.length, relations_added: extraction.relations.length, warnings, graph });
 }));
 
-router.get('/graph', asyncWrap(async (_req, res) => {
-  const graph = getEngine().store.getGraph();
+router.get('/graph', asyncWrap(async (req, res) => {
+  const graph = filterGraph(getEngine().store.getGraph(), req.user!.role, req.user!.userId, req.user!.department);
   res.json(graph);
 }));
 
