@@ -15,10 +15,12 @@
       </div>
       <div class="header-spacer"></div>
       <div class="header-actions">
-        <template v-if="report?.status === 'draft' || report?.status === 'rejected'">
-          <button class="btn-secondary btn-sm" @click="$router.push(`/expenses/${report.id}/edit`)">编辑</button>
-          <button v-if="report?.status !== 'rejected'" class="btn-danger-outline btn-sm" @click="handleDelete" :disabled="deleting">{{ deleting ? '删除中...' : '删除' }}</button>
-          <button class="btn-primary btn-sm" @click="handleSubmit">提交审批</button>
+        <template v-if="viewerActions">
+          <button v-if="viewerActions.canEdit" class="btn-secondary btn-sm" @click="$router.push(`/expenses/${report.id}/edit`)">编辑</button>
+          <button v-if="viewerActions.canDelete" class="btn-danger-outline btn-sm" @click="handleDelete" :disabled="deleting">{{ deleting ? '删除中...' : '删除' }}</button>
+          <button v-if="viewerActions.canSubmit" class="btn-primary btn-sm" @click="handleSubmit">提交审批</button>
+          <button v-if="viewerActions.canApprove" class="btn-primary btn-sm" style="background: linear-gradient(135deg, var(--accent-mint), #69db7c);" @click="handleApprove">审批通过</button>
+          <button v-if="viewerActions.canReject" class="btn-danger btn-sm" @click="handleReject">驳回</button>
         </template>
       </div>
     </div>
@@ -89,21 +91,7 @@
         </div>
 
         <div class="detail-side">
-          <div class="card">
-            <h3 class="card-section-title font-heading">审批流程</h3>
-            <div v-if="timeline.length > 0 && timeline[0].rule" class="rule-name">规则：{{ timeline[0].rule }}</div>
-            <div v-if="timeline.length === 0" class="no-data">暂无审批记录</div>
-            <div v-else class="timeline">
-              <div v-for="(step, i) in timeline" :key="i" class="timeline-step" :class="{ last: i === timeline.length - 1 }">
-                <div class="timeline-dot" :class="{ done: step.done, current: step.active }"></div>
-                <div class="timeline-content">
-                  <div class="timeline-title">{{ step.title }}</div>
-                  <div class="timeline-desc">{{ step.desc }}</div>
-                  <div class="timeline-time" v-if="step.time">{{ step.time }}</div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <ApprovalTimeline :items="timeline" :rule-name="timeline.length > 0 ? timeline[0].rule : ''" />
 
           <div class="card">
             <h3 class="card-section-title font-heading">发票文件</h3>
@@ -128,6 +116,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api/index'
+import ApprovalTimeline from '../components/ApprovalTimeline.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -150,6 +139,7 @@ const loading = ref(true)
 const report = ref<Report | null>(null)
 const categories = ref<Category[]>([])
 const timeline = ref<Array<{ title: string; desc: string; time: string; rule?: string; done: boolean; active: boolean }>>([])
+const viewerActions = ref<{ canEdit: boolean; canSubmit: boolean; canDelete: boolean; canApprove: boolean; canReject: boolean } | null>(null)
 const deleting = ref(false)
 
 function formatDate(dateStr?: string) {
@@ -208,6 +198,26 @@ async function handleSubmit() {
   }
 }
 
+async function handleApprove() {
+  try {
+    await api.post(`/approvals/${route.params.id}/approve`, {})
+    router.replace('/expenses')
+  } catch (e: any) {
+    alert(e?.response?.data?.error?.message || '审批失败')
+  }
+}
+
+async function handleReject() {
+  const comment = prompt('请输入驳回原因：')
+  if (!comment) return
+  try {
+    await api.post(`/approvals/${route.params.id}/reject`, { comment })
+    router.replace('/expenses')
+  } catch (e: any) {
+    alert(e?.response?.data?.error?.message || '驳回失败')
+  }
+}
+
 onMounted(async () => {
   try {
     const expenseRes = await api.get(`/expenses/${route.params.id}`)
@@ -218,6 +228,7 @@ onMounted(async () => {
       invoices: data.invoices || [],
       approvalRecords: data.approvalRecords || [],
     }
+    viewerActions.value = data.viewerActions || null
     report.value.totalAmount = report.value.totalAmount || report.value.items?.reduce((s: number, i: any) => s + (i.amount || 0), 0) || 0
 
     try {
@@ -287,50 +298,6 @@ onMounted(async () => {
 
 .data-table tfoot tr td { border-top: 1px solid var(--border); padding-top: 14px; }
 
-/* Timeline */
-.timeline { position: relative; }
-.timeline-step {
-  position: relative;
-  padding-left: 28px;
-  padding-bottom: 20px;
-}
-.timeline-step.last { padding-bottom: 0; }
-.timeline-step::before {
-  content: '';
-  position: absolute;
-  left: 8px;
-  top: 14px;
-  bottom: 0;
-  width: 2px;
-  background: var(--border);
-  border-radius: 1px;
-}
-.timeline-step.last::before { display: none; }
-
-.timeline-dot {
-  position: absolute;
-  left: 0;
-  top: 6px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 2px solid var(--border);
-  background: var(--bg-card);
-  z-index: 1;
-  transition: all var(--transition);
-}
-.timeline-dot.done { border-color: var(--accent-mint); background: var(--accent-mint); }
-.timeline-dot.current {
-  border-color: var(--accent-coral);
-  background: var(--bg-card);
-  box-shadow: 0 0 0 4px rgba(255, 107, 107, 0.12);
-}
-
-.timeline-title { font-size: 0.9rem; font-weight: 600; color: var(--text-primary); }
-.timeline-desc { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
-.rule-name { font-size: 0.78rem; color: var(--accent-sky); margin-bottom: 10px; padding: 4px 10px; background: var(--accent-sky-bg); border-radius: var(--radius-sm); display: inline-block; }
-.timeline-time { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
-
 .attachment-list { display: flex; flex-direction: column; gap: 8px; }
 .attachment-item {
   display: flex;
@@ -361,13 +328,6 @@ onMounted(async () => {
 .no-invoice {
   color: var(--text-muted);
   font-size: 0.82rem;
-}
-
-.no-data {
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  text-align: center;
-  padding: 20px 0;
 }
 
 .loading-state {
