@@ -19,15 +19,6 @@ export class ReportService {
   async submitReport(dto: CreateReportDto, userId: string): Promise<ExpenseReport> {
     const serialNo = generateSerialNo();
     const report = await this.expenseRepo.create(dto, userId, serialNo);
-    const totalAmount = dto.items.reduce((sum, item) => sum + item.amount, 0);
-    const categoryIds = dto.items.map((item) => item.categoryId);
-    const rule = await this.engine.matchRule(totalAmount, categoryIds);
-    if (rule && rule.approvalChain.length > 0) {
-      const firstStep = rule.approvalChain[0];
-      if (firstStep.role || firstStep.assigneeId) {
-        await this.engine.startApproval(report.id, rule);
-      }
-    }
     return report;
   }
 }
