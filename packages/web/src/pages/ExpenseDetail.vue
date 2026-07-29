@@ -21,6 +21,7 @@
           <button v-if="viewerActions.canSubmit" class="btn-primary btn-sm" @click="handleSubmit">提交审批</button>
           <button v-if="viewerActions.canApprove" class="btn-primary btn-sm" style="background: linear-gradient(135deg, var(--accent-mint), #69db7c);" @click="handleApprove">审批通过</button>
           <button v-if="viewerActions.canReject" class="btn-danger btn-sm" @click="confirmAction = 'reject'">驳回</button>
+          <button v-if="viewerActions.canPay" class="btn-primary btn-sm" style="background: linear-gradient(135deg, var(--accent-sky), #4dabf7);" @click="handlePay">确认打款</button>
         </template>
       </div>
     </div>
@@ -64,6 +65,16 @@
                 <span class="info-label">说明</span>
                 <span class="info-value">{{ report.description || '无' }}</span>
               </div>
+              <template v-if="report.paidAt">
+                <div class="info-item">
+                  <span class="info-label">打款时间</span>
+                  <span class="info-value">{{ formatDate(report.paidAt) }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">打款凭证</span>
+                  <span class="info-value">{{ report.paymentRef || '-' }}</span>
+                </div>
+              </template>
             </div>
           </div>
 
@@ -145,6 +156,7 @@ interface ExpenseItem { id: string; categoryId: string; amount: number; expenseD
 interface Report {
   id: string; serialNo: string; title: string; totalAmount: number; status: string
   description?: string; submittedAt?: string; createdAt?: string; updatedAt?: string
+  paidAt?: string; paymentRef?: string
   items: ExpenseItem[]
   invoices?: InvoiceItem[]
 }
@@ -153,7 +165,7 @@ const loading = ref(true)
 const report = ref<Report | null>(null)
 const categories = ref<Category[]>([])
 const timeline = ref<Array<{ title: string; desc: string; time: string; rule?: string; done: boolean; active: boolean }>>([])
-const viewerActions = ref<{ canEdit: boolean; canSubmit: boolean; canDelete: boolean; canApprove: boolean; canReject: boolean } | null>(null)
+const viewerActions = ref<{ canEdit: boolean; canSubmit: boolean; canDelete: boolean; canApprove: boolean; canReject: boolean; canPay: boolean } | null>(null)
 const deleting = ref(false)
 const confirmAction = ref<'delete' | 'reject' | null>(null)
 const rejectComment = ref('')
@@ -232,6 +244,16 @@ async function handleApprove() {
     router.replace('/expenses')
   } catch (e: any) {
     alert(e?.response?.data?.error?.message || '审批失败')
+  }
+}
+
+async function handlePay() {
+  const ref = prompt('打款凭证号（可选）：')
+  try {
+    await api.post(`/expenses/${route.params.id}/pay`, { paymentRef: ref || undefined })
+    router.replace('/expenses')
+  } catch (e: any) {
+    alert(e?.response?.data?.error?.message || '打款失败')
   }
 }
 

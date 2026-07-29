@@ -20,6 +20,7 @@
           <button v-if="viewerActions.canReject" class="btn-danger btn-sm" @click="showRejectInput = true" :disabled="acting">{{ acting ? '处理中...' : '驳回' }}</button>
           <button v-if="viewerActions.canEdit" class="btn-secondary btn-sm" @click="$router.push(`/expenses/${report?.id}/edit`)">编辑</button>
           <button v-if="viewerActions.canDelete" class="btn-danger-outline btn-sm" @click="handleDelete">删除</button>
+          <button v-if="viewerActions.canPay" class="btn-primary btn-sm" style="background: linear-gradient(135deg, var(--accent-sky), #4dabf7);" @click="handlePay">确认打款</button>
         </template>
       </div>
     </div>
@@ -58,6 +59,16 @@
                 <span class="info-label">说明</span>
                 <span class="info-value">{{ report.description || '无' }}</span>
               </div>
+              <template v-if="report.paidAt">
+                <div class="info-item">
+                  <span class="info-label">打款时间</span>
+                  <span class="info-value">{{ formatDate(report.paidAt) }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">打款凭证</span>
+                  <span class="info-value">{{ report.paymentRef || '-' }}</span>
+                </div>
+              </template>
             </div>
           </div>
 
@@ -113,7 +124,7 @@ const rejectComment = ref('')
 const report = ref<any>(null)
 const applicantName = ref('')
 const timeline = ref<Array<{ title: string; desc: string; time: string; rule?: string; done: boolean; active: boolean }>>([])
-const viewerActions = ref<{ canEdit: boolean; canSubmit: boolean; canDelete: boolean; canApprove: boolean; canReject: boolean } | null>(null)
+const viewerActions = ref<{ canEdit: boolean; canSubmit: boolean; canDelete: boolean; canApprove: boolean; canReject: boolean; canPay: boolean } | null>(null)
 const categories = ref<any[]>([])
 
 function formatDate(dateStr?: string) {
@@ -160,6 +171,16 @@ async function handleDelete() {
     router.replace('/approvals')
   } catch (e: any) {
     alert(e?.response?.data?.error?.message || '删除失败')
+  }
+}
+
+async function handlePay() {
+  const ref = prompt('打款凭证号（可选）：')
+  try {
+    await api.post(`/expenses/${route.params.reportId}/pay`, { paymentRef: ref || undefined })
+    router.replace('/approvals')
+  } catch (e: any) {
+    alert(e?.response?.data?.error?.message || '打款失败')
   }
 }
 
