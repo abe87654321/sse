@@ -164,6 +164,28 @@ function buildVisData() {
     const bg = COLORS[n.type] || COLORS.Unknown
     const label = nodeLabel(n)
     const shape = SHAPES[n.type] || 'dot'
+    const avatar = n.properties?.avatarUrl
+
+    if (n.type === 'Person' && avatar) {
+      const uid = n.properties?.userId || n.properties?.externalId || ''
+      return {
+        id: n.id,
+        label,
+        shape: 'circularImage',
+        image: `/api/auth/profile/avatar?userId=${encodeURIComponent(uid)}`,
+        borderWidth: 3,
+        borderWidthSelected: 5,
+        color: {
+          border: bg,
+          background: bg,
+          highlight: { border: bg, background: bg },
+        },
+        size: 24,
+        shadow: { enabled: true, color: 'rgba(0,0,0,0.2)', size: 18, x: 0, y: 2 },
+        title: nodeTitle(n),
+      }
+    }
+
     const node: any = {
       id: n.id,
       label,
