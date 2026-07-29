@@ -40,7 +40,11 @@ router.post(
     }
 
     const report = await reportService.submitReport(dto, req.user!.userId);
-    res.status(201).json(report);
+    const { rows: createdItems } = await pool.query(
+      'SELECT * FROM expense_items WHERE report_id = $1 ORDER BY expense_date',
+      [report.id]
+    );
+    res.status(201).json({ ...report, items: createdItems.map(mapItemRow) });
   })
 );
 
@@ -485,12 +489,18 @@ function mapReportRow(row: any) {
 }
 
 function mapItemRow(row: any) {
+  let expenseDate = row.expense_date;
+  if (expenseDate instanceof Date) {
+    expenseDate = expenseDate.toISOString().slice(0, 10);
+  } else if (typeof expenseDate === 'string') {
+    expenseDate = expenseDate.slice(0, 10);
+  }
   return {
     id: row.id,
     reportId: row.report_id,
     categoryId: row.category_id,
     amount: Number(row.amount),
-    expenseDate: row.expense_date,
+    expenseDate,
     description: row.description,
   };
 }

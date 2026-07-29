@@ -381,7 +381,7 @@ onMounted(async () => {
         id: item.id,
         categoryId: item.categoryId,
         amount: item.amount,
-        expenseDate: item.expenseDate,
+        expenseDate: typeof item.expenseDate === 'string' ? item.expenseDate.slice(0, 10) : item.expenseDate,
         description: item.description || '',
         uploadedInvoice: undefined,
       }))
