@@ -14,6 +14,7 @@ export type User = {
   role: string;
   parentId?: string;
   status: string;
+  avatarUrl?: string;
   notify_prefs?: NotifyPrefs;
   deletedAt?: Date;
   createdAt: Date;

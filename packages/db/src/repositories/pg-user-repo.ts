@@ -12,13 +12,14 @@ function mapUser(row: any): User {
     role: row.role,
     parentId: row.parent_id ?? undefined,
     status: row.status,
+    avatarUrl: row.avatar_url ?? undefined,
     deletedAt: row.deleted_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-const USER_COLUMNS = 'id, name, phone, email, department, role, parent_id, status, deleted_at, created_at, updated_at';
+const USER_COLUMNS = 'id, name, phone, email, department, role, parent_id, status, deleted_at, avatar_url, created_at, updated_at';
 
 export class PgUserRepo implements IUserRepo {
   async findById(id: string): Promise<User | null> {
@@ -84,6 +85,13 @@ export class PgUserRepo implements IUserRepo {
     await pool.query('DELETE FROM approval_records WHERE report_id IN (SELECT id FROM expense_reports WHERE user_id = $1)', [id]);
     await pool.query('DELETE FROM expense_reports WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM users WHERE id = $1', [id]);
+  }
+
+  async updateAvatar(id: string, avatarUrl: string): Promise<void> {
+    await pool.query(
+      'UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2',
+      [avatarUrl, id]
+    );
   }
 
   async getRelatedDataCount(id: string): Promise<number> {

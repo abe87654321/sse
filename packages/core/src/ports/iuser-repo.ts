@@ -9,5 +9,6 @@ export interface IUserRepo {
   softDelete(id: string): Promise<void>;
   hardDelete(id: string): Promise<void>;
   cascadeDelete(id: string): Promise<void>;
+  updateAvatar(id: string, avatarUrl: string): Promise<void>;
   getRelatedDataCount(id: string): Promise<number>;
 }
