@@ -205,6 +205,12 @@ router.put(
     );
 
     res.json(mapUserRow(rows[0]));
+
+    // async: sync name/department change to ontology
+    if (name !== undefined || department !== undefined) {
+      const updated = rows[0];
+      syncUserToOntology({ id: updated.id, name: updated.name, phone: updated.phone, department: updated.department }).catch(() => {});
+    }
   })
 );
 
@@ -585,5 +591,21 @@ router.delete('/reasoning-rules/:id', asyncWrap(async (req, res) => {
   await new PgReasoningRuleRepo().delete(req.params.id);
   res.json({ message: '已删除' });
 }));
+
+async function syncUserToOntology(user: { id: string; name: string; phone: string; department: string }) {
+  try {
+    const { getEngine } = await import('./ontology-helpers');
+    const engine = getEngine();
+    const base = 'https://sse.local';
+    const personUri = `${base}/person/${user.id}`;
+    engine.store.addEntity(personUri, 'Person', { name: user.name, phone: user.phone, department: user.department });
+    if (user.department && user.department !== '未分配') {
+      const deptUri = `${base}/dept/${user.department}`;
+      engine.store.addEntity(deptUri, 'Department', { name: user.department });
+      engine.store.addRelation(personUri, 'sse:belongsTo', deptUri);
+    }
+    await engine.store.saveToDb().catch(() => {});
+  } catch { /* best effort */ }
+}
 
 export { router as adminRoutes };
