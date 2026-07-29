@@ -6,10 +6,13 @@ export function executeSparql(store: Store, sparql: string): Array<Record<string
   if (!selectMatch) throw new Error('仅支持 SELECT ?var WHERE { ?s ?p ?o } 格式');
 
   const vars = selectMatch[1].trim().split(/\s+/).filter(v => v.startsWith('?'));
-  const patterns = selectMatch[2].trim().split('.').map(p => p.trim()).filter(Boolean).map(p => {
-    const parts = p.split(/\s+/);
-    return { subject: parts[0], predicate: parts[1], object: parts.slice(2).join(' ') };
-  });
+  const whereContent = selectMatch[2].trim();
+  const tokens = whereContent.split(/\s+/).filter(Boolean);
+  const patterns: Array<{ subject: string; predicate: string; object: string }> = [];
+  for (let i = 0; i + 2 < tokens.length; i += 3) {
+    if (tokens[i + 1] === '.') { i -= 2; continue; }
+    patterns.push({ subject: tokens[i], predicate: tokens[i + 1], object: tokens[i + 2] });
+  }
 
   for (const quad of store) {
     const binding: Record<string, string> = {};
