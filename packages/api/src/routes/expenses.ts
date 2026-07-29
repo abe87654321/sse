@@ -179,6 +179,8 @@ router.get(
     const isDraftOrRejected = report.status === ReportStatus.DRAFT || report.status === ReportStatus.REJECTED;
     const isPending = report.status === ReportStatus.PENDING;
 
+    const isApprovedOrPaid = report.status === ReportStatus.APPROVED || report.status === ReportStatus.PAID;
+
     let canApprove = false;
     let canReject = false;
     if (isPending && !isOwner) {
@@ -190,11 +192,11 @@ router.get(
     }
 
     const viewerActions = {
-      canEdit: (isAdmin || (isOwner && isDraftOrRejected)),
-      canSubmit: (isAdmin || (isOwner && isDraftOrRejected)),
-      canDelete: (isAdmin || (isOwner && report.status === ReportStatus.DRAFT)),
-      canApprove: isAdmin || canApprove,
-      canReject: isAdmin || canReject,
+      canEdit: (!isApprovedOrPaid && (isAdmin || (isOwner && isDraftOrRejected))),
+      canSubmit: (!isApprovedOrPaid && (isAdmin || (isOwner && isDraftOrRejected))),
+      canDelete: isAdmin || (isOwner && report.status === ReportStatus.DRAFT),
+      canApprove: (!isApprovedOrPaid && isAdmin) || canApprove,
+      canReject: (!isApprovedOrPaid && isAdmin) || canReject,
     };
 
     const itemIds = items.map((i: any) => i.id);
