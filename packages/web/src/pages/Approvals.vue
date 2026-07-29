@@ -14,7 +14,7 @@
 
     <div v-else-if="approvals.length > 0" class="approval-list">
       <div class="card approval-card" v-for="item in approvals" :key="item.id">
-        <div class="approval-main" @click="$router.push(`/expenses/${item.reportId}`)">
+        <div class="approval-main" @click="$router.push(`/approvals/${item.reportId}`)">
           <div class="avatar avatar-orange" style="width:42px;height:42px;">{{ (item.applicantName || '?')[0] }}</div>
           <div class="approval-info">
             <div class="approval-header">

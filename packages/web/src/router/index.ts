@@ -51,6 +51,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '审批管理', icon: 'Checked' }
       },
       {
+        path: 'approvals/:reportId',
+        name: 'ApprovalHandle',
+        component: () => import('@/pages/ApprovalHandle.vue'),
+        meta: { title: '审批处理', hidden: true }
+      },
+      {
         path: 'statistics',
         name: 'Statistics',
         component: () => import('@/pages/Statistics.vue'),
