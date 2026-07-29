@@ -14,7 +14,11 @@ export function executeSparql(store: Store, sparql: string): Array<Record<string
     patterns.push({ subject: tokens[i], predicate: tokens[i + 1], object: tokens[i + 2] });
   }
 
-  for (const quad of store.getQuads(null, null, null, null)) {
+  const quads = store.getQuads(null, null, null, null);
+  console.log(`[SPARQL] quads total: ${quads.length}, patterns: ${patterns.length}`);
+  if (patterns.length > 0) console.log(`[SPARQL] pattern[0]: ${JSON.stringify(patterns[0])}`);
+
+  for (const quad of quads) {
     const binding: Record<string, string> = {};
     let match = true;
     for (const pat of patterns) {
@@ -32,6 +36,7 @@ export function executeSparql(store: Store, sparql: string): Array<Record<string
       results.push(row);
     }
   }
+  console.log(`[SPARQL] results: ${results.length}`);
   return results;
 }
 
