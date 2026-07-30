@@ -1,6 +1,8 @@
 import type { ToolDefinition, ToolResult } from "./types.js";
 import { errorResult, successResult } from "./types.js";
 import { resolveAuthContext } from "../auth.js";
+import { getEngine } from "./get-engine.js";
+import { executeSparql } from "@sse/ontology";
 
 export const definition: ToolDefinition = {
   name: "query_sparql",
@@ -18,13 +20,10 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
   const auth = resolveAuthContext(args);
   if (!auth) return errorResult("UNAUTHORIZED", "无效或缺失 API key");
   try {
-    const apiBase = process.env.API_BASE || "http://localhost:3000";
-    const res = await fetch(`${apiBase}/ontology/sparql`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${args["api_key"]}` },
-      body: JSON.stringify({ query: args.query }),
-    });
-    return successResult(await res.json());
+    const engine = getEngine();
+    const store = engine.store.getStore();
+    const result = executeSparql(store, args.query as string);
+    return successResult(result);
   } catch (err: any) {
     return errorResult("INTERNAL_ERROR", err.message || "内部错误");
   }

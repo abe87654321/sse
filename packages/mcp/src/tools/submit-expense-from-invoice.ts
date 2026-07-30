@@ -1,30 +1,10 @@
 import type { ToolDefinition, ToolResult } from "./types.js";
 import { errorResult, successResult } from "./types.js";
 import { resolveAuthContext } from "../auth.js";
-import { OntologyEngine } from "@sse/ontology";
+import { getEngine } from "./get-engine.js";
+import { signToken } from "@sse/auth";
 import { parseOcr } from "@sse/ocr";
-import { readFileSync, existsSync } from "fs";
-import { join } from "path";
 import { pool } from "@sse/db";
-
-const CONFIG_PATH = join(process.cwd(), "ai-config.json");
-
-function getEngine(): OntologyEngine {
-  const defaults = {
-    fillEngine: {
-      endpoint: process.env.AI_ENDPOINT || "http://localhost:11434/v1/chat/completions",
-      model: process.env.AI_MODEL || "llama3.2-vision",
-    },
-  };
-  let cfg = defaults;
-  try {
-    if (existsSync(CONFIG_PATH)) {
-      const saved = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
-      cfg = { ...defaults, fillEngine: { ...defaults.fillEngine, ...(saved.fillEngine || {}) } };
-    }
-  } catch { /* use defaults */ }
-  return new OntologyEngine(cfg.fillEngine.endpoint, cfg.fillEngine.model);
-}
 
 export const definition: ToolDefinition = {
   name: "submit_expense_from_invoice",
@@ -59,7 +39,8 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
     }
     const { valid, error, dto } = await engine.reasoner.reason(extraction);
     if (!valid) return successResult({ success: false, error, notified: ["role:admin"] });
-    const actionResult = await engine.executor.execute(dto!, resolvedUserId, "");
+    const token = signToken({ userId: auth.userId, role: auth.role, department: auth.department });
+    const actionResult = await engine.executor.execute(dto!, resolvedUserId, token);
     if (actionResult.success && actionResult.report_id) {
       try { await engine.mapper.syncReportToOntology(actionResult.report_id); } catch { /* best effort */ }
     }
