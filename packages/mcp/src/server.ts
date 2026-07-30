@@ -75,6 +75,19 @@ export function startServer(): Server {
     }
 
     const args = (params.arguments ?? {}) as Record<string, unknown>;
+
+    const schema = tool.definition.inputSchema as any;
+    if (schema?.required) {
+      for (const field of schema.required) {
+        if (args[field] === undefined || args[field] === null || args[field] === "") {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ error: { code: "INVALID_PARAMS", message: `缺少必填参数: ${field}` } }) }],
+            isError: true,
+          };
+        }
+      }
+    }
+
     return tool.handler(args);
   };
 

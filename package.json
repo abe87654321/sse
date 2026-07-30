@@ -8,7 +8,8 @@
     "test:integration": "cd test && jest --verbose",
     "lint": "pnpm -r lint",
     "migrate": "pnpm --filter @sse/db migrate",
-    "migrate:rollback": "pnpm --filter @sse/db migrate:rollback"
+    "migrate:rollback": "pnpm --filter @sse/db migrate:rollback",
+    "mcp": "pnpm --filter @sse/mcp build && node packages/mcp/dist/index.js"
   },
   "packageManager": "pnpm@9.15.0",
   "engines": {
