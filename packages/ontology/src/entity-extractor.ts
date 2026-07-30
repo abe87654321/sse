@@ -13,6 +13,10 @@ export class EntityExtractor {
     this.provider = new LocalProvider({ endpoint, modelName: model });
   }
 
+  async analyzeText(text: string, prompt: string): Promise<string> {
+    return this.provider.analyzeText(text, prompt);
+  }
+
   async extractFromText(text: string): Promise<ExpenseExtraction> {
     const prompt = `你是一个报销信息提取助手。从以下自然语言中提取报销相关信息，以JSON格式返回。
 不要添加JSON之外的任何内容。
