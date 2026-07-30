@@ -288,7 +288,8 @@ onMounted(() => {
 async function fetchStats() {
   try {
     const { data } = await api.get('/admin/users/validate')
-    roleStats.value = data.stats || data || []
+    const obj = data.stats || data
+    roleStats.value = roleOptions.map(r => ({ role: r.value, count: obj[r.value] || 0 }))
   } catch {
     roleStats.value = roleOptions.map(r => ({ role: r.value, count: 0 }))
   }
