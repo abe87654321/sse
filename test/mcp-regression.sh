@@ -8,7 +8,7 @@ FAIL=0
 
 TOKEN=$(curl -sf -X POST "$BASE/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"phone":"13800000000","password":"admin123"}' \
+  -d '{"phone":"13800000000","password":"123456"}' \
   | python3 -c "import json,sys; print(json.load(sys.stdin).get('accessToken',''))")
 
 if [ -z "$TOKEN" ]; then
