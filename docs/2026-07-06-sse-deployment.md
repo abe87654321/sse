@@ -246,6 +246,9 @@ MINIO_BUCKET=invoices
 # 通知 (可选, 开发环境不需要)
 SMS_PROVIDER=log
 EMAIL_PROVIDER=log
+
+# MCP API Key（格式: key=userId:role:department，多个 key 用逗号分隔）
+MCP_API_KEYS=mcp_key_001=<admin-id>:admin:管理部
 ```
 
 ### 2.9 启动服务
@@ -265,10 +268,56 @@ pnpm dev
 
 ### 2.10 启动 MCP Server（如需 Agent 调用）
 
+#### 2.10.1 获取管理员 UUID
+
+```bash
+sudo docker exec -i sse-postgres-1 psql -U sse -d sse -c "SELECT id, name, role FROM users WHERE role='admin';"
+```
+
+输出示例：
+```
+                  id                  |    name    | role
+--------------------------------------+------------+-------
+ 3e856835-07c0-41b8-9ae1-f33ef17ce80c | 系统管理员 | admin
+```
+
+#### 2.10.2 配置 API Key
+
+三种方式任选，推荐方式三持久化到 `.env`：
+
+**方式一：当前终端临时生效**
+```bash
+export MCP_API_KEYS="mcp_key_001=<上一步查到的admin-id>:admin:管理部"
+```
+
+**方式二：持久化到 bashrc（当前用户永久生效）**
+```bash
+echo 'export MCP_API_KEYS="mcp_key_001=<admin-id>:admin:管理部"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+**方式三（推荐）：写入项目 .env 文件**
+```env
+# MCP API Key（格式: key=userId:role:department，多个 key 用逗号分隔）
+MCP_API_KEYS=mcp_key_001=<admin-id>:admin:管理部
+```
+
+#### 2.10.3 执行数据库迁移（持久化 API Key）
+
+MCP API Key 同时支持从数据库 `mcp_api_keys` 表加载，需先执行迁移：
+
+```bash
+sudo docker exec -i sse-postgres-1 psql -U sse -d sse < packages/db/src/migrations/009_mcp_api_keys.sql
+```
+
+#### 2.10.4 编译并启动
+
 ```bash
 pnpm --filter @sse/mcp build
-node packages/mcp/dist/server.js
+pnpm mcp
 ```
+
+MCP Server 启动后通过 stdio 协议通信，配置到 AI Agent 的 mcp.json 中即可使用。
 
 ### 2.11 启动通知调度器（现已自动启动）
 
@@ -338,6 +387,8 @@ CMD ["node", "packages/api/dist/index.js"]
 | ALIYUN_ACCESS_KEY_SECRET | 否* | — | 阿里云 Secret |
 | ALIYUN_SMS_SIGN_NAME | 否* | — | 阿里云短信签名 |
 | ALIYUN_SMS_TEMPLATE_CODE | 否* | — | 阿里云短信模板编号 |
+| MCP_API_KEYS | 否 | — | MCP API Key 配置，格式见 §2.10.2 |
+| AI_ENDPOINT | 否 | localhost:11434 | AI 模型端点 |
 
 > \* 仅在 `EMAIL_PROVIDER=smtp` 或 `SMS_PROVIDER=aliyun` 时必填。
 
