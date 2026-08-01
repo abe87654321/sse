@@ -57,6 +57,58 @@ router.post(
 );
 
 router.post(
+  '/api-key-login',
+  asyncWrap(async (req, res) => {
+    const { apiKey } = req.body;
+
+    if (!apiKey) {
+      throw new AppError(400, 'INVALID_PARAMS', '请提供 apiKey');
+    }
+
+    const { rows } = await pool.query(
+      `SELECT key, user_id, role, department, is_active
+       FROM mcp_api_keys WHERE key = $1`,
+      [apiKey]
+    );
+    if (rows.length === 0) {
+      throw new AppError(401, 'UNAUTHORIZED', '无效的 API key');
+    }
+    const keyRow = rows[0];
+    if (!keyRow.is_active) {
+      throw new AppError(403, 'UNAUTHORIZED', 'API key 已被禁用');
+    }
+
+    // 角色随 key 绑定用户走：加载该用户，按用户当前角色/部门签发 JWT
+    const user = await userRepo.findById(keyRow.user_id);
+    if (!user) {
+      throw new AppError(401, 'UNAUTHORIZED', 'API key 绑定的用户不存在');
+    }
+    if (user.status !== 'active') {
+      throw new AppError(403, 'UNAUTHORIZED', '账号已被禁用');
+    }
+
+    const accessToken = signToken({
+      userId: user.id,
+      role: keyRow.role || user.role,
+      department: keyRow.department || user.department,
+    });
+
+    res.json({
+      accessToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        phone: user.phone,
+        email: user.email,
+        department: user.department,
+        role: user.role,
+        avatarUrl: user.avatarUrl,
+      },
+    });
+  })
+);
+
+router.post(
   '/refresh',
   asyncWrap(async (req, res) => {
     const { refreshToken } = req.body;

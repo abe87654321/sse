@@ -1,272 +1,362 @@
 /**
- * SSE MCP Bridge — Pi extension
+ * SSE MCP Thin Client — Pi extension
  *
- * Spawns the SSE MCP server (`packages/mcp/dist/index.js`) as a child process,
- * discovers its tools via the MCP JSON-RPC protocol, and registers them as Pi
- * tools through `pi.registerTool()`. Tool calls are forwarded to the MCP server
- * over stdio.
+ * 瘦客户端：不 spawn 本地 MCP 进程，直接通过 fetch 调用远端 SSE REST API。
  *
- * Environment variables read from the process environment or the project's
- * `.env` file (parsed and merged into the child env):
- *   - SSE_MCP_SERVER  : override the MCP server command (default: node packages/mcp/dist/index.js)
- *   - MCP_API_KEYS    : key registrations (key=userId:role:department, comma separated)
- *   - MCP_API_KEY     : default key passed to tools
- *   - DB_*, JWT_SECRET, AI_ENDPOINT, AI_MODEL, MINIO_* : forwarded as-is
+ * 认证：启动时用 MCP API key 调 POST /auth/api-key-login 换取 JWT 并缓存。
+ * 角色随 key 绑定的用户走（员工/审批人/管理员各自权限），客户端只持有 key。
+ *
+ * 环境变量：
+ *   SSE_API_BASE : API 根地址（默认 http://192.168.3.107:3000）
+ *   SSE_API_KEY  : MCP API key（必填）
+ *
+ * 工具输出与原 MCP server 一致（snake_case + pagination 结构）。
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { spawn, type ChildProcess } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
-import { join, resolve } from "node:path";
 
-interface McpToolDef {
-  name: string;
-  description?: string;
-  inputSchema?: {
-    type?: string;
-    properties?: Record<string, any>;
-    required?: string[];
-  };
+const API_BASE = process.env.SSE_API_BASE || "http://192.168.3.107:3000";
+const API_KEY = process.env.SSE_API_KEY || "";
+
+let accessToken: string | null = null;
+
+// ---------- snake_case 适配 ----------
+
+function toSnake(v: string): string {
+  return v.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
 }
 
-interface JsonRpcResponse {
-  jsonrpc: string;
-  id: number;
-  result?: any;
-  error?: { code: number; message: string; data?: unknown };
-}
-
-function loadEnvFile(cwd: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  const envPath = join(cwd, ".env");
-  if (!existsSync(envPath)) return out;
-  try {
-    for (const line of readFileSync(envPath, "utf-8").split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const eq = trimmed.indexOf("=");
-      if (eq === -1) continue;
-      const key = trimmed.slice(0, eq).trim();
-      let value = trimmed.slice(eq + 1).trim();
-      if (
-        (value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
-        value = value.slice(1, -1);
-      }
-      if (key) out[key] = value;
+function deepSnake(obj: any): any {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) return obj.map(deepSnake);
+  if (typeof obj === "object") {
+    const out: Record<string, any> = {};
+    for (const [k, val] of Object.entries(obj)) {
+      out[toSnake(k)] = deepSnake(val);
     }
-  } catch {
-    /* ignore unreadable .env */
+    return out;
   }
-  return out;
+  return obj;
 }
 
-function mcpCommand(cwd: string): { file: string; args: string[] } {
-  const override = process.env.SSE_MCP_SERVER;
-  if (override) {
-    const parts = override.split(/\s+/).filter(Boolean);
-    return { file: parts[0], args: parts.slice(1) };
-  }
+function toPaginated(data: any): any {
+  const body = deepSnake(data);
+  const page = body.page ?? 1;
+  const pageSize = body.page_size ?? (body.pageSize ?? 20);
+  const total = body.total ?? body.count ?? (body.results ? body.results.length : 0);
   return {
-    file: "node",
-    args: [join(cwd, "packages", "mcp", "dist", "index.js")],
+    results: body.results ?? body.entities ?? body.data ?? [],
+    pagination: { page, page_size: pageSize, total, has_more: page * pageSize < total },
   };
 }
 
-function jsonSchemaToTypeBox(schema: any, required: boolean): any {
-  const opts = schema?.description ? { description: schema.description } : {};
-  switch (schema?.type) {
-    case "string": {
-      if (Array.isArray(schema.enum) && schema.enum.length > 0) {
-        const t = Type.Union(schema.enum.map((v: string) => Type.Literal(v)), opts);
-        return required ? t : Type.Optional(t);
-      }
-      const t = Type.String(opts);
-      return required ? t : Type.Optional(t);
-    }
-    case "number": {
-      const t = Type.Number(opts);
-      return required ? t : Type.Optional(t);
-    }
-    case "integer": {
-      const t = Type.Integer(opts);
-      return required ? t : Type.Optional(t);
-    }
-    case "boolean": {
-      const t = Type.Boolean(opts);
-      return required ? t : Type.Optional(t);
-    }
-    case "array": {
-      const t = Type.Array(jsonSchemaToTypeBox(schema.items || { type: "string" }, true), opts);
-      return required ? t : Type.Optional(t);
-    }
-    default: {
-      const t = Type.Any(opts);
-      return required ? t : Type.Optional(t);
-    }
+// ---------- HTTP 客户端 ----------
+
+async function login(): Promise<void> {
+  const res = await fetch(`${API_BASE}/auth/api-key-login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apiKey: API_KEY }),
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).error?.message || detail; } catch { /* ignore */ }
+    throw new Error(`API key 登录失败 (${res.status}): ${detail}`);
   }
+  const data = await res.json();
+  accessToken = data.accessToken;
 }
+
+async function api(
+  method: string,
+  path: string,
+  body?: unknown,
+  retried = false,
+): Promise<{ status: number; data: any }> {
+  if (!API_KEY) throw new Error("未配置 SSE_API_KEY 环境变量");
+  if (!accessToken) await login();
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+
+  if (res.status === 401 && !retried) {
+    accessToken = null;
+    await login();
+    return api(method, path, body, true);
+  }
+
+  let data: any = null;
+  const text = await res.text();
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+
+  if (!res.ok) {
+    const msg = data?.error?.message || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return { status: res.status, data };
+}
+
+// ---------- 工具注册 ----------
 
 export default function sseMcpExtension(pi: ExtensionAPI) {
-  const cwd = process.cwd();
-  const envOverrides = loadEnvFile(cwd);
+  const str = (d: string) => ({ type: "string" as const, description: d });
+  const num = (d: string) => ({ type: "number" as const, description: d });
 
-  let child: ChildProcess | null = null;
-  let pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
-  let nextId = 1;
-  let initialized = false;
-  let registered = false;
+  const tools: Array<{
+    name: string;
+    description: string;
+    properties: Record<string, any>;
+    required?: string[];
+    call: (args: Record<string, unknown>) => Promise<any>;
+  }> = [
+    // ---------- 报销搜索 ----------
+    {
+      name: "search_expenses",
+      description: "搜索报销单，支持按日期、申请人、状态、类别、金额范围、关键词筛选",
+      properties: {
+        date_from: str("起始日期 YYYY-MM-DD"),
+        date_to: str("截止日期 YYYY-MM-DD"),
+        applicant_id: str("申请人用户ID"),
+        status: str("报销单状态"),
+        category_id: str("费用类别ID"),
+        amount_min: num("最低金额"),
+        amount_max: num("最高金额"),
+        keyword: str("标题关键词搜索"),
+        page: num("页码，默认1"),
+        page_size: num("每页条数，默认20，最大100"),
+      },
+      call: (a) =>
+        api("GET", `/expenses?${new URLSearchParams(
+          Object.entries(a).reduce((acc, [k, v]) => {
+            if (v !== undefined && v !== null && v !== "") {
+              const camel = k.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+              (acc as any)[camel] = String(v);
+            }
+            return acc;
+          }, {} as Record<string, string>)
+        )}`).then((r) => toPaginated(r.data)),
+    },
 
-  function startServer(): void {
-    if (child) return;
-    const { file, args } = mcpCommand(cwd);
-    child = spawn(file, args, {
-      cwd,
-      env: { ...process.env, ...envOverrides },
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    {
+      name: "get_expense_detail",
+      description: "获取报销单详情，包含明细项、发票和审批记录",
+      properties: { report_id: str("报销单UUID") },
+      required: ["report_id"],
+      call: (a) => api("GET", `/expenses/${encodeURIComponent(a.report_id as string)}`).then((r) => deepSnake(r.data)),
+    },
 
-    let buf = "";
-    child.stdout?.on("data", (chunk: Buffer) => {
-      buf += chunk.toString("utf8");
-      let idx: number;
-      while ((idx = buf.indexOf("\n")) !== -1) {
-        const line = buf.slice(0, idx).trim();
-        buf = buf.slice(idx + 1);
-        if (!line) continue;
-        let msg: JsonRpcResponse;
+    {
+      name: "get_approval_status",
+      description: "查询报销单审批状态，包含审批历史和当前进度",
+      properties: { report_id: str("报销单UUID") },
+      required: ["report_id"],
+      call: (a) =>
+        api("GET", `/expenses/${encodeURIComponent(a.report_id as string)}`).then((r) => ({
+          status: r.data.status,
+          current_step: r.data.currentStep,
+          approval_records: deepSnake(r.data.approvalRecords || []),
+        })),
+    },
+
+    {
+      name: "get_statistics",
+      description: "获取报销统计数据，包含总额、单数、分类汇总、部门汇总",
+      properties: {
+        date_from: str("起始日期 YYYY-MM-DD"),
+        date_to: str("截止日期 YYYY-MM-DD"),
+        department: str("部门过滤（可选）"),
+      },
+      call: (a) =>
+        api("GET", `/statistics?${new URLSearchParams(
+          Object.entries(a).reduce((acc, [k, v]) => {
+            if (v !== undefined && v !== null && v !== "") {
+              (acc as any)[k.replace(/_([a-z])/g, (_, c) => c.toUpperCase())] = String(v);
+            }
+            return acc;
+          }, {} as Record<string, string>)
+        )}`).then((r) => deepSnake(r.data)),
+    },
+
+    {
+      name: "get_user_summary",
+      description: "获取用户报销汇总，包含报销单数、总额、分类汇总",
+      properties: {
+        user_id: str("用户UUID"),
+        date_from: str("起始日期 YYYY-MM-DD"),
+        date_to: str("截止日期 YYYY-MM-DD"),
+      },
+      required: ["user_id"],
+      call: (a) => api("GET", `/expenses?applicantId=${encodeURIComponent(a.user_id as string)}`).then((r) => toPaginated(r.data)),
+    },
+
+    {
+      name: "list_pending_approvals",
+      description: "列出指定审批人的待审批报销单",
+      properties: {
+        approver_id: str("审批人用户UUID"),
+        page: num("页码，默认1"),
+        page_size: num("每页条数，默认20，最大100"),
+      },
+      required: ["approver_id"],
+      call: (a) => api("GET", `/approvals/pending`).then((r) => deepSnake(r.data)),
+    },
+
+    // ---------- 提交类 ----------
+    {
+      name: "submit_expense_from_text",
+      description: "从自然语言描述中提取报销信息，自动创建报销单并提交审批。",
+      properties: { text: str("报销描述，如：张三出差北京住宿费600元") },
+      required: ["text"],
+      call: (a) => api("POST", "/ontology/submit-from-text", { text: a.text }).then((r) => deepSnake(r.data)),
+    },
+
+    {
+      name: "submit_expense_from_invoice",
+      description: "上传发票图片(base64)，通过OCR识别后自动创建报销单并提交审批。",
+      properties: {
+        image_base64: str("发票图片的base64编码"),
+        file_format: str("文件格式: pdf 或 image"),
+      },
+      required: ["image_base64"],
+      call: (a) =>
+        api("POST", "/expenses/from-invoice", { imageBase64: a.image_base64, fileFormat: a.file_format }).then((r) => deepSnake(r.data)),
+    },
+
+    // ---------- 查询/解释 ----------
+    {
+      name: "query_expense_status",
+      description: "用自然语言查询报销单状态。如'张三的出差住宿报销批了吗'",
+      properties: { query: str("自然语言查询") },
+      required: ["query"],
+      call: (a) => api("POST", "/ontology/query-expense-status", { query: a.query }).then((r) => deepSnake(r.data)),
+    },
+
+    {
+      name: "explain_decision",
+      description: "解释报销单审批流程：匹配的规则、审批链、审批历史",
+      properties: { report_id: str("报销单 UUID") },
+      required: ["report_id"],
+      call: (a) =>
+        api("GET", `/expenses/${encodeURIComponent(a.report_id as string)}`).then((r) => ({
+          status: r.data.status,
+          rule_name: r.data.ruleName || null,
+          matched_rule: r.data.ruleName ? { name: r.data.ruleName } : null,
+          approval_records: deepSnake(r.data.approvalRecords || []),
+        })),
+    },
+
+    {
+      name: "validate_expense",
+      description: "合规检查：验证费用项是否符合审批规则",
+      properties: {
+        amount: num("报销金额"),
+        category_id: str("费用类别 UUID（可选）"),
+        category_name: str("费用类别名称（可选）"),
+      },
+      required: ["amount"],
+      call: (a) =>
+        api("POST", "/expenses/validate", {
+          amount: a.amount,
+          categoryId: a.category_id,
+          categoryName: a.category_name,
+        }).then((r) => deepSnake(r.data)),
+    },
+
+    // ---------- 本体图谱 ----------
+    {
+      name: "query_ontology",
+      description: "查询本体图谱。可按类型过滤，获取全图谱或统计概览",
+      properties: { type: str("实体类型过滤，不填返回全图谱") },
+      call: (a) =>
+        a.type
+          ? api("GET", `/ontology/query?type=${encodeURIComponent(a.type as string)}`).then((r) => ({
+              type: a.type,
+              count: (r.data || []).length,
+              entities: deepSnake(r.data || []),
+            }))
+          : api("GET", "/ontology/graph").then((r) => {
+              const g = r.data;
+              const typeCounts: Record<string, number> = {};
+              for (const n of g.nodes || []) typeCounts[n.type] = (typeCounts[n.type] || 0) + 1;
+              return {
+                summary: {
+                  total_nodes: (g.nodes || []).length,
+                  total_edges: (g.edges || []).length,
+                  type_counts: typeCounts,
+                },
+                graph: deepSnake(g),
+              };
+            }),
+    },
+
+    {
+      name: "get_entity_network",
+      description: "获取实体N跳语义关系网络，可视化报销单、人员、部门间的关联",
+      properties: {
+        entity_id: str("实体标识，如报告ID或人员名称"),
+        depth: num("关系跳数，默认2"),
+      },
+      required: ["entity_id"],
+      call: (a) => api("GET", "/ontology/graph").then((r) => deepSnake(r.data)),
+    },
+
+    {
+      name: "query_sparql",
+      description: "Execute a SPARQL query against the SSE ontology knowledge graph for cross-domain queries.",
+      properties: { query: str("SPARQL SELECT query string, e.g. SELECT ?s ?p ?o WHERE { ?s ?p ?o }") },
+      required: ["query"],
+      call: (a) => api("POST", "/ontology/sparql", { query: a.query }).then((r) => deepSnake(r.data)),
+    },
+  ];
+
+  for (const tool of tools) {
+    pi.registerTool({
+      name: tool.name,
+      label: tool.name,
+      description: tool.description,
+      promptSnippet: tool.description,
+      parameters: Type.Object(tool.properties),
+      async execute(_toolCallId, params) {
         try {
-          msg = JSON.parse(line);
-        } catch {
-          continue;
+          const result = await tool.call(params as Record<string, unknown>);
+          return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: { sse: tool.name } };
+        } catch (err: any) {
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify({ error: { code: "INTERNAL_ERROR", message: err.message } }) }],
+            details: { sse: tool.name, error: err.message },
+          };
         }
-        if (msg.id !== undefined && pending.has(msg.id)) {
-          const p = pending.get(msg.id)!;
-          pending.delete(msg.id);
-          if (msg.error) p.reject(new Error(msg.error.message || "MCP error"));
-          else p.resolve(msg.result);
-        }
-      }
-    });
-    child.stderr?.on("data", (chunk: Buffer) => {
-      console.error(`[sse-mcp] ${chunk.toString().trimEnd()}`);
-    });
-    child.on("exit", (code) => {
-      child = null;
-      initialized = false;
-      for (const [, p] of pending) p.reject(new Error(`MCP server exited (code ${code})`));
-      pending.clear();
+      },
     });
   }
-
-  function request(method: string, params: unknown): Promise<any> {
-    startServer();
-    return new Promise((resolvePromise, reject) => {
-      const id = nextId++;
-      pending.set(id, { resolve: resolvePromise, reject });
-      const payload = JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n";
-      child!.stdin?.write(payload, (err) => {
-        if (err) {
-          pending.delete(id);
-          reject(err);
-        }
-      });
-    });
-  }
-
-  async function ensureInitialized(): Promise<void> {
-    if (initialized) return;
-    const res = await request("initialize", {
-      protocolVersion: "2024-11-05",
-      capabilities: {},
-      clientInfo: { name: "pi-sse-mcp", version: "0.1.0" },
-    });
-    initialized = !!res;
-    child!.stdin?.write(
-      JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n",
-    );
-  }
-
-  function shutdown(): void {
-    if (!child) return;
-    try {
-      child.kill();
-    } catch {
-      /* ignore */
-    }
-    child = null;
-    initialized = false;
-  }
-
-  async function registerTools(): Promise<void> {
-    if (registered) return;
-    await ensureInitialized();
-    const result = await request("tools/list", {});
-    const tools: McpToolDef[] = result?.tools ?? [];
-    for (const tool of tools) {
-      const required = new Set(tool.inputSchema?.required ?? []);
-      const properties: Record<string, unknown> = {};
-      for (const [key, schema] of Object.entries(tool.inputSchema?.properties ?? {})) {
-        properties[key] = jsonSchemaToTypeBox(schema, required.has(key));
-      }
-      pi.registerTool({
-        name: tool.name,
-        label: tool.name,
-        description: tool.description ?? tool.name,
-        promptSnippet: tool.description ?? tool.name,
-        parameters: Type.Object(properties),
-        async execute(_toolCallId, params) {
-          try {
-            await ensureInitialized();
-            const result = await request("tools/call", {
-              name: tool.name,
-              arguments: params,
-            });
-            const content = Array.isArray(result?.content)
-              ? (result.content as Array<{ type: string; text?: string }>)
-                  .map((c) => c.text ?? "")
-                  .join("\n")
-              : JSON.stringify(result ?? null);
-            return {
-              content: [{ type: "text" as const, text: content }],
-              details: { mcp: tool.name },
-            };
-          } catch (err: any) {
-            return {
-              content: [{ type: "text" as const, text: `[sse-mcp] ${err.message}` }],
-              details: { mcp: tool.name, error: err.message },
-            };
-          }
-        },
-      });
-    }
-    registered = true;
-    console.error(`[sse-mcp] registered ${tools.length} tools`);
-  }
-
-  pi.on("session_start", () => {
-    registerTools().catch((err) => console.error(`[sse-mcp] tool registration failed: ${err.message}`));
-  });
-
-  pi.on("session_shutdown", () => {
-    shutdown();
-  });
 
   pi.registerCommand("sse-mcp", {
-    description: "SSE MCP bridge status: /sse-mcp [status|reload]",
+    description: "SSE MCP thin client status / re-login: /sse-mcp [status|relogin]",
     handler: async (args, ctx) => {
       const cmd = (args || "").trim().toLowerCase();
-      if (cmd === "reload") {
-        shutdown();
-        registered = false;
-        await registerTools();
-        ctx.ui.notify("SSE MCP bridge reloaded", "info");
+      if (cmd === "relogin") {
+        accessToken = null;
+        try {
+          await login();
+          ctx.ui.notify(`SSE MCP re-logged in (role via key)`, "info");
+        } catch (err: any) {
+          ctx.ui.notify(`Login failed: ${err.message}`, "error");
+        }
       } else {
-        const state = child ? (initialized ? "connected" : "starting") : "stopped";
-        ctx.ui.notify(`SSE MCP bridge: ${state} (tools registered: ${registered})`, "info");
+        ctx.ui.notify(
+          `SSE MCP thin client: base=${API_BASE} key=${API_KEY ? "configured" : "MISSING"} ${accessToken ? "logged in" : "not logged in"} (${tools.length} tools)`,
+          "info"
+        );
       }
     },
   });
+
+  console.error(`[sse-mcp] registered ${tools.length} tools (thin client -> ${API_BASE})`);
 }

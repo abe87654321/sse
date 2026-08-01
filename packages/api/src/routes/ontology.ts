@@ -3,7 +3,7 @@ import { OntologyEngine } from '@sse/ontology';
 import { authMiddleware } from '@sse/auth';
 import { UserRole } from '@sse/shared';
 import { AppError } from '../middleware/error';
-import { PgUserRepo } from '@sse/db';
+import { PgUserRepo, pool } from '@sse/db';
 import { getEngine } from './ontology-helpers';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -241,6 +241,50 @@ router.post('/sparql', asyncWrap(async (req, res) => {
   const { executeSparql } = await import('@sse/ontology');
   const results = executeSparql(store.getStore(), query);
   res.json({ results, count: results.length });
+}));
+
+router.post('/query-expense-status', asyncWrap(async (req, res) => {
+  const { query } = req.body;
+  if (!query) throw new AppError(400, 'INVALID_PARAMS', '请提供 query');
+
+  let parsed: any = {};
+  try {
+    const extractor = getEngine().extractor;
+    const extractPrompt = `从查询中提取报销筛选条件，仅输出JSON: { "name": "申请人姓名或null", "status": "pending/approved/rejected/paid或null", "keyword": "关键词或null" }\n查询: "${query}"`;
+    const raw = await extractor.analyzeText(query, extractPrompt);
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (m) parsed = JSON.parse(m[0]);
+  } catch { /* 解析失败时用空过滤条件 */ }
+
+  const { userId, role, department } = req.user!;
+  const values: any[] = [];
+  let sql = `SELECT er.id, er.serial_no, er.title, er.total_amount, er.status, er.submitted_at, u.name as applicant_name
+             FROM expense_reports er JOIN users u ON u.id = er.user_id WHERE 1=1`;
+  let idx = 1;
+
+  if (role !== 'admin' && role !== 'finance') {
+    if (role === 'dept_approver' && department) {
+      sql += ` AND u.department = $${idx++}`;
+      values.push(department);
+    } else {
+      sql += ` AND er.user_id = $${idx++}`;
+      values.push(userId);
+    }
+  }
+  if (parsed.name) { sql += ` AND u.name ILIKE $${idx++}`; values.push(`%${parsed.name}%`); }
+  if (parsed.status) { sql += ` AND er.status = $${idx++}`; values.push(parsed.status); }
+  if (parsed.keyword) { sql += ` AND (er.title ILIKE $${idx++} OR er.serial_no ILIKE $${idx++})`; values.push(`%${parsed.keyword}%`, `%${parsed.keyword}%`); }
+  sql += ' ORDER BY er.submitted_at DESC LIMIT 20';
+
+  const { rows } = await pool.query(sql, values);
+
+  let summary = '';
+  try {
+    const summaryPrompt = `查询"${query}"的情况，用简洁中文总结:\n${JSON.stringify(rows, null, 2)}`;
+    summary = await getEngine().extractor.analyzeText(JSON.stringify(rows), summaryPrompt);
+  } catch { /* LLM 失败时返回原始数据 */ }
+
+  res.json({ summary, results: rows, count: rows.length });
 }));
 
 export { router as ontologyRoutes };

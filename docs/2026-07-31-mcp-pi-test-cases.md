@@ -15,102 +15,82 @@
 
 ---
 
-## 2. 架构
+## 2. 架构（瘦客户端 v2）
 
 ```
-Pi Agent (TUI)
+Pi Agent (新电脑)
    │  pi.registerTool() × 14
    ▼
-.pi/extensions/sse-mcp.ts  (Pi 扩展桥)
-   │  spawn + JSON-RPC over stdio
+.pi/extensions/sse-mcp.ts  (Pi 瘦客户端扩展，纯 fetch 零依赖)
+   │  JWT（API key → /auth/api-key-login 换 token）
    ▼
-node packages/mcp/dist/index.js  (MCP Server, stdio)
-   │  @sse/db / @sse/ontology / @sse/ocr  →  直连 DB（不经 HTTP API）
-   ▼
-PostgreSQL 192.168.3.107:5433 │ MinIO 192.168.3.107:9002 │ Ollama 192.168.3.107:11434
-（API :3000 / 前端 :5173 也运行在 192.168.3.107）
+http://192.168.3.107:3000  (远端 REST API)
+   │
+   ▼  DB / 本体 / OCR
 ```
 
 **关键事实（决定方案）**：
 
-1. **Pi v0.83 无原生 MCP 支持**（README 明确 "No MCP"），必须通过扩展桥接。
-2. MCP 服务端用 **newline-delimited JSON** 走 stdio（已验证：`initialize → notifications/initialized → tools/list → tools/call`）。
-3. 工具鉴权：`resolveAuthContext()` 读 `process.env.MCP_API_KEY` 或工具参数 `api_key`；key→`{userId, role, department}` 映射来自 `MCP_API_KEYS` 环境变量或 DB `mcp_api_keys` 表。
+1. **Pi v0.83 无原生 MCP 支持**（README 明确 "No MCP"），必须通过扩展注册工具。
+2. **客户端零依赖**：扩展只用 Node 内置 `fetch`，不 spawn 本地进程、无 node_modules、无 `.env`、无 DB 凭据。新电脑只需：装 pi → 复制 `.pi/` → 配 `SSE_API_KEY`。
+3. **角色随 key 走**：`POST /auth/api-key-login` 查 `mcp_api_keys` 表定位 key 绑定的用户，按该用户角色签发 JWT——员工 key 看自己数据，管理员 key 全量。
+4. **方案 B（备用）**：`packages/mcp/dist/http.js` 暴露 HTTP+SSE transport（`:3001/mcp`），供 Claude Code / Cursor 等原生 MCP 客户端使用。
 
 ---
 
-## 3. 前置条件（环境必须就绪）
+## 3. 前置条件
 
 > 服务主机：**192.168.3.107**（API :3000、前端 :5173、PostgreSQL :5433、MinIO :9002、Ollama :11434 均运行于此）。
 
-| 服务 | 地址 | 验证命令（本机） | 说明 |
+瘦客户端模式**只需要远端 API 可用**，客户端无本地依赖：
+
+| 服务 | 地址 | 验证命令 | 说明 |
 |------|------|---------|------|
-| PostgreSQL | `192.168.3.107:5433` | `Test-NetConnection 192.168.3.107 -Port 5433` | Docker 启动 `sse-postgres-1` |
-| MinIO | `192.168.3.107:9002` | 同上（9002） | Docker 启动 `sse-minio-1`，已建 `invoices` 桶 |
-| API 服务 | `http://192.168.3.107:3000` | `curl http://192.168.3.107:3000/health` | 前端 `:5173` 走 Vite 代理到该 API |
+| API 服务（必） | `http://192.168.3.107:3000` | `curl http://192.168.3.107:3000/health` | 含 `/auth/api-key-login` 等新端点 |
+| 前端 | `http://192.168.3.107:5173` | 浏览器访问 | 可选 |
 | Ollama | `http://192.168.3.107:11434` | `curl http://192.168.3.107:11434/v1/models` | 仅 NL/OCR 工具需要 |
-| MCP Server | stdio | `pnpm --filter @sse/mcp build` | 本机编译，子进程直连远端 DB |
 
-> **⚠️ 常见坑**：PostgreSQL 未启动或 `DB_HOST` 未指向 `192.168.3.107` 时，`search_expenses` 等 DB 类工具会**挂起直到连接超时**（pg 默认连接无超时）。排障先确认本机可连通 `192.168.3.107:5433`。
+> **客户端不需要**：git clone、pnpm、本地 MCP 进程、本地 `.env`、DB 凭据。
 
 ---
 
-## 4. 配置步骤（一次性的）
+## 4. 客户端配置（3 步）
 
-### 4.1 准备 API Key + 远端 DB 配置
-
-MCP 子进程**直连远端 PostgreSQL**，本机 `.env` 必须指向 `192.168.3.107`：
-
-```bash
-# 1. 查管理员 UUID（在 192.168.3.107 上执行）
-ssh user@192.168.3.107 "docker exec -i sse-postgres-1 psql -U sse -d sse -c \"SELECT id, name, role FROM users WHERE role='admin';\""
-
-# 2. 写入本机项目 .env（如不存在则从 .env.example 复制）
-#    DB_* 必须指向远端，否则桥接挂起
-DB_HOST=192.168.3.107
-DB_PORT=5433
-DB_NAME=sse
-DB_USER=sse
-DB_PASSWORD=<远端数据库密码>
-
-MINIO_ENDPOINT=192.168.3.107
-MINIO_PORT=9002
-
-# MCP key 格式: key=userId:role:department
-MCP_API_KEYS=mcp_key_001=<admin-id>:admin:管理部
-MCP_API_KEY=mcp_key_001
-
-# 3. 可选：持久化到 DB（迁移 009，在 192.168.3.107 上执行）
-ssh user@192.168.3.107 "docker exec -i sse-postgres-1 psql -U sse -d sse" < packages/db/src/migrations/009_mcp_api_keys.sql
+### 4.1 安装 Pi
+```powershell
+npm install -g @earendil-works/pi-coding-agent
 ```
 
-### 4.2 编译 MCP Server
+### 4.2 复制 `.pi/` 扩展（随仓库提供，或手动复制）
+```powershell
+# 方式一：从仓库复制
+git clone https://github.com/abe87654321/sse.git temp-sse
+copy temp-sse\.pi E:\app\opencode\sse\.pi   # 或放入任意项目根目录 .pi/
+# 方式二：手动复制 .pi/settings.json + .pi/extensions/sse-mcp.ts 到项目 .pi/
 
-```bash
-pnpm --filter @sse/mcp build
+# 方式三（备用）：pi install git:
+# pi install git:github.com/abe87654321/sse
 ```
 
-### 4.3 安装 Pi 扩展
+### 4.3 配置 API Key（管理员/员工各自一个）
+```powershell
+# 在启动 Pi 的 shell 设置（key 已存远端 DB mcp_api_keys 表）
+$env:SSE_API_BASE = "http://192.168.3.107:3000"
+$env:SSE_API_KEY  = "mcp_admin_001"     # 管理员：员工用各自的 key
+```
 
-扩展已随仓库提供（`.pi/extensions/sse-mcp.ts`），无需独立安装，在项目目录启动 Pi 即自动加载：
+> 角色随 key 走：key 绑定的用户是 admin 就登出 admin 权限，是 employee 就只能查/提交自己的报销。
 
-```bash
-# 项目根目录启动 Pi（自动发现 .pi/settings.json → extensions）
+### 4.4 启动 Pi
+```powershell
+cd <项目根目录>        # 含 .pi/ 的目录
 pi
-
-# 或临时加载
-pi --extension .pi/extensions/sse-mcp.ts
-
-# 查看桥接状态 / 重新发现工具
-/sse-mcp status
-/sse-mcp reload
+/sse-mcp status       # 应显示 base 与 logged in
 ```
 
-> **注意**：首次在项目目录运行 Pi 会弹**项目信任**确认（`.pi/settings.json` 含扩展），选允许。非交互模式（`-p`）默认不弹窗但也不加载项目扩展，需 `--approve`。
+> 首次运行会弹**项目信任**确认，选允许。非交互模式（`-p`）需 `--approve` 才会加载项目扩展。
 
 ---
-
-## 5. 验证：工具清单应出现 14 个
 
 ```bash
 pi --extension .pi/extensions/sse-mcp.ts -p "列出你能调用的 SSE 报销工具"
@@ -252,21 +232,24 @@ pi ... -p "张三的出差住宿报销批了吗？"
 
 ---
 
-## 7. 直接 stdio 验证（不经过 Pi，排障用）
+## 7. 直接 REST 验证（不经过 Pi，排障用）
 
 ```bash
-# 初始化 + 列表
-@('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"0.0.1"}}}','{"jsonrpc":"2.0","method":"notifications/initialized"}','{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}') | node packages/mcp/dist/index.js
+BASE="http://192.168.3.107:3000"
+# 1. 用 API key 换 JWT
+TOKEN=$(curl -s -X POST "$BASE/auth/api-key-login" -H "Content-Type: application/json" \
+  -d '{"apiKey":"mcp_admin_001"}' | python3 -c "import json,sys; print(json.load(sys.stdin)['accessToken'])")
 
-# 调用工具（需 env 注入 key + 远端 DB；stdio 直跑不会自动加载 .env）
-$env:DB_HOST="192.168.3.107"
-$env:DB_PORT="5433"
-$env:DB_NAME="sse"
-$env:DB_USER="sse"
-$env:DB_PASSWORD="<远端数据库密码>"
-$env:MCP_API_KEYS="mcp_key_001=<admin-id>:admin:管理部"
-$env:MCP_API_KEY="mcp_key_001"
-@('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"0.0.1"}}}','{"jsonrpc":"2.0","method":"notifications/initialized"}','{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_expenses","arguments":{"page_size":5}}}') | node packages/mcp/dist/index.js
+# 2. 搜索报销单（等价 search_expenses）
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE/expenses?page=1&pageSize=5"
+
+# 3. 合规校验（等价 validate_expense）
+curl -s -X POST "$BASE/expenses/validate" -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"amount":800,"categoryName":"差旅费"}'
+
+# 4. NL 查询（等价 query_expense_status）
+curl -s -X POST "$BASE/ontology/query-expense-status" -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"query":"张三的出差住宿报销批了吗"}'
 ```
 
 ---
@@ -275,12 +258,13 @@ $env:MCP_API_KEY="mcp_key_001"
 
 | 问题 | 原因 | 解决 |
 |------|------|------|
-| 工具挂起不返回 | PostgreSQL 未启动 或 `.env` 中 `DB_HOST` 仍为 `localhost` | 确认本机可连通 `192.168.3.107:5433`；检查 `.env` 的 `DB_*` |
-| 全部工具 UNAUTHORIZED | `MCP_API_KEYS` / `MCP_API_KEY` 未配置 | 检查 `.env` 与管理员 UUID |
-| `[sse-mcp] registered 0 tools` | 扩展先于 session_start 触发 | `/sse-mcp reload` 重连 |
+| 工具返回 UNAUTHORIZED | `SSE_API_KEY` 未配置或 key 无效 | 检查 `$env:SSE_API_KEY`；确认 key 在远端 `mcp_api_keys` 表 active |
+| 提示"未配置 SSE_API_KEY" | 启动 Pi 的 shell 没设环境变量 | `$env:SSE_API_KEY = "mcp_admin_001"` 后再启动 pi |
+| 员工登录却看到别人的数据 | key 绑定的 user/role 不对 | 重新生成绑定正确用户的 key |
 | NL 工具返回解析失败 | Ollama 未启动或模型未拉取 | `ollama pull llama3.2-vision`，验证 `192.168.3.107:11434` |
 | Pi 不加载项目扩展 | 项目未信任 | 交互模式信任项目；`-p` 加 `--approve` |
 | API 重启后图谱/SPARQL 为空 | 本体 Store 异步恢复 | `curl http://192.168.3.107:3000/ontology/sync` |
+| 想用原生 MCP 客户端 | 方案 B HTTP transport | 部署 `packages/mcp/dist/http.js` 到 `:3001/mcp`，配 `Authorization: Bearer <key>` |
 
 ---
 
@@ -288,11 +272,14 @@ $env:MCP_API_KEY="mcp_key_001"
 
 | 文件 | 说明 |
 |------|------|
-| `.pi/extensions/sse-mcp.ts` | Pi 扩展桥（spawn MCP + JSON-RPC + registerTool） |
+| `.pi/extensions/sse-mcp.ts` | Pi 瘦客户端扩展（fetch 远端 REST + JWT + snake_case 适配） |
 | `.pi/settings.json` | 项目级扩展注册 |
+| `packages/api/src/routes/auth.ts` | 新增 `POST /auth/api-key-login` |
+| `packages/api/src/routes/expenses.ts` | 新增 `POST /expenses/validate`、`POST /expenses/from-invoice` |
+| `packages/api/src/routes/ontology.ts` | 新增 `POST /ontology/query-expense-status` |
+| `packages/mcp/src/http.ts` | 方案 B：HTTP+SSE transport 入口 |
 | `docs/2026-07-31-mcp-pi-test-cases.md` | 本文档 |
-| `packages/mcp/dist/index.js` | MCP Server（已编译） |
-| `test/mcp-regression.sh` | 既有 REST 层回归脚本 |
+| `docs/2026-07-31-pi-mcp-thin-client-plan.md` | 实施计划 |
 
 ---
 
