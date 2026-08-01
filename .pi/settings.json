@@ -1,3 +1,4 @@
 {
-  "extensions": ["./extensions/sse-mcp.ts"]
+  "extensions": ["./extensions/sse-mcp.ts"],
+  "prompts": ["./prompts/accuracy.md"]
 }
