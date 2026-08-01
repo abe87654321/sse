@@ -23,19 +23,25 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-function loadConfig(): { apiBase: string; apiKey: string } {
+function loadConfig(): { apiBase: string; apiKey: string; source: string } {
   const global = join(homedir(), ".pi", "agent", "sse-config.json");
   const local = join(process.cwd(), ".pi", "sse-config.json");
 
   for (const path of [global, local]) {
     try {
       if (existsSync(path)) {
-        const raw = JSON.parse(readFileSync(path, "utf-8"));
-        if (raw?.apiKey) return { apiBase: raw.apiBase || "http://192.168.3.107:3000", apiKey: raw.apiKey };
+        let text = readFileSync(path, "utf-8");
+        if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+        const raw = JSON.parse(text);
+        if (raw?.apiKey) return { apiBase: raw.apiBase || "http://192.168.3.107:3000", apiKey: raw.apiKey, source: path };
+        console.error(`[sse-mcp] config found but apiKey missing in: ${path}`);
       }
-    } catch { /* skip unreadable */ }
+    } catch (e: any) {
+      console.error(`[sse-mcp] config parse error for ${path}: ${e.message}`);
+    }
   }
-  return { apiBase: "http://192.168.3.107:3000", apiKey: "" };
+  console.error(`[sse-mcp] no config found. Checked:\n  ${global}\n  ${local}`);
+  return { apiBase: "http://192.168.3.107:3000", apiKey: "", source: "none" };
 }
 
 const cfg = loadConfig();
@@ -374,12 +380,12 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
         }
       } else {
         ctx.ui.notify(
-          `SSE MCP thin client: base=${API_BASE} key=${API_KEY ? "configured" : "MISSING"} ${accessToken ? "logged in" : "not logged in"} (${tools.length} tools)`,
+          `SSE MCP thin client: base=${API_BASE} key=${API_KEY ? "***" + (process.env.SSE_API_KEY ? "(env)" : "(cfg:" + cfg.source + ")") : "MISSING"} ${accessToken ? "logged in" : "not logged in"} (${tools.length} tools)`,
           "info"
         );
       }
     },
   });
 
-  console.error(`[sse-mcp] registered ${tools.length} tools (thin client -> ${API_BASE})`);
+  console.error(`[sse-mcp] registered ${tools.length} tools (thin client -> ${API_BASE}, key=${API_KEY ? "from " + (process.env.SSE_API_KEY ? "env" : cfg.source) : "MISSING"})`);
 }
