@@ -153,6 +153,7 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
         date_from: str("起始日期 YYYY-MM-DD"),
         date_to: str("截止日期 YYYY-MM-DD"),
         applicant_id: str("申请人用户ID"),
+        applicant_name: str("申请人姓名（模糊匹配）"),
         status: str("报销单状态"),
         category_id: str("费用类别ID"),
         amount_min: num("最低金额"),

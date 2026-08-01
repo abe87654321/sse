@@ -64,6 +64,16 @@ router.get(
       pageSize: req.query.pageSize ? Number(req.query.pageSize) : 20,
     };
 
+    // applicantName → applicantId (search by applicant name)
+    const applicantName = req.query.applicantName as string | undefined;
+    if (applicantName && !query.applicantId) {
+      const { rows: nameUsers } = await pool.query(
+        'SELECT id FROM users WHERE name ILIKE $1 OR phone = $1 LIMIT 1',
+        [`%${applicantName}%`]
+      );
+      if (nameUsers.length > 0) query.applicantId = nameUsers[0].id;
+    }
+
     const { role, department, userId } = req.user!;
 
     let result: { results: any[]; total: number };
