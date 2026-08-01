@@ -72,14 +72,45 @@ copy temp-sse\.pi E:\app\opencode\sse\.pi   # 或放入任意项目根目录 .pi
 # pi install git:github.com/abe87654321/sse
 ```
 
-### 4.3 配置 API Key（管理员/员工各自一个）
-```powershell
-# 在启动 Pi 的 shell 设置（key 已存远端 DB mcp_api_keys 表）
-$env:SSE_API_BASE = "http://192.168.3.107:3000"
-$env:SSE_API_KEY  = "mcp_admin_001"     # 管理员：员工用各自的 key
+### 4.3 配置 API Key（每人一个，权限随 key 走）
+
+各人的 key 已存入远端 DB `mcp_api_keys` 表。每个 key 绑定一个真实用户，拥有对应的角色和部门：
+
+| key | 绑定用户 | 角色 | 部门 | 权限范围 |
+|-----|---------|------|------|---------|
+| `mcp_admin_001` | 系统管理员 | admin | 管理部 | 全部数据 |
+| `mcp_admin_002` | 孙哲林 | admin | 行政部 | 全部数据 |
+| `mcp_finance_001` | 王钰 | finance | 财务部 | 全部数据 + 统计 |
+| `mcp_emp_jiqiong` | 姬琼 | employee | 市场部 | 仅自己 |
+| `mcp_emp_sunyihang` | 孙逸航 | employee | 技术部 | 仅自己 |
+| `mcp_emp_zhangsan` | 张三 | employee | 产品部 | 仅自己 |
+| `mcp_emp_lisi` | 李四 | employee | 产品部 | 仅自己 |
+
+**每个人找自己的 key，在启动 Pi 前设置环境变量：**
+
+Windows (cmd):
+```cmd
+set SSE_API_KEY=mcp_emp_zhangsan          ← 改成自己的 key
+set SSE_API_BASE=http://192.168.3.107:3000
 ```
 
-> 角色随 key 走：key 绑定的用户是 admin 就登出 admin 权限，是 employee 就只能查/提交自己的报销。
+Windows (PowerShell):
+```powershell
+$env:SSE_API_KEY = "mcp_admin_001"
+$env:SSE_API_BASE = "http://192.168.3.107:3000"
+```
+
+Linux / macOS:
+```bash
+export SSE_API_KEY="mcp_emp_zhangsan"
+export SSE_API_BASE="http://192.168.3.107:3000"
+```
+
+**推荐**：把这两个环境变量写入系统环境变量（永久生效），省得每次敲一遍。
+
+> **原理**：启动 Pi 时，扩展调 `POST /auth/api-key-login` 拿 key 查 `mcp_api_keys` 表，找到绑定的用户，按该用户的 role + department 签发 JWT。之后所有工具调用都带这个 JWT，REST API 自带角色过滤自动生效——admin 看全部、employee 只看自己。
+
+> **新增 key**：参照 `packages/db/src/migrations/009_mcp_api_keys.sql`，往 `mcp_api_keys` 表 INSERT 即可，格式 `(key, user_id, role, department, is_active = true)`。
 
 ### 4.4 启动 Pi
 ```powershell
