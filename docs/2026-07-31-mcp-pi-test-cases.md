@@ -106,11 +106,31 @@ export SSE_API_KEY="mcp_emp_zhangsan"
 export SSE_API_BASE="http://192.168.3.107:3000"
 ```
 
-**推荐**：把这两个环境变量写入系统环境变量（永久生效），省得每次敲一遍。
+**推荐**：写入配置文件，一劳永逸（优先级：环境变量 > 配置文件）：
+
+**全局配置（`~/.pi/agent/sse-config.json`，当前用户所有项目生效）**：
+```bash
+cat > ~/.pi/agent/sse-config.json << 'EOF'
+{
+  "apiBase": "http://192.168.3.107:3000",
+  "apiKey": "mcp_admin_001"
+}
+EOF
+```
+
+**项目配置（`.pi/sse-config.json`，仅当前项目生效）**：
+```bash
+cat > .pi/sse-config.json << 'EOF'
+{
+  "apiBase": "http://192.168.3.107:3000",
+  "apiKey": "mcp_emp_zhangsan"
+}
+EOF
+```
 
 > **原理**：启动 Pi 时，扩展调 `POST /auth/api-key-login` 拿 key 查 `mcp_api_keys` 表，找到绑定的用户，按该用户的 role + department 签发 JWT。之后所有工具调用都带这个 JWT，REST API 自带角色过滤自动生效——admin 看全部、employee 只看自己。
 
-> **新增 key**：参照 `packages/db/src/migrations/009_mcp_api_keys.sql`，往 `mcp_api_keys` 表 INSERT 即可，格式 `(key, user_id, role, department, is_active = true)`。
+> **新增 key**：参照 `packages/db/src/migrations/009_mcp_api_keys.sql`，往 `mcp_api_keys` 表 INSERT 即可，格式 `(key, user_id, role, department, is_active = true)`.
 
 ### 4.4 启动 Pi
 ```powershell

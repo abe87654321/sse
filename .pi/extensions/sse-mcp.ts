@@ -6,18 +6,41 @@
  * 认证：启动时用 MCP API key 调 POST /auth/api-key-login 换取 JWT 并缓存。
  * 角色随 key 绑定的用户走（员工/审批人/管理员各自权限），客户端只持有 key。
  *
- * 环境变量：
- *   SSE_API_BASE : API 根地址（默认 http://192.168.3.107:3000）
- *   SSE_API_KEY  : MCP API key（必填）
+ * 配置优先级（高→低）：
+ *   1. 环境变量 SSE_API_BASE / SSE_API_KEY
+ *   2. 配置文件 ~/.pi/agent/sse-config.json
+ *   3. 配置文件 .pi/sse-config.json
+ *
+ * 配置文件格式：
+ *   { "apiBase": "http://192.168.3.107:3000", "apiKey": "mcp_admin_001" }
  *
  * 工具输出与原 MCP server 一致（snake_case + pagination 结构）。
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
-const API_BASE = process.env.SSE_API_BASE || "http://192.168.3.107:3000";
-const API_KEY = process.env.SSE_API_KEY || "";
+function loadConfig(): { apiBase: string; apiKey: string } {
+  const global = join(homedir(), ".pi", "agent", "sse-config.json");
+  const local = join(process.cwd(), ".pi", "sse-config.json");
+
+  for (const path of [global, local]) {
+    try {
+      if (existsSync(path)) {
+        const raw = JSON.parse(readFileSync(path, "utf-8"));
+        if (raw?.apiKey) return { apiBase: raw.apiBase || "http://192.168.3.107:3000", apiKey: raw.apiKey };
+      }
+    } catch { /* skip unreadable */ }
+  }
+  return { apiBase: "http://192.168.3.107:3000", apiKey: "" };
+}
+
+const cfg = loadConfig();
+const API_BASE = process.env.SSE_API_BASE || cfg.apiBase;
+const API_KEY = process.env.SSE_API_KEY || cfg.apiKey;
 
 let accessToken: string | null = null;
 
