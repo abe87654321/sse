@@ -229,6 +229,8 @@ Natural Language / 自然语言
 
 `/ontology` page — interactive vis-network graph with NL-to-graph generation, manual editing, role-scoped data, and reasoning results overlay.
 
+![Ontology Graph](test/screenshot_ontology.JPG)
+
 > 详细设计：[本体层设计](docs/2026-07-26-ontology-design.md) | [本体升级设计](docs/2026-07-29-ontology-upgrade-design.md)
 
 ---
@@ -263,6 +265,12 @@ External Systems (HR / LDAP / 企业微信)
 | `validate_expense` | Compliance check + suggestions |
 | `get_entity_network` | N-hop semantic relationship network |
 | `query_ontology` | Query ontology graph by type or full graph |
+
+### 🖥️ Pi Agent Calling MCP Tools / Pi 调用 MCP 工具
+
+![Pi call MCP](test/pi_call_mcp.JPG)
+
+> AI agent (Pi) invoking SSE MCP tools via the thin-client extension — natural language expense search, submission, and ontology queries.
 
 ---
 
