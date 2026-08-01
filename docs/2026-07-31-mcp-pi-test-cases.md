@@ -109,6 +109,18 @@ export SSE_API_BASE="http://192.168.3.107:3000"
 **推荐**：写入配置文件，一劳永逸（优先级：环境变量 > 配置文件）：
 
 **全局配置（`~/.pi/agent/sse-config.json`，当前用户所有项目生效）**：
+
+Windows (PowerShell)：
+```powershell
+@'
+{
+  "apiBase": "http://192.168.3.107:3000",
+  "apiKey": "mcp_admin_001"
+}
+'@ | Out-File -Encoding utf8 "$env:USERPROFILE\.pi\agent\sse-config.json"
+```
+
+Linux / macOS：
 ```bash
 cat > ~/.pi/agent/sse-config.json << 'EOF'
 {
@@ -119,6 +131,18 @@ EOF
 ```
 
 **项目配置（`.pi/sse-config.json`，仅当前项目生效）**：
+
+Windows (PowerShell)：
+```powershell
+@'
+{
+  "apiBase": "http://192.168.3.107:3000",
+  "apiKey": "mcp_emp_zhangsan"
+}
+'@ | Out-File -Encoding utf8 .pi\sse-config.json
+```
+
+Linux / macOS：
 ```bash
 cat > .pi/sse-config.json << 'EOF'
 {
