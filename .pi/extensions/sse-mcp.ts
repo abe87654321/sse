@@ -135,8 +135,10 @@ async function api(
 // ---------- 工具注册 ----------
 
 export default function sseMcpExtension(pi: ExtensionAPI) {
-  const str = (d: string) => ({ type: "string" as const, description: d });
-  const num = (d: string) => ({ type: "number" as const, description: d });
+  const str = (d: string) => Type.Optional(Type.String({ description: d }));
+  const strReq = (d: string) => Type.String({ description: d });
+  const num = (d: string) => Type.Optional(Type.Number({ description: d }));
+  const numReq = (d: string) => Type.Number({ description: d });
 
   const tools: Array<{
     name: string;
@@ -177,7 +179,7 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
     {
       name: "get_expense_detail",
       description: "获取报销单详情，包含明细项、发票和审批记录",
-      properties: { report_id: str("报销单UUID") },
+      properties: { report_id: strReq("报销单UUID") },
       required: ["report_id"],
       call: (a) => api("GET", `/expenses/${encodeURIComponent(a.report_id as string)}`).then((r) => deepSnake(r.data)),
     },
@@ -185,7 +187,7 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
     {
       name: "get_approval_status",
       description: "查询报销单审批状态，包含审批历史和当前进度",
-      properties: { report_id: str("报销单UUID") },
+      properties: { report_id: strReq("报销单UUID") },
       required: ["report_id"],
       call: (a) =>
         api("GET", `/expenses/${encodeURIComponent(a.report_id as string)}`).then((r) => ({
@@ -218,7 +220,7 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
       name: "get_user_summary",
       description: "获取用户报销汇总，包含报销单数、总额、分类汇总",
       properties: {
-        user_id: str("用户UUID"),
+        user_id: strReq("用户UUID"),
         date_from: str("起始日期 YYYY-MM-DD"),
         date_to: str("截止日期 YYYY-MM-DD"),
       },
@@ -230,7 +232,7 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
       name: "list_pending_approvals",
       description: "列出指定审批人的待审批报销单",
       properties: {
-        approver_id: str("审批人用户UUID"),
+        approver_id: strReq("审批人用户UUID"),
         page: num("页码，默认1"),
         page_size: num("每页条数，默认20，最大100"),
       },
@@ -242,7 +244,7 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
     {
       name: "submit_expense_from_text",
       description: "从自然语言描述中提取报销信息，自动创建报销单并提交审批。",
-      properties: { text: str("报销描述，如：张三出差北京住宿费600元") },
+      properties: { text: strReq("报销描述，如：张三出差北京住宿费600元") },
       required: ["text"],
       call: (a) => api("POST", "/ontology/submit-from-text", { text: a.text }).then((r) => deepSnake(r.data)),
     },
@@ -251,7 +253,7 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
       name: "submit_expense_from_invoice",
       description: "上传发票图片(base64)，通过OCR识别后自动创建报销单并提交审批。",
       properties: {
-        image_base64: str("发票图片的base64编码"),
+        image_base64: strReq("发票图片的base64编码"),
         file_format: str("文件格式: pdf 或 image"),
       },
       required: ["image_base64"],
@@ -263,7 +265,7 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
     {
       name: "query_expense_status",
       description: "用自然语言查询报销单状态。如'张三的出差住宿报销批了吗'",
-      properties: { query: str("自然语言查询") },
+      properties: { query: strReq("自然语言查询") },
       required: ["query"],
       call: (a) => api("POST", "/ontology/query-expense-status", { query: a.query }).then((r) => deepSnake(r.data)),
     },
@@ -271,7 +273,7 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
     {
       name: "explain_decision",
       description: "解释报销单审批流程：匹配的规则、审批链、审批历史",
-      properties: { report_id: str("报销单 UUID") },
+      properties: { report_id: strReq("报销单 UUID") },
       required: ["report_id"],
       call: (a) =>
         api("GET", `/expenses/${encodeURIComponent(a.report_id as string)}`).then((r) => ({
@@ -286,7 +288,7 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
       name: "validate_expense",
       description: "合规检查：验证费用项是否符合审批规则",
       properties: {
-        amount: num("报销金额"),
+        amount: numReq("报销金额"),
         category_id: str("费用类别 UUID（可选）"),
         category_name: str("费用类别名称（可选）"),
       },
@@ -330,7 +332,7 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
       name: "get_entity_network",
       description: "获取实体N跳语义关系网络，可视化报销单、人员、部门间的关联",
       properties: {
-        entity_id: str("实体标识，如报告ID或人员名称"),
+        entity_id: strReq("实体标识，如报告ID或人员名称"),
         depth: num("关系跳数，默认2"),
       },
       required: ["entity_id"],
@@ -340,7 +342,7 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
     {
       name: "query_sparql",
       description: "Execute a SPARQL query against the SSE ontology knowledge graph for cross-domain queries.",
-      properties: { query: str("SPARQL SELECT query string, e.g. SELECT ?s ?p ?o WHERE { ?s ?p ?o }") },
+      properties: { query: strReq("SPARQL SELECT query string, e.g. SELECT ?s ?p ?o WHERE { ?s ?p ?o }") },
       required: ["query"],
       call: (a) => api("POST", "/ontology/sparql", { query: a.query }).then((r) => deepSnake(r.data)),
     },
