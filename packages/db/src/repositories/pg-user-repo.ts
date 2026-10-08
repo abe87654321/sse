@@ -72,19 +72,69 @@ export class PgUserRepo implements IUserRepo {
   }
 
   async cascadeDelete(id: string): Promise<void> {
-    const optionalTables = [
-      'DELETE FROM identity_mappings WHERE local_user_id = $1',
-      'DELETE FROM system_messages WHERE sender_id = $1',
-    ];
-    for (const sql of optionalTables) {
-      try { await pool.query(sql, [id]); } catch { /* table may not exist */ }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const optionalTables = [
+        'DELETE FROM identity_mappings WHERE local_user_id::text = $1::text',
+        'DELETE FROM system_messages WHERE sender_id::text = $1::text',
+      ];
+      for (const sql of optionalTables) {
+        try { await client.query(sql, [id]); } catch { /* table may not exist */ }
+      }
+
+      await client.query(
+        'DELETE FROM mcp_api_keys WHERE user_id::text = $1::text',
+        [id]
+      );
+
+      await client.query(
+        'DELETE FROM approval_records WHERE approver_id::text = $1::text',
+        [id]
+      );
+
+      await client.query(
+        'DELETE FROM notification_logs WHERE recipient_id::text = $1::text',
+        [id]
+      );
+
+      await client.query(
+        'DELETE FROM expense_reports WHERE paid_by::text = $1::text',
+        [id]
+      );
+
+      await client.query(
+        'UPDATE users SET parent_id = NULL WHERE parent_id::text = $1::text',
+        [id]
+      );
+
+      await client.query(
+        `DELETE FROM invoices WHERE item_id IN (
+           SELECT id FROM expense_items WHERE report_id IN (
+             SELECT id FROM expense_reports WHERE user_id::text = $1::text
+           )
+         )`,
+        [id]
+      );
+      await client.query(
+        'DELETE FROM expense_items WHERE report_id IN (SELECT id FROM expense_reports WHERE user_id::text = $1::text)',
+        [id]
+      );
+      await client.query(
+        'DELETE FROM approval_records WHERE report_id IN (SELECT id FROM expense_reports WHERE user_id::text = $1::text)',
+        [id]
+      );
+      await client.query('DELETE FROM expense_reports WHERE user_id::text = $1::text', [id]);
+      await client.query('DELETE FROM users WHERE id::text = $1::text', [id]);
+
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
-    await pool.query('DELETE FROM notification_logs WHERE recipient_id = $1::uuid', [id]);
-    await pool.query('DELETE FROM invoices WHERE item_id IN (SELECT id FROM expense_items WHERE report_id IN (SELECT id FROM expense_reports WHERE user_id = $1))', [id]);
-    await pool.query('DELETE FROM expense_items WHERE report_id IN (SELECT id FROM expense_reports WHERE user_id = $1)', [id]);
-    await pool.query('DELETE FROM approval_records WHERE report_id IN (SELECT id FROM expense_reports WHERE user_id = $1)', [id]);
-    await pool.query('DELETE FROM expense_reports WHERE user_id = $1', [id]);
-    await pool.query('DELETE FROM users WHERE id = $1', [id]);
   }
 
   async updateAvatar(id: string, avatarUrl: string): Promise<void> {
