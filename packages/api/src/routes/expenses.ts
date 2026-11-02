@@ -259,7 +259,12 @@ router.post(
       ? await pool.query('SELECT * FROM invoices WHERE item_id = ANY($1)', [itemIds])
       : { rows: [] as any[] };
 
-    const needsOcr = invoiceRows.some((row: any) => force || !row.ocr_result);
+    const needsOcr = invoiceRows.some((row: any) => {
+      if (force || !row.ocr_result) return true;
+      const hasAmount = (row.ocr_result.totalAmount !== undefined && row.ocr_result.totalAmount !== null)
+        || (row.ocr_result.amount !== undefined && row.ocr_result.amount !== null);
+      return !hasAmount && !row.ocr_result.rawText;
+    });
     const engine = needsOcr ? createOCREngine() : null;
     const canSeeDuplicateDetails =
       req.user!.role === UserRole.ADMIN ||
