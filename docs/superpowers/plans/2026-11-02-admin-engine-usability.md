@@ -416,10 +416,10 @@ export function effectiveTags(model: { autoTags?: ModelTag[]; manualTags?: Model
 
 - [ ] **Step 4: 导出并运行测试**
 
-`packages/ai/src/index.ts` 增加：
+`packages/ai/src/utils/index.ts` 增加：
 
 ```ts
-export * from './utils/model-tagger';
+export * from './model-tagger';
 ```
 
 Run: `pnpm --filter @sse/ai test -- model-tagger.test.ts`
@@ -632,11 +632,11 @@ export function appendHistory(
 
 - [ ] **Step 5: 导出并运行测试**
 
-`packages/ai/src/index.ts` 增加：
+`packages/ai/src/utils/index.ts` 增加：
 
 ```ts
-export * from './utils/engine-error';
-export * from './utils/test-history';
+export * from './engine-error';
+export * from './test-history';
 ```
 
 Run: `pnpm --filter @sse/ai test -- engine-error.test.ts`
@@ -1158,11 +1158,17 @@ export function resolveActiveModel(catalog: ModelCatalog | null | undefined, cur
 
 - [ ] **Step 5: 导出并运行测试**
 
+创建 `packages/ai/src/config/index.ts`：
+
+```ts
+export * from './ai-config';
+export * from './model-catalog';
+```
+
 `packages/ai/src/index.ts` 增加：
 
 ```ts
-export * from './config/ai-config';
-export * from './config/model-catalog';
+export * from './config';
 ```
 
 Run: `pnpm --filter @sse/ai test -- ai-config.test.ts`
