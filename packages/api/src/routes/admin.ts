@@ -5,9 +5,15 @@ import { requireRole } from '../middleware/rbac';
 import { UserRole } from '@sse/shared';
 import { AppError } from '../middleware/error';
 
-import { LocalProvider, SmartFillEngine, InvoiceOCREngine, MinerUProvider, PaddleProvider, VisionOCRProvider } from '@sse/ai';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import {
+  createOCREngine,
+  getSmartFillEngine,
+  loadAiConfig,
+  publicAiConfig,
+  saveAiConfig,
+} from '../services/ai-engines';
 
 const router = Router();
 const userRepo = new PgUserRepo();
@@ -42,40 +48,6 @@ setInterval(() => {
     }
   }
 }, RATE_LIMIT_WINDOW_MS);
-
-const CONFIG_PATH = join(process.cwd(), 'ai-config.json');
-
-function loadAiConfig() {
-  const defaults = {
-    fillEngine: {
-      endpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
-      model: process.env.AI_MODEL || 'llama3.1:8b',
-      enabled: true,
-    },
-    ocrEngine: {
-      provider: 'mineru' as 'mineru' | 'paddle' | 'vision',
-      mineruEndpoint: process.env.MINERU_ENDPOINT || 'https://mineru.net',
-      paddleEndpoint: process.env.PADDLE_ENDPOINT || 'http://localhost:8899',
-      visionEndpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
-      visionModel: process.env.AI_VISION_MODEL || 'glm-ocr',
-      enabled: true,
-    },
-  };
-  try {
-    if (existsSync(CONFIG_PATH)) {
-      const saved = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-      return { ...defaults, ...saved,
-        fillEngine: { ...defaults.fillEngine, ...(saved.fillEngine || {}) },
-        ocrEngine: { ...defaults.ocrEngine, ...(saved.ocrEngine || {}) },
-      };
-    }
-  } catch { /* use defaults */ }
-  return defaults;
-}
-
-function saveAiConfig(config: any) {
-  writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
-}
 
 function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -421,9 +393,8 @@ router.get(
     let models: ModelInfo[] = [];
 
     try {
-      const resp = await fetch(config.endpoint.replace('/chat/completions', '/models'), {
-        headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
-      });
+      const fill = config.fillEngine;
+      const resp = await fetch(fill.endpoint.replace('/chat/completions', '/models'));
       if (resp.ok) {
         const data: any = await resp.json();
         const rawModels = data.data || data.models || [];
@@ -449,7 +420,7 @@ router.get(
 router.get(
   '/ai-config',
   asyncWrap(async (_req, res) => {
-    res.json(loadAiConfig());
+    res.json(publicAiConfig(loadAiConfig()));
   })
 );
 
@@ -466,13 +437,14 @@ router.put(
     if (ocrEngine) {
       if (ocrEngine.provider !== undefined) config.ocrEngine.provider = ocrEngine.provider;
       if (ocrEngine.mineruEndpoint !== undefined) config.ocrEngine.mineruEndpoint = ocrEngine.mineruEndpoint;
+      if (ocrEngine.mineruToken) config.ocrEngine.mineruToken = String(ocrEngine.mineruToken).trim();
       if (ocrEngine.paddleEndpoint !== undefined) config.ocrEngine.paddleEndpoint = ocrEngine.paddleEndpoint;
       if (ocrEngine.visionEndpoint !== undefined) config.ocrEngine.visionEndpoint = ocrEngine.visionEndpoint;
       if (ocrEngine.visionModel !== undefined) config.ocrEngine.visionModel = ocrEngine.visionModel;
       if (ocrEngine.enabled !== undefined) config.ocrEngine.enabled = ocrEngine.enabled;
     }
     saveAiConfig(config);
-    res.json(config);
+    res.json(publicAiConfig(config));
   })
 );
 
@@ -495,39 +467,33 @@ router.post(
       const start = Date.now();
 
       if (type === 'text') {
-        const provider = new LocalProvider({ endpoint: fillCfg.endpoint, modelName: fillCfg.model });
-        const engine = new SmartFillEngine(provider);
-        const items = await engine.parseFromText('测试：打车50元');
-        const elapsed = Date.now() - start;
-        if (items.length > 0) {
-          result = `文字识别成功（${elapsed}ms），解析到 ${items.length} 条费用`;
-          success = true;
+        const engine = getSmartFillEngine(config);
+        if (!engine) {
+          result = '智能填单引擎未启用';
         } else {
-          result = `模型响应但未解析到结构化数据（${elapsed}ms）`;
+          const items = await engine.parseFromText('测试：打车50元');
+          const elapsed = Date.now() - start;
+          if (items.length > 0) {
+            result = `文字识别成功（${elapsed}ms），解析到 ${items.length} 条费用`;
+            success = true;
+          } else {
+            result = `模型响应但未解析到结构化数据（${elapsed}ms）`;
+          }
         }
       } else if (type === 'ocr') {
         const pdfPath = join(process.cwd(), 'docs', 'dzfp_25362000000115126055_深圳市数恒纪元信息技术咨询企业（个人独资）_20251106105357.pdf');
         if (!existsSync(pdfPath)) {
           result = `发票样例文件不存在: ${pdfPath}`;
         } else {
-          const pdfBuffer = readFileSync(pdfPath);
-
-          if (ocrCfg.provider === 'mineru') {
-            const engine = new InvoiceOCREngine(new MinerUProvider({ endpoint: ocrCfg.mineruEndpoint, apiKey: process.env.MINERU_TOKEN }));
-            const ocrResult = await engine.parseInvoice(pdfBuffer, 'sample.pdf');
-            result = formatOcrResult(ocrResult, Date.now() - start, 'MinerU');
-            success = !!(ocrResult.invoiceNo || ocrResult.amount);
-          } else if (ocrCfg.provider === 'paddle') {
-            const engine = new InvoiceOCREngine(new PaddleProvider({ endpoint: ocrCfg.paddleEndpoint }));
-            const ocrResult = await engine.parseInvoice(pdfBuffer, 'sample.pdf');
-            result = formatOcrResult(ocrResult, Date.now() - start, 'PaddleOCR');
-            success = !!(ocrResult.invoiceNo || ocrResult.amount);
+          const engine = createOCREngine(config);
+          if (!engine) {
+            result = '发票 OCR 引擎未启用';
           } else {
-            const provider = new LocalProvider({ endpoint: ocrCfg.visionEndpoint, modelName: ocrCfg.visionModel });
-            const engine = new InvoiceOCREngine(new VisionOCRProvider(provider));
+            const pdfBuffer = readFileSync(pdfPath);
+            const label = ocrCfg.provider === 'mineru' ? 'MinerU' : ocrCfg.provider === 'paddle' ? 'PaddleOCR' : '视觉模型';
             const ocrResult = await engine.parseInvoice(pdfBuffer, 'sample.pdf');
-            result = formatOcrResult(ocrResult, Date.now() - start, '视觉模型');
-            success = !!(ocrResult.invoiceNo || ocrResult.amount);
+            result = formatOcrResult(ocrResult, Date.now() - start, label);
+            success = !!(ocrResult.invoiceNo || ocrResult.totalAmount || ocrResult.amount);
           }
         }
       } else {

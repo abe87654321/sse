@@ -194,6 +194,14 @@
         </table>
       </div>
 
+      <InvoiceVerificationPanel
+        :summary="verification"
+        :invoices="panelInvoices"
+        :loading="verifying"
+        :can-run="canVerify"
+        @verify="runVerification"
+      />
+
       <div v-if="error" class="error-msg">{{ error }}</div>
 
       <div class="form-footer">
@@ -208,12 +216,15 @@
 import { reactive, computed, ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../api/index'
+import InvoiceVerificationPanel from '../components/InvoiceVerificationPanel.vue'
 
 const router = useRouter()
 const route = useRoute()
 const saving = ref(false)
 const error = ref('')
 const expenseId = ref<string | null>(null)
+const verification = ref<any>(null)
+const verifying = ref(false)
 
 const showAI = ref(false)
 const aiTab = ref<'text' | 'image' | 'invoice'>('text')
@@ -243,6 +254,9 @@ const categories = ref<Category[]>([])
 interface InvoiceInfo {
   id: string
   fileName: string
+  invoiceNo?: string
+  verificationStatus?: string
+  verificationResult?: any
   _expenseId?: string
   _itemId?: string
 }
@@ -266,6 +280,22 @@ const form = reactive({
 const totalAmount = computed(() =>
   form.items.reduce((sum, item) => sum + (item.amount || 0), 0)
 )
+
+const panelInvoices = computed(() =>
+  form.items
+    .filter((item) => item.uploadedInvoice)
+    .map((item) => ({
+      invoiceId: item.uploadedInvoice!.id,
+      id: item.uploadedInvoice!.id,
+      itemId: item.id,
+      fileName: item.uploadedInvoice!.fileName,
+      invoiceNo: item.uploadedInvoice!.invoiceNo,
+      status: item.uploadedInvoice!.verificationStatus,
+      verificationResult: item.uploadedInvoice!.verificationResult,
+    }))
+)
+
+const canVerify = computed(() => !!expenseId.value && panelInvoices.value.length > 0)
 
 function handlePaste(e: ClipboardEvent) {
   if (aiTab.value !== 'image') return
@@ -393,7 +423,15 @@ onMounted(async () => {
           expenseDate: typeof item.expenseDate === 'string' ? item.expenseDate.slice(0, 10) : item.expenseDate,
           description: item.description || '',
           uploadedInvoice: invoice
-            ? { id: invoice.id, fileName: invoice.fileName, _expenseId: route.params.id as string, _itemId: item.id }
+            ? {
+                id: invoice.id,
+                fileName: invoice.fileName,
+                invoiceNo: invoice.invoiceNo,
+                verificationStatus: invoice.verificationStatus,
+                verificationResult: invoice.verificationResult,
+                _expenseId: route.params.id as string,
+                _itemId: item.id,
+              }
             : undefined,
         }
       })
@@ -401,6 +439,7 @@ onMounted(async () => {
         form.items = [{ categoryId: '', amount: 0, expenseDate: new Date().toISOString().slice(0, 10), description: '' }]
       }
       expenseId.value = route.params.id as string
+      verification.value = data.verificationSummary || null
   } catch (e: any) {
     if (e?.response?.status === 404) {
       error.value = '报销单不存在或已被删除'
@@ -430,6 +469,16 @@ function selectInvoiceForItem(index: number, event: Event) {
   }
 }
 
+function resetLocalVerification() {
+  verification.value = null
+  for (const item of form.items) {
+    if (item.uploadedInvoice) {
+      item.uploadedInvoice.verificationStatus = 'pending'
+      item.uploadedInvoice.verificationResult = undefined
+    }
+  }
+}
+
 async function uploadInvoiceFile(item: FormItem, file: File): Promise<boolean> {
   if (!expenseId.value || !item.id) {
     item.pendingInvoiceFile = file
@@ -443,6 +492,7 @@ async function uploadInvoiceFile(item: FormItem, file: File): Promise<boolean> {
     const res = await api.post(`/expenses/${expenseId.value}/items/${item.id}/invoice`, formData)
     item.uploadedInvoice = { ...res.data, _expenseId: expenseId.value, _itemId: item.id }
     item.pendingInvoiceFile = undefined
+    resetLocalVerification()
     return true
   } catch (e: any) {
     item.pendingInvoiceFile = file
@@ -482,6 +532,23 @@ function syncItemIds(returnedItems: any[]) {
 async function reloadItemIds(reportId: string) {
   const res = await api.get(`/expenses/${reportId}`)
   syncItemIds(res.data.items || [])
+}
+
+async function runVerification(force = false) {
+  if (!expenseId.value) {
+    error.value = '请先保存草稿后再进行 AI 核对'
+    return
+  }
+  verifying.value = true
+  error.value = ''
+  try {
+    const res = await api.post(`/expenses/${expenseId.value}/verify`, { force }, { timeout: 180000 })
+    verification.value = res.data
+  } catch (e: any) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'AI 核对失败'
+  } finally {
+    verifying.value = false
+  }
 }
 
 async function downloadInvoice(invoice: InvoiceInfo) {
@@ -531,6 +598,7 @@ async function handleSave() {
       expenseId.value = res.data.id
       syncItemIds(res.data.items || [])
     }
+    resetLocalVerification()
     await uploadPendingInvoices()
   } catch (e: any) {
     error.value = e?.response?.data?.error?.message || e?.message || '保存失败'
@@ -581,6 +649,7 @@ async function handleSubmit() {
         syncItemIds(res.data.items || [])
       }
     }
+    resetLocalVerification()
     if (reportId) {
       const uploaded = await uploadPendingInvoices()
       if (!uploaded) return

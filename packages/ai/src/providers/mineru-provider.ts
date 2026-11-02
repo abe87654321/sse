@@ -2,6 +2,8 @@ import type { OcrResult } from '@sse/shared';
 import type { IInvoiceOCRProvider } from '../ports/iocr-provider';
 import type { AIProviderConfig } from '../ports/iai-provider';
 
+export const MINERU_PARSER_VERSION = 3;
+
 interface FileUrlEntry {
   file_name: string;
   file_url: string;
@@ -14,8 +16,14 @@ export class MinerUProvider implements IInvoiceOCRProvider {
   private token: string;
 
   constructor(config: AIProviderConfig) {
-    this.baseUrl = config.endpoint || 'https://mineru.net';
-    this.token = config.apiKey || process.env.MINERU_TOKEN || '';
+    this.baseUrl = (config.endpoint || 'https://mineru.net')
+      .replace(/\/+$/, '')
+      .replace(/\/api\/v4$/, '');
+    this.token = (config.apiKey || process.env.MINERU_TOKEN || '').trim();
+  }
+
+  private authError(): Error {
+    return new Error('MinerU 认证失败：Token 无效或已过期，请在系统管理中更新 MinerU Token');
   }
 
   async parseInvoice(fileBuffer: Buffer, fileName: string): Promise<OcrResult> {
@@ -23,9 +31,9 @@ export class MinerUProvider implements IInvoiceOCRProvider {
       throw new Error('MinerU API Token 未配置');
     }
 
-    const { batch_id, task_id } = await this.uploadFile(fileBuffer, fileName);
+    const { batch_id } = await this.uploadFile(fileBuffer, fileName);
     const markdown = await this.pollResult(batch_id);
-    return this.extractInvoiceData(markdown);
+    return extractInvoiceDataFromMarkdown(markdown, fileName);
   }
 
   private async uploadFile(buffer: Buffer, fileName: string): Promise<FileUrlEntry> {
@@ -43,8 +51,12 @@ export class MinerUProvider implements IInvoiceOCRProvider {
       }),
     });
 
+    if (res.status === 401 || res.status === 403) {
+      throw this.authError();
+    }
     if (!res.ok) throw new Error(`MinerU 申请上传链接失败 (${res.status})`);
     const data: any = await res.json();
+    if (data.code === 'A0202' || data.code === 'A0211') throw this.authError();
     if (data.code !== 0) throw new Error(`MinerU 错误: ${data.msg}`);
 
     const batchId = data.data.batch_id;
@@ -71,6 +83,7 @@ export class MinerUProvider implements IInvoiceOCRProvider {
 
       if (!res.ok) continue;
       const data: any = await res.json();
+      if (data.code === 'A0202' || data.code === 'A0211') throw this.authError();
       if (data.code !== 0) continue;
 
       const results = data.data.extract_result || [];
@@ -101,35 +114,124 @@ export class MinerUProvider implements IInvoiceOCRProvider {
     return buffer.toString('utf-8');
   }
 
-  private extractInvoiceData(markdown: string): OcrResult {
-    const text = markdown || '';
-    const getVal = (keywords: string[]): string | undefined => {
-      for (const kw of keywords) {
-        for (const line of text.split('\n')) {
-          if (line.includes(kw)) {
-            const after = line.split(kw)[1]?.trim();
-            if (after) return after.replace(/[*#|]/g, '').trim();
-          }
-        }
-      }
-      return undefined;
-    };
-
-    return {
-      invoiceNo: getVal(['发票号码', '发票代码', 'InvoiceNo']),
-      amount: parseOrUndef(getVal(['金额', '合计金额', 'Amount'])),
-      totalAmount: parseOrUndef(getVal(['价税合计', 'TotalAmount'])),
-      invoiceDate: getVal(['开票日期', 'InvoiceDate']),
-      sellerName: getVal(['销方名称', '销售方', 'SellerName']),
-      buyerName: getVal(['购方名称', '购买方', 'BuyerName']),
-      taxAmount: parseOrUndef(getVal(['税额', 'TaxAmount'])),
-      status: 'verified',
-    };
-  }
 }
 
-function parseOrUndef(val?: string): number | undefined {
-  if (!val) return undefined;
-  const n = parseFloat(val);
-  return isNaN(n) ? undefined : n;
+export function extractInvoiceDataFromMarkdown(markdown: string, fileName?: string): OcrResult {
+  const cleaned = (markdown || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/&nbsp;|&#160;/gi, ' ')
+    .replace(/&yen;|&#165;|&#xa5;/gi, '¥')
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'");
+
+  const text = cleaned.replace(/([\u4e00-\u9fa5])\s+(?=[\u4e00-\u9fa5])/g, '$1');
+  const flat = text.replace(/[|*#]/g, ' ').replace(/\s+/g, ' ');
+
+  const invoiceNo =
+    findFirst(flat, [
+      /(?:发票号码|发票代码|Invoice\s*No\.?)[\s:：]*([A-Za-z0-9]{8,30})/i,
+    ])
+    || lineValue(text, ['发票号码', '发票代码', 'InvoiceNo'])
+    || invoiceNumberFromFileName(fileName);
+
+  const invoiceDate = normalizeDate(
+    findFirst(flat, [
+      /(?:开票日期|Invoice\s*Date)[^0-9]{0,12}(\d{4}\s*[年./-]\s*\d{1,2}\s*[月./-]\s*\d{1,2}\s*日?)/i,
+    ])
+  );
+
+  let totalAmount = parseNumber(
+    findFirst(flat, [
+      /(?:价税合计|价税总计)[^0-9]{0,160}?(?:小写)?[^0-9]{0,20}[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
+      /[（(]小写[）)][^0-9]{0,10}[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
+      /(?:价税合计|价税总计)[^¥￥]{0,120}[¥￥]\s*([\d,]+(?:\.\d{1,2})?)/,
+    ])
+  );
+
+  const totalsMatch = flat.match(
+    /(?:^|\s)合计\s*[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)\s*[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/
+  );
+
+  const amount = totalsMatch
+    ? parseNumber(totalsMatch[1])
+    : parseNumber(
+        findFirst(flat, [
+          /(?:金额合计|合计金额)[^0-9]{0,40}[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
+          /(?:^|\s)金额[\s:：]*[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
+        ])
+      );
+
+  const taxAmount = totalsMatch
+    ? parseNumber(totalsMatch[2])
+    : parseNumber(
+        findFirst(flat, [
+          /(?:税额|合计税额)[^0-9]{0,30}[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
+        ])
+      );
+
+  return {
+    invoiceNo,
+    amount,
+    totalAmount,
+    invoiceDate,
+    sellerName: lineValue(text, ['销方名称', '销售方名称', '销售方', 'SellerName']),
+    buyerName: lineValue(text, ['购方名称', '购买方名称', '购买方', 'BuyerName']),
+    taxAmount,
+    rawText: text.slice(0, 8000),
+    parserVersion: MINERU_PARSER_VERSION,
+    status: 'verified',
+  };
+}
+
+function invoiceNumberFromFileName(fileName?: string): string | undefined {
+  if (!fileName) return undefined;
+  const base = fileName.replace(/\.[^.]+$/, '');
+  return base.match(/\d{8,30}/)?.[0];
+}
+
+function findFirst(text: string, patterns: RegExp[]): string | undefined {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1].trim();
+  }
+  return undefined;
+}
+
+function lineValue(text: string, keywords: string[]): string | undefined {
+  for (const keyword of keywords) {
+    for (const line of text.split('\n')) {
+      if (!line.includes(keyword)) continue;
+      const after = line.split(keyword)[1] || '';
+      const cleaned = after
+        .split('|')
+        .map((part) => part.replace(/[*#]/g, '').trim())
+        .find((part) => part.length > 0);
+      if (cleaned) return cleaned;
+    }
+  }
+  return undefined;
+}
+
+function parseNumber(value?: string): number | undefined {
+  if (!value) return undefined;
+  const match = value.match(/-?\d[\d,]*(?:\.\d+)?/);
+  if (!match) return undefined;
+  const number = Number(match[0].replace(/,/g, ''));
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function normalizeDate(value?: string): string | undefined {
+  if (!value) return undefined;
+  const match = value.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+  if (!match) return value.trim();
+  const pad = (part: string) => part.padStart(2, '0');
+  return `${match[1]}-${pad(match[2])}-${pad(match[3])}`;
 }

@@ -1,10 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
-import { LocalProvider, SmartFillEngine, InvoiceOCREngine, MinerUProvider, PaddleProvider, VisionOCRProvider } from '@sse/ai';
 import { authMiddleware } from '@sse/auth';
 import { AppError } from '../middleware/error';
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { createFillProvider, createOCREngine, getSmartFillEngine, loadAiConfig } from '../services/ai-engines';
 
 const router = Router();
 router.use(authMiddleware);
@@ -13,50 +11,6 @@ function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Prom
   return (req: Request, res: Response, next: NextFunction) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
-}
-
-const CONFIG_PATH = join(process.cwd(), 'ai-config.json');
-
-function loadAiConfig() {
-  const defaults = {
-    fillEngine: {
-      endpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
-      model: process.env.AI_MODEL || 'llama3.1:8b',
-      enabled: true,
-    },
-    ocrEngine: {
-      provider: 'mineru' as 'mineru' | 'paddle' | 'vision',
-      mineruEndpoint: process.env.MINERU_ENDPOINT || 'https://mineru.net',
-      paddleEndpoint: process.env.PADDLE_ENDPOINT || 'http://localhost:8899',
-      visionEndpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
-      visionModel: process.env.AI_VISION_MODEL || 'glm-ocr',
-      enabled: true,
-    },
-  };
-  try {
-    if (existsSync(CONFIG_PATH)) {
-      const saved = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-      return { ...defaults, ...saved,
-        fillEngine: { ...defaults.fillEngine, ...(saved.fillEngine || {}) },
-        ocrEngine: { ...defaults.ocrEngine, ...(saved.ocrEngine || {}) },
-      };
-    }
-  } catch { /* use defaults */ }
-  return defaults;
-}
-
-function createOCREngine() {
-  const config = loadAiConfig();
-  const ocrCfg = config.ocrEngine;
-
-  if (ocrCfg.provider === 'mineru') {
-    return new InvoiceOCREngine(new MinerUProvider({ endpoint: ocrCfg.mineruEndpoint, apiKey: process.env.MINERU_TOKEN }));
-  } else if (ocrCfg.provider === 'paddle') {
-    return new InvoiceOCREngine(new PaddleProvider({ endpoint: ocrCfg.paddleEndpoint }));
-  } else {
-    const provider = new LocalProvider({ endpoint: ocrCfg.visionEndpoint, modelName: ocrCfg.visionModel });
-    return new InvoiceOCREngine(new VisionOCRProvider(provider));
-  }
 }
 
 function ocrToExpenseItems(ocr: any) {
@@ -75,13 +29,6 @@ function ocrToExpenseItems(ocr: any) {
   return items;
 }
 
-function getSmartFillEngine() {
-  const config = loadAiConfig();
-  const fillCfg = config.fillEngine;
-  const provider = new LocalProvider({ endpoint: fillCfg.endpoint, modelName: fillCfg.model });
-  return new SmartFillEngine(provider);
-}
-
 const uploadMemory = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 router.post(
@@ -93,8 +40,12 @@ router.post(
       throw new AppError(400, 'INVALID_PARAMS', '请提供 image(base64) 或 text 参数');
     }
 
-    let items;
     const engine = getSmartFillEngine();
+    if (!engine) {
+      throw new AppError(503, 'AI_DISABLED', '智能填单引擎未启用');
+    }
+
+    let items;
     if (image) {
       const base64 = image.replace(/^data:image\/\w+;base64,/, '');
       items = await engine.parseFromImage(base64);
@@ -121,6 +72,10 @@ router.post(
     }
 
     const engine = createOCREngine();
+    if (!engine) {
+      throw new AppError(503, 'OCR_DISABLED', '发票 OCR 引擎未启用');
+    }
+
     const ocrResult = await engine.parseInvoice(file.buffer, file.originalname);
     const items = ocrToExpenseItems(ocrResult);
 
@@ -135,7 +90,10 @@ router.post(
     if (!body) throw new AppError(400, 'INVALID_PARAMS', '请提供原文 body');
 
     const config = loadAiConfig();
-    const provider = new LocalProvider({ endpoint: config.fillEngine.endpoint, modelName: config.fillEngine.model });
+    const provider = createFillProvider(config);
+    if (!provider) {
+      throw new AppError(503, 'AI_DISABLED', '智能填单引擎未启用');
+    }
 
     const prompt = `你是企业通知编辑助手。请润色以下通知，使其更专业、简洁、友好。
 保持原意不变，不要添加原文没有的信息。

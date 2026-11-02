@@ -27,6 +27,9 @@ importers:
         specifier: ^2.4.5
         version: 2.4.5
     devDependencies:
+      '@types/jest':
+        specifier: ^29
+        version: 29.5.14
       '@types/jszip':
         specifier: ^3.4.1
         version: 3.4.1

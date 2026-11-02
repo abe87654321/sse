@@ -6,6 +6,7 @@ export interface AIProviderConfig {
   modelName?: string;
   apiKey?: string;
   maxTokens?: number;
+  timeoutMs?: number;
 }
 
 export interface IAIProvider {

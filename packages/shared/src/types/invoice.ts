@@ -6,8 +6,12 @@ export type OcrResult = {
   invoiceDate?: string;
   sellerName?: string;
   buyerName?: string;
+  rawText?: string;
+  parserVersion?: number;
   status: string;
 };
+
+import type { InvoiceVerificationResult, VerificationStatus } from './invoice-verification';
 
 export type Invoice = {
   id: string;
@@ -18,6 +22,10 @@ export type Invoice = {
   storageKey: string;
   storageBucket: string;
   checksum: string;
+  invoiceNo?: string;
   ocrResult?: OcrResult;
+  verificationStatus?: VerificationStatus;
+  verificationResult?: InvoiceVerificationResult;
+  verifiedAt?: Date;
   uploadedAt: Date;
 };

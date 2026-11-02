@@ -30,27 +30,40 @@ export class LocalProvider implements IAIProvider {
     }
 
     const maxTokens = this.config.maxTokens || 4096;
+    const timeoutMs = this.config.timeoutMs ?? 120000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-    const res = await fetch(`${this.config.endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {}),
-      },
-      body: JSON.stringify({
-        model: this.config.modelName,
-        messages,
-        temperature: 0.1,
-        max_tokens: maxTokens,
-      }),
-    });
+    try {
+      const res = await fetch(`${this.config.endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          model: this.config.modelName,
+          messages,
+          temperature: 0.1,
+          max_tokens: maxTokens,
+        }),
+        signal: controller.signal,
+      });
 
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`AI provider error ${res.status}: ${err}`);
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`AI provider error ${res.status}: ${err}`);
+      }
+
+      const data: any = await res.json();
+      return data.choices?.[0]?.message?.content || '';
+    } catch (e: any) {
+      if (e?.name === 'AbortError') {
+        throw new Error(`AI 请求超时（${Math.round(timeoutMs / 1000)}s），请检查端点与模型是否可用`);
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
     }
-
-    const data: any = await res.json();
-    return data.choices?.[0]?.message?.content || '';
   }
 }
