@@ -6,19 +6,57 @@
     <div class="card" style="margin-bottom:20px">
       <h3 class="font-heading section-title">📝 智能填单引擎</h3>
       <div class="form-grid">
-        <div class="field"><label>端点</label><input v-model="cfg.fillEngine.endpoint" /></div>
-        <div class="field model-field">
+        <div class="field full">
+          <label>API 地址</label>
+          <input
+            v-model="cfg.fillEngine.endpoint"
+            placeholder="http://192.168.3.117:11434"
+            @blur="loadCatalogForEndpoint"
+          />
+          <div class="field-hint">填写到端口或 /v1 即可，系统会自动补全接口路径</div>
+        </div>
+        <div class="field full">
+          <label>API 密钥</label>
+          <div class="key-row">
+            <input
+              v-model="cfg.fillEngine.apiKey"
+              type="password"
+              autocomplete="new-password"
+              :placeholder="cfg.fillEngine.apiKeySet ? '已配置，留空则不修改' : '可选，留空表示无密钥'"
+            />
+            <button type="button" class="btn-secondary btn-sm" :disabled="connectionTesting" @click="testConnection">
+              {{ connectionTesting ? '检测中...' : '检测' }}
+            </button>
+          </div>
+          <div
+            v-if="connectionResult"
+            class="inline-result"
+            :class="{ success: connectionResult.success, fail: !connectionResult.success }"
+          >
+            {{ connectionMessage }}
+          </div>
+        </div>
+        <div class="field full">
           <label>模型</label>
           <div class="model-select-row">
-            <select v-model="cfg.fillEngine.model"><option v-for="m in fillModels" :key="m.id" :value="m.id">{{ m.name }}{{ m.recommended ? ' ★' : '' }}</option></select>
-            <button class="btn-secondary btn-sm" @click="fetchModels" :disabled="modelsLoading">🔄</button>
+            <select v-model="cfg.fillEngine.model">
+              <option v-for="model in selectedModels" :key="model.id" :value="model.id">{{ model.id }}</option>
+            </select>
+            <button type="button" class="btn-secondary btn-sm" @click="showModelPicker = true">获取模型列表</button>
+          </div>
+          <div class="field-hint">
+            已选 {{ selectedModels.length }} 个模型
+            <span v-if="selectedModels.length === 0">，请先获取模型列表</span>
           </div>
         </div>
       </div>
       <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-        <button class="btn-primary btn-sm" @click="saveConfig" :disabled="saving">💾 保存</button>
-        <button class="btn-secondary btn-sm" @click="testAI('text')" :disabled="testing">{{ testing==='text'?'测试中...':'📝 检验文字识别' }}</button>
+        <button type="button" class="btn-primary btn-sm" @click="saveConfig" :disabled="saving">💾 保存</button>
+        <button type="button" class="btn-secondary btn-sm" @click="testFill" :disabled="testing">{{ testing==='text'?'测试中...':'📝 检验文字识别' }}</button>
         <label class="toggle-label"><input type="checkbox" v-model="cfg.fillEngine.enabled" @change="saveConfig" /><span>启用</span></label>
+      </div>
+      <div v-if="fillTestResult" class="ai-test-result" :class="{success:fillTestResult.success,fail:!fillTestResult.success}">
+        {{ fillTestResult.message }}（{{ fillTestResult.elapsedMs }}ms）
       </div>
     </div>
 
@@ -35,7 +73,7 @@
           </select>
         </div>
         <template v-if="cfg.ocrEngine.provider==='mineru'">
-          <div class="field full"><label>MinerU 端点</label><input v-model="cfg.ocrEngine.mineruEndpoint" /></div>
+          <div class="field full"><label>MinerU 端点</label><input v-model="cfg.ocrEngine.mineruEndpoint" placeholder="https://mineru.net" /></div>
           <div class="field full">
             <label>MinerU Token</label>
             <input
@@ -47,21 +85,34 @@
           </div>
         </template>
         <template v-else-if="cfg.ocrEngine.provider==='paddle'">
-          <div class="field full"><label>PaddleOCR 端点</label><input v-model="cfg.ocrEngine.paddleEndpoint" /></div>
+          <div class="field full"><label>PaddleOCR 端点</label><input v-model="cfg.ocrEngine.paddleEndpoint" placeholder="http://localhost:8899" /></div>
         </template>
         <template v-else>
-          <div class="field"><label>视觉模型端点</label><input v-model="cfg.ocrEngine.visionEndpoint" /></div>
+          <div class="field"><label>视觉模型端点</label><input v-model="cfg.ocrEngine.visionEndpoint" placeholder="http://192.168.3.117:11434" /></div>
           <div class="field"><label>视觉模型名</label><input v-model="cfg.ocrEngine.visionModel" /></div>
+          <div class="field full">
+            <label>视觉模型 API 密钥</label>
+            <input
+              v-model="cfg.ocrEngine.visionApiKey"
+              type="password"
+              autocomplete="new-password"
+              :placeholder="cfg.ocrEngine.visionApiKeySet ? '已配置，留空则不修改' : '可选'"
+            />
+          </div>
         </template>
       </div>
       <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-        <button class="btn-primary btn-sm" @click="saveConfig" :disabled="saving">💾 保存</button>
-        <button class="btn-secondary btn-sm" @click="testAI('ocr')" :disabled="testing">{{ testing==='ocr'?'测试中...':'🧾 检验发票OCR' }}</button>
+        <button type="button" class="btn-primary btn-sm" @click="saveConfig" :disabled="saving">💾 保存</button>
         <label class="toggle-label"><input type="checkbox" v-model="cfg.ocrEngine.enabled" @change="saveConfig" /><span>启用</span></label>
       </div>
+      <EngineTestPanel
+        :testing="testing==='ocr'"
+        :result="ocrTestResult"
+        :history="ocrHistory"
+        @test="testOcr"
+        @clear-history="clearOcrHistory"
+      />
     </div>
-
-    <div v-if="result" class="ai-test-result" :class="{success:resultOk,fail:!resultOk}">{{ result }}</div>
 
     <!-- 审批流程设计 -->
     <div class="card" style="margin-bottom:20px">
@@ -96,25 +147,75 @@
       <table class="data-table"><thead><tr><th>用户</th><th>手机号</th><th>角色</th><th>部门</th><th>状态</th></tr></thead>
         <tbody><tr v-for="u in users" :key="u.id"><td><span>{{ u.name }}</span></td><td class="text-secondary">{{ u.phone }}</td><td><span class="badge" :class="u.role==='admin'?'badge-approved':u.role==='finance'?'badge-draft':'badge-pending'">{{roleLabel(u.role)}}</span></td><td class="text-secondary">{{ u.department }}</td><td><span class="badge" :class="u.status==='active'?'badge-approved':'badge-draft'">{{u.status==='active'?'启用':'禁用'}}</span></td></tr></tbody></table>
     </div>
+
+    <ModelPickerDialog
+      v-model:open="showModelPicker"
+      :endpoint="cfg.fillEngine.endpoint"
+      :api-key="cfg.fillEngine.apiKey"
+      :catalog="currentCatalog"
+      :active-model="cfg.fillEngine.model"
+      @confirm="onModelPickerConfirm"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import api from '../api/index'
 import WorkflowDesigner from '@/components/WorkflowDesigner.vue'
+import ModelPickerDialog from '@/components/ModelPickerDialog.vue'
+import EngineTestPanel from '@/components/EngineTestPanel.vue'
+import { normalizeEndpoint } from '@/utils/endpoint'
 
 const cfg = reactive<any>({
-  fillEngine: { endpoint: '', model: '', enabled: true },
-  ocrEngine: { provider: 'mineru', mineruEndpoint: '', mineruToken: '', mineruTokenSet: false, paddleEndpoint: '', visionEndpoint: '', visionModel: '', enabled: true },
+  fillEngine: { endpoint: '', apiKey: '', apiKeySet: false, model: '', enabled: true, catalogs: {} },
+  ocrEngine: {
+    provider: 'mineru',
+    mineruEndpoint: '',
+    mineruToken: '',
+    mineruTokenSet: false,
+    paddleEndpoint: '',
+    visionEndpoint: '',
+    visionModel: '',
+    visionApiKey: '',
+    visionApiKeySet: false,
+    enabled: true,
+  },
 })
 const saving = ref(false)
 const testing = ref<string|false>(false)
-const result = ref('')
-const resultOk = ref(false)
-const fillModels = ref<any[]>([])
-const modelsLoading = ref(false)
 const users = ref<any[]>([])
+
+const showModelPicker = ref(false)
+const connectionTesting = ref(false)
+const connectionResult = ref<any>(null)
+const fillTestResult = ref<any>(null)
+const ocrTestResult = ref<any>(null)
+const ocrHistory = ref<any[]>([])
+const currentCatalog = computed(() => {
+  const key = normalizeEndpoint(cfg.fillEngine.endpoint)
+  return key ? (cfg.fillEngine.catalogs?.[key] || null) : null
+})
+const selectedModels = computed(() => {
+  const models = currentCatalog.value?.models || []
+  const selected = models.filter((model: any) => model.selected)
+  if (cfg.fillEngine.model && !selected.some((model: any) => model.id === cfg.fillEngine.model)) {
+    return [{ id: cfg.fillEngine.model, name: cfg.fillEngine.model }, ...selected]
+  }
+  return selected
+})
+const connectionMessage = computed(() => {
+  if (!connectionResult.value) return ''
+  const steps = connectionResult.value.steps || []
+  const models = steps.find((step: any) => step.name === 'models')
+  const chat = steps.find((step: any) => step.name === 'chat')
+  if (connectionResult.value.success) {
+    return `✓ 连接成功 · 模型 ${models?.modelCount ?? 0} 个（${models?.elapsedMs ?? 0}ms）· 对话 ${chat?.elapsedMs ?? 0}ms`
+  }
+  const failed = steps.find((step: any) => !step.ok)
+  const label = failed?.name === 'models' ? '模型列表' : failed?.name === 'chat' ? '对话' : ''
+  return `✗ ${label ? `${label}：` : ''}${failed?.message || connectionResult.value.message}`
+})
 
 const rules = ref<any[]>([])
 const selectedRuleId = ref('')
@@ -128,33 +229,175 @@ onMounted(async () => {
     Object.assign(cfg, c.data)
     users.value = u.data || []
   } catch {}
-  fetchModels()
+  if (!currentCatalog.value && cfg.fillEngine.endpoint) {
+    refreshCatalogInBackground()
+  }
+  loadOcrHistory()
   try { rules.value = (await api.get('/admin/rules')).data || [] } catch {}
   try { const r = await api.get('/categories'); categoryOptions.value = r.data || [] } catch {}
 })
 
-async function fetchModels() {
-  modelsLoading.value = true
-  try { const r = await api.get('/admin/ai-models'); fillModels.value = r.data.models || [] } catch { fillModels.value = [] } finally { modelsLoading.value = false }
-}
-
 async function saveConfig() {
   saving.value = true
   try {
-    const r = await api.put('/admin/ai-config', { fillEngine: cfg.fillEngine, ocrEngine: cfg.ocrEngine }, { timeout: 30000 })
+    const payload: any = {
+      fillEngine: {
+        endpoint: cfg.fillEngine.endpoint,
+        apiKey: cfg.fillEngine.apiKey,
+        model: cfg.fillEngine.model,
+        enabled: cfg.fillEngine.enabled,
+      },
+      ocrEngine: {
+        provider: cfg.ocrEngine.provider,
+        mineruEndpoint: cfg.ocrEngine.mineruEndpoint,
+        mineruToken: cfg.ocrEngine.mineruToken,
+        paddleEndpoint: cfg.ocrEngine.paddleEndpoint,
+        visionEndpoint: cfg.ocrEngine.visionEndpoint,
+        visionModel: cfg.ocrEngine.visionModel,
+        visionApiKey: cfg.ocrEngine.visionApiKey,
+        enabled: cfg.ocrEngine.enabled,
+      },
+    }
+    const r = await api.put('/admin/ai-config', payload, { timeout: 30000 })
     if (r.data) Object.assign(cfg, r.data)
   } finally { saving.value = false }
 }
 
-async function testAI(type: string) {
-  testing.value = type; result.value = ''
+async function testConnection() {
+  connectionTesting.value = true
+  connectionResult.value = null
   try {
-    const r = await api.post('/admin/ai-test', { type }, { timeout: 180000 })
-    resultOk.value = r.data.success; result.value = r.data.message
+    const r = await api.post('/admin/ai-connection-test', {
+      endpoint: cfg.fillEngine.endpoint,
+      apiKey: cfg.fillEngine.apiKey || undefined,
+      model: cfg.fillEngine.model || undefined,
+    }, { timeout: 60000 })
+    connectionResult.value = r.data
   } catch (e: any) {
-    resultOk.value = false
-    result.value = e?.code === 'ECONNABORTED' ? '失败: 请求超时，模型响应过慢' : '失败: ' + (e?.message || '')
+    connectionResult.value = { success: false, message: e?.response?.data?.message || e?.message || '检测失败', steps: [] }
+  } finally { connectionTesting.value = false }
+}
+
+async function loadCatalogForEndpoint() {
+  if (!normalizeEndpoint(cfg.fillEngine.endpoint)) return
+  if (!currentCatalog.value) await refreshCatalogInBackground()
+}
+
+async function refreshCatalogInBackground() {
+  try {
+    const r = await api.post('/admin/ai-models', {
+      endpoint: cfg.fillEngine.endpoint,
+      apiKey: cfg.fillEngine.apiKey || undefined,
+    }, { timeout: 30000 })
+    const key = normalizeEndpoint(cfg.fillEngine.endpoint)
+    if (!key) return
+    const nextCatalog = r.data?.catalog
+    if (!nextCatalog || !Array.isArray(nextCatalog.models)) return
+    if (nextCatalog.models.length === 0) return
+    if (cfg.fillEngine.model && !nextCatalog.models.some((model: any) => model.id === cfg.fillEngine.model)) {
+      nextCatalog.models.unshift({
+        id: cfg.fillEngine.model,
+        name: cfg.fillEngine.model,
+        autoTags: [],
+        manualTags: [],
+        selected: true,
+        metadata: {},
+        missing: true,
+      })
+    }
+    if (!nextCatalog.models.some((model: any) => model.selected) && nextCatalog.models[0]) {
+      nextCatalog.models[0].selected = true
+      cfg.fillEngine.model = nextCatalog.models[0].id
+    }
+    cfg.fillEngine.catalogs = { ...(cfg.fillEngine.catalogs || {}), [key]: nextCatalog }
+    await api.put('/admin/ai-config', {
+      fillEngine: {
+        endpoint: cfg.fillEngine.endpoint,
+        model: cfg.fillEngine.model,
+        catalog: nextCatalog,
+      },
+    }, { timeout: 30000 })
+  } catch { /* 后台自动获取失败时保持旧配置 */ }
+}
+
+async function onModelPickerConfirm(payload: { catalog: any; activeModel: string }) {
+  if (!normalizeEndpoint(cfg.fillEngine.endpoint)) {
+    alert('请先填写 API 地址')
+    return
+  }
+  const key = normalizeEndpoint(cfg.fillEngine.endpoint)
+  cfg.fillEngine.catalogs = { ...(cfg.fillEngine.catalogs || {}), [key]: payload.catalog }
+  cfg.fillEngine.model = payload.activeModel
+  try {
+    const r = await api.put('/admin/ai-config', {
+      fillEngine: {
+        endpoint: cfg.fillEngine.endpoint,
+        apiKey: cfg.fillEngine.apiKey,
+        model: payload.activeModel,
+        catalog: payload.catalog,
+      },
+    }, { timeout: 30000 })
+    if (r.data) Object.assign(cfg, r.data)
+  } catch (e: any) {
+    alert('保存模型列表失败: ' + (e?.response?.data?.message || e?.message || ''))
+  }
+}
+
+async function testFill() {
+  testing.value = 'text'
+  fillTestResult.value = null
+  try {
+    const r = await api.post('/admin/ai-test/fill', {
+      endpoint: cfg.fillEngine.endpoint,
+      apiKey: cfg.fillEngine.apiKey || undefined,
+      model: cfg.fillEngine.model || undefined,
+    }, { timeout: 180000 })
+    fillTestResult.value = r.data
+  } catch (e: any) {
+    fillTestResult.value = { success: false, message: e?.response?.data?.message || e?.message || '测试失败', elapsedMs: 0 }
   } finally { testing.value = false }
+}
+
+async function testOcr(payload: { file?: File }) {
+  testing.value = 'ocr'
+  ocrTestResult.value = null
+  const form = new FormData()
+  form.append('provider', cfg.ocrEngine.provider)
+  form.append('mineruEndpoint', cfg.ocrEngine.mineruEndpoint || '')
+  form.append('mineruToken', cfg.ocrEngine.mineruToken || '')
+  form.append('paddleEndpoint', cfg.ocrEngine.paddleEndpoint || '')
+  form.append('visionEndpoint', cfg.ocrEngine.visionEndpoint || '')
+  form.append('visionModel', cfg.ocrEngine.visionModel || '')
+  form.append('visionApiKey', cfg.ocrEngine.visionApiKey || '')
+  if (payload.file) form.append('file', payload.file)
+  try {
+    const r = await api.post('/admin/ai-test/ocr', form, { timeout: 180000 })
+    ocrTestResult.value = r.data
+    loadOcrHistory()
+  } catch (e: any) {
+    ocrTestResult.value = {
+      success: false,
+      elapsedMs: 0,
+      fields: {},
+      rawText: '',
+      error: { code: 'UNKNOWN', message: e?.response?.data?.message || e?.message || '测试失败', suggestion: '查看 API 日志' },
+    }
+  } finally { testing.value = false }
+}
+
+async function loadOcrHistory() {
+  try {
+    const r = await api.get('/admin/ai-test-history', { params: { type: 'ocr', limit: 10 } })
+    ocrHistory.value = r.data || []
+  } catch { ocrHistory.value = [] }
+}
+
+async function clearOcrHistory() {
+  if (!confirm('确定清空测试历史？')) return
+  try {
+    await api.delete('/admin/ai-test-history')
+    ocrHistory.value = []
+  } catch {}
 }
 
 function roleLabel(r: string) { const m: any = { admin: '管理员', dept_approver: '部门审批人', finance: '财务', employee: '员工' }; return m[r] || r }
@@ -208,6 +451,12 @@ async function deleteRule() {
 .field input,.field select { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font-family: var(--font-body); font-size: .875rem }
 .model-select-row { display: flex; gap: 6px }
 .model-select-row select { flex: 1 }
+.field-hint { margin-top: 4px; font-size: .75rem; color: var(--text-muted); }
+.key-row { display: flex; gap: 6px; }
+.key-row input { flex: 1; }
+.inline-result { margin-top: 6px; padding: 7px 10px; border-radius: var(--radius-sm); font-size: .8rem; }
+.inline-result.success { background: var(--accent-mint-bg); color: #2b7a3d; }
+.inline-result.fail { background: var(--accent-coral-bg); color: var(--accent-coral); }
 .toggle-label { display: flex; align-items: center; gap: 5px; font-size: .85rem; color: var(--text-secondary); cursor: pointer }
 .ai-test-result { margin-top: 0; margin-bottom: 20px; padding: 10px 16px; border-radius: var(--radius-sm); font-size: .85rem }
 .ai-test-result.success { background: var(--accent-mint-bg); color: #2b7a3d }
