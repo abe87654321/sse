@@ -27,6 +27,7 @@ function loadAiConfig() {
     ocrEngine: {
       provider: 'mineru' as 'mineru' | 'paddle' | 'vision',
       mineruEndpoint: process.env.MINERU_ENDPOINT || 'https://mineru.net',
+      mineruToken: process.env.MINERU_TOKEN || '',
       paddleEndpoint: process.env.PADDLE_ENDPOINT || 'http://localhost:8899',
       visionEndpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
       visionModel: process.env.AI_VISION_MODEL || 'glm-ocr',
@@ -50,7 +51,7 @@ function createOCREngine() {
   const ocrCfg = config.ocrEngine;
 
   if (ocrCfg.provider === 'mineru') {
-    return new InvoiceOCREngine(new MinerUProvider({ endpoint: ocrCfg.mineruEndpoint, apiKey: process.env.MINERU_TOKEN }));
+    return new InvoiceOCREngine(new MinerUProvider({ endpoint: ocrCfg.mineruEndpoint, apiKey: ocrCfg.mineruToken || process.env.MINERU_TOKEN }));
   } else if (ocrCfg.provider === 'paddle') {
     return new InvoiceOCREngine(new PaddleProvider({ endpoint: ocrCfg.paddleEndpoint }));
   } else {
@@ -78,7 +79,7 @@ function ocrToExpenseItems(ocr: any) {
 function getSmartFillEngine() {
   const config = loadAiConfig();
   const fillCfg = config.fillEngine;
-  const provider = new LocalProvider({ endpoint: fillCfg.endpoint, modelName: fillCfg.model });
+  const provider = new LocalProvider({ endpoint: fillCfg.endpoint, modelName: fillCfg.model, timeoutMs: 120000 });
   return new SmartFillEngine(provider);
 }
 

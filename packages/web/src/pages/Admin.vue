@@ -36,6 +36,15 @@
         </div>
         <template v-if="cfg.ocrEngine.provider==='mineru'">
           <div class="field full"><label>MinerU 端点</label><input v-model="cfg.ocrEngine.mineruEndpoint" /></div>
+          <div class="field full">
+            <label>MinerU Token</label>
+            <input
+              v-model="cfg.ocrEngine.mineruToken"
+              type="password"
+              autocomplete="new-password"
+              :placeholder="cfg.ocrEngine.mineruTokenSet ? '已配置，留空则不修改' : '粘贴 MinerU API Token'"
+            />
+          </div>
         </template>
         <template v-else-if="cfg.ocrEngine.provider==='paddle'">
           <div class="field full"><label>PaddleOCR 端点</label><input v-model="cfg.ocrEngine.paddleEndpoint" /></div>
@@ -97,7 +106,7 @@ import WorkflowDesigner from '@/components/WorkflowDesigner.vue'
 
 const cfg = reactive<any>({
   fillEngine: { endpoint: '', model: '', enabled: true },
-  ocrEngine: { provider: 'mineru', mineruEndpoint: '', paddleEndpoint: '', visionEndpoint: '', visionModel: '', enabled: true },
+  ocrEngine: { provider: 'mineru', mineruEndpoint: '', mineruToken: '', mineruTokenSet: false, paddleEndpoint: '', visionEndpoint: '', visionModel: '', enabled: true },
 })
 const saving = ref(false)
 const testing = ref<string|false>(false)
@@ -131,12 +140,21 @@ async function fetchModels() {
 
 async function saveConfig() {
   saving.value = true
-  try { await api.put('/admin/ai-config', { fillEngine: cfg.fillEngine, ocrEngine: cfg.ocrEngine }) } finally { saving.value = false }
+  try {
+    const r = await api.put('/admin/ai-config', { fillEngine: cfg.fillEngine, ocrEngine: cfg.ocrEngine }, { timeout: 30000 })
+    if (r.data) Object.assign(cfg, r.data)
+  } finally { saving.value = false }
 }
 
 async function testAI(type: string) {
   testing.value = type; result.value = ''
-  try { const r = await api.post('/admin/ai-test', { type }); resultOk.value = r.data.success; result.value = r.data.message } catch (e: any) { resultOk.value = false; result.value = '失败: ' + (e?.message || '') } finally { testing.value = false }
+  try {
+    const r = await api.post('/admin/ai-test', { type }, { timeout: 180000 })
+    resultOk.value = r.data.success; result.value = r.data.message
+  } catch (e: any) {
+    resultOk.value = false
+    result.value = e?.code === 'ECONNABORTED' ? '失败: 请求超时，模型响应过慢' : '失败: ' + (e?.message || '')
+  } finally { testing.value = false }
 }
 
 function roleLabel(r: string) { const m: any = { admin: '管理员', dept_approver: '部门审批人', finance: '财务', employee: '员工' }; return m[r] || r }

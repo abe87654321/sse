@@ -14,8 +14,8 @@ export class MinerUProvider implements IInvoiceOCRProvider {
   private token: string;
 
   constructor(config: AIProviderConfig) {
-    this.baseUrl = config.endpoint || 'https://mineru.net';
-    this.token = config.apiKey || process.env.MINERU_TOKEN || '';
+    this.baseUrl = (config.endpoint || 'https://mineru.net').replace(/\/+$/, '');
+    this.token = (config.apiKey || process.env.MINERU_TOKEN || '').trim();
   }
 
   async parseInvoice(fileBuffer: Buffer, fileName: string): Promise<OcrResult> {
@@ -43,6 +43,9 @@ export class MinerUProvider implements IInvoiceOCRProvider {
       }),
     });
 
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('MinerU 认证失败：Token 无效或已过期，请在系统管理中更新 MinerU Token');
+    }
     if (!res.ok) throw new Error(`MinerU 申请上传链接失败 (${res.status})`);
     const data: any = await res.json();
     if (data.code !== 0) throw new Error(`MinerU 错误: ${data.msg}`);

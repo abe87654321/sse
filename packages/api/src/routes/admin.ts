@@ -55,6 +55,7 @@ function loadAiConfig() {
     ocrEngine: {
       provider: 'mineru' as 'mineru' | 'paddle' | 'vision',
       mineruEndpoint: process.env.MINERU_ENDPOINT || 'https://mineru.net',
+      mineruToken: process.env.MINERU_TOKEN || '',
       paddleEndpoint: process.env.PADDLE_ENDPOINT || 'http://localhost:8899',
       visionEndpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
       visionModel: process.env.AI_VISION_MODEL || 'glm-ocr',
@@ -75,6 +76,18 @@ function loadAiConfig() {
 
 function saveAiConfig(config: any) {
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+}
+
+function publicAiConfig(config: any) {
+  const { mineruToken, ...ocrEngine } = config.ocrEngine || {};
+  return {
+    ...config,
+    ocrEngine: {
+      ...ocrEngine,
+      mineruToken: '',
+      mineruTokenSet: !!(mineruToken || process.env.MINERU_TOKEN),
+    },
+  };
 }
 
 function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
@@ -421,8 +434,9 @@ router.get(
     let models: ModelInfo[] = [];
 
     try {
-      const resp = await fetch(config.endpoint.replace('/chat/completions', '/models'), {
-        headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
+      const fill = config.fillEngine || {};
+      const resp = await fetch((fill.endpoint || '').replace('/chat/completions', '/models'), {
+        headers: fill.apiKey ? { Authorization: `Bearer ${fill.apiKey}` } : {},
       });
       if (resp.ok) {
         const data: any = await resp.json();
@@ -449,7 +463,7 @@ router.get(
 router.get(
   '/ai-config',
   asyncWrap(async (_req, res) => {
-    res.json(loadAiConfig());
+    res.json(publicAiConfig(loadAiConfig()));
   })
 );
 
@@ -466,13 +480,14 @@ router.put(
     if (ocrEngine) {
       if (ocrEngine.provider !== undefined) config.ocrEngine.provider = ocrEngine.provider;
       if (ocrEngine.mineruEndpoint !== undefined) config.ocrEngine.mineruEndpoint = ocrEngine.mineruEndpoint;
+      if (ocrEngine.mineruToken) config.ocrEngine.mineruToken = String(ocrEngine.mineruToken).trim();
       if (ocrEngine.paddleEndpoint !== undefined) config.ocrEngine.paddleEndpoint = ocrEngine.paddleEndpoint;
       if (ocrEngine.visionEndpoint !== undefined) config.ocrEngine.visionEndpoint = ocrEngine.visionEndpoint;
       if (ocrEngine.visionModel !== undefined) config.ocrEngine.visionModel = ocrEngine.visionModel;
       if (ocrEngine.enabled !== undefined) config.ocrEngine.enabled = ocrEngine.enabled;
     }
     saveAiConfig(config);
-    res.json(config);
+    res.json(publicAiConfig(config));
   })
 );
 
@@ -513,7 +528,7 @@ router.post(
           const pdfBuffer = readFileSync(pdfPath);
 
           if (ocrCfg.provider === 'mineru') {
-            const engine = new InvoiceOCREngine(new MinerUProvider({ endpoint: ocrCfg.mineruEndpoint, apiKey: process.env.MINERU_TOKEN }));
+            const engine = new InvoiceOCREngine(new MinerUProvider({ endpoint: ocrCfg.mineruEndpoint, apiKey: ocrCfg.mineruToken || process.env.MINERU_TOKEN }));
             const ocrResult = await engine.parseInvoice(pdfBuffer, 'sample.pdf');
             result = formatOcrResult(ocrResult, Date.now() - start, 'MinerU');
             success = !!(ocrResult.invoiceNo || ocrResult.amount);
