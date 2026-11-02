@@ -1,13 +1,19 @@
 import type { IAIProvider, AIProviderConfig } from '../ports';
+import { resolveChatUrl } from '../utils/endpoint';
 
 export class LocalProvider implements IAIProvider {
   private config: AIProviderConfig;
+  private chatUrl: string;
 
   constructor(config: AIProviderConfig) {
     this.config = {
-      endpoint: config.endpoint || 'http://localhost:11434/v1/chat/completions',
+      endpoint: config.endpoint || 'http://localhost:11434',
       modelName: config.modelName || 'llama3.2-vision',
+      apiKey: config.apiKey,
+      maxTokens: config.maxTokens,
+      timeoutMs: config.timeoutMs,
     };
+    this.chatUrl = resolveChatUrl(this.config.endpoint);
   }
 
   async analyzeImage(imageBase64: string, prompt: string, mimeType?: string): Promise<string> {
@@ -35,7 +41,7 @@ export class LocalProvider implements IAIProvider {
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const res = await fetch(`${this.config.endpoint}`, {
+      const res = await fetch(this.chatUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
