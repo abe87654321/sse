@@ -1,15 +1,15 @@
 <template>
   <Teleport to="body">
-    <div v-if="open" class="modal-overlay" @click.self="close">
-      <div class="modal model-picker" role="dialog" aria-modal="true" aria-label="选择模型">
+    <div v-if="open" class="modal-overlay" @click.self="requestClose">
+      <div ref="modalRef" class="modal model-picker" role="dialog" aria-modal="true" aria-labelledby="model-picker-title" @keydown="handleKeydown">
         <div class="modal-header">
-          <h3 class="modal-title font-heading">选择模型</h3>
-          <button class="modal-close" aria-label="关闭" @click="close">×</button>
+          <h3 id="model-picker-title" class="modal-title font-heading">选择模型</h3>
+          <button class="modal-close" aria-label="关闭" @click="requestClose">×</button>
         </div>
 
         <div class="picker-toolbar">
-          <input v-model="search" class="search-input" placeholder="搜索模型 ID 或名称" />
-          <button class="refresh-btn" :disabled="loading" title="刷新模型列表" @click="refresh">
+          <input ref="searchInput" v-model="search" class="search-input" aria-label="搜索模型" placeholder="搜索模型 ID 或名称" />
+          <button class="refresh-btn" :disabled="loading" aria-label="刷新模型列表" title="刷新模型列表" @click="refresh">
             <svg v-if="!loading" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 12a9 9 0 1 1-2.64-6.36" />
               <polyline points="21 3 21 9 15 9" />
@@ -18,19 +18,23 @@
           </button>
         </div>
 
-        <div class="tabs">
+        <div class="tabs" role="tablist">
           <button
             v-for="tabName in TABS"
             :key="tabName"
             class="tab"
+            role="tab"
+            :aria-selected="tab === tabName"
             :class="{ active: tab === tabName }"
             @click="tab = tabName"
+            @keydown.left.prevent="moveTab(-1)"
+            @keydown.right.prevent="moveTab(1)"
           >
             {{ tabName }} <span class="tab-count">{{ countFor(tabName) }}</span>
           </button>
         </div>
 
-        <div v-if="error" class="picker-error">{{ error }}</div>
+        <div v-if="error" class="picker-error" role="alert">{{ error }}</div>
 
         <div class="model-list">
           <div v-for="model in filteredModels" :key="model.id" class="model-row">
@@ -47,6 +51,7 @@
                 </button>
               </div>
               <div v-if="editingId === model.id" class="tag-editor">
+                <div class="tag-hint">手动标签会覆盖自动标签</div>
                 <label v-for="tag in TAG_OPTIONS" :key="tag" class="tag-option">
                   <input
                     type="checkbox"
@@ -62,18 +67,20 @@
               class="toggle-btn"
               :class="{ selected: model.selected }"
               :title="model.selected ? '从模型文本框移出' : '加入模型文本框'"
-              @click="model.selected = !model.selected"
+              :aria-label="model.selected ? `将 ${model.id} 移出模型文本框` : `将 ${model.id} 加入模型文本框`"
+              :aria-pressed="model.selected"
+              @click="toggleModel(model)"
             >
               {{ model.selected ? '−' : '+' }}
             </button>
           </div>
-          <div v-if="filteredModels.length === 0" class="empty-state">没有匹配的模型</div>
+          <div v-if="filteredModels.length === 0" class="empty-state" role="status">没有匹配的模型</div>
         </div>
 
         <div class="modal-footer">
           <span class="selected-count">已选 {{ selectedCount }} 个模型</span>
           <div class="footer-actions">
-            <button class="btn-secondary" @click="close">取消</button>
+            <button class="btn-secondary" @click="requestClose">取消</button>
             <button class="btn-primary" @click="confirm">确定</button>
           </div>
         </div>
@@ -83,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import api from '../api/index'
 
 const TABS = ['全部', '推理', '视觉', '联网', '免费', '嵌入', '重排', '工具'] as const
@@ -110,13 +117,24 @@ const tab = ref<(typeof TABS)[number]>('全部')
 const loading = ref(false)
 const error = ref('')
 const editingId = ref('')
+const modalRef = ref<HTMLElement | null>(null)
+const searchInput = ref<HTMLInputElement | null>(null)
+const previouslyFocused = ref<HTMLElement | null>(null)
+const dirty = ref(false)
+const draftFetchedAt = ref('')
 
 watch(
   () => props.open,
   (open) => {
-    if (!open) return
+    if (!open) {
+      cleanupOverlay()
+      return
+    }
+    previouslyFocused.value = document.activeElement as HTMLElement | null
+    document.body.style.overflow = 'hidden'
     draft.value = JSON.parse(JSON.stringify(props.catalog?.models || []))
     draftSource.value = props.catalog?.source || 'openai'
+    draftFetchedAt.value = props.catalog?.fetchedAt || ''
     active.value = props.activeModel
     if (active.value && !draft.value.some(model => model.id === active.value)) {
       draft.value.unshift({
@@ -133,9 +151,52 @@ watch(
     tab.value = '全部'
     error.value = ''
     editingId.value = ''
+    dirty.value = false
+    nextTick(() => searchInput.value?.focus())
     if ((props.catalog?.models || []).length === 0 && props.endpoint) refresh()
   },
+  { immediate: true },
 )
+
+function cleanupOverlay() {
+  document.body.style.overflow = ''
+  if (previouslyFocused.value) {
+    previouslyFocused.value.focus()
+    previouslyFocused.value = null
+  }
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    requestClose()
+    return
+  }
+  if (event.key !== 'Tab') return
+  const root = modalRef.value
+  if (!root) return
+  const focusable = Array.from(root.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )).filter(element => element.offsetParent !== null)
+  if (focusable.length === 0) return
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
+function moveTab(delta: number) {
+  const index = TABS.indexOf(tab.value)
+  const nextIndex = (index + delta + TABS.length) % TABS.length
+  tab.value = TABS[nextIndex]
+}
+
+onBeforeUnmount(cleanupOverlay)
 
 const selectedCount = computed(() => draft.value.filter(model => model.selected).length)
 
@@ -176,7 +237,10 @@ async function refresh() {
     const fetchedCatalog = response.data?.catalog
     const fetchedModels = fetchedCatalog?.models || response.data?.models || []
     draftSource.value = fetchedCatalog?.source
-      || (response.data?.source === 'ollama' ? 'ollama' : 'openai')
+      || (response.data?.source === 'ollama'
+        ? 'ollama'
+        : response.data?.source === 'openrouter' ? 'openrouter' : 'openai')
+    draftFetchedAt.value = fetchedCatalog?.fetchedAt || new Date().toISOString()
     const existing = new Map(draft.value.map(model => [model.id, model]))
     const next = fetchedModels.map((model: any) => {
       const old = existing.get(model.id)
@@ -192,7 +256,7 @@ async function refresh() {
         next.push({ ...old, missing: true })
       }
     }
-    draft.value = next
+    draft.value = next.filter((model: any) => !model.missing || model.selected)
   } catch (e: any) {
     error.value = e?.response?.data?.message || e?.message || '获取模型列表失败'
   } finally {
@@ -206,22 +270,36 @@ function toggleManualTag(model: any, tag: string) {
   if (index >= 0) tags.splice(index, 1)
   else tags.push(tag)
   model.manualTags = tags
+  dirty.value = true
 }
 
 function restoreAuto(model: any) {
   model.manualTags = []
+  dirty.value = true
+}
+
+function toggleModel(model: any) {
+  model.selected = !model.selected
+  dirty.value = true
+}
+
+function requestClose() {
+  if (dirty.value && !window.confirm('放弃未保存的模型选择修改？')) return
+  close()
 }
 
 function close() {
+  cleanupOverlay()
   emit('update:open', false)
 }
 
 function confirm() {
   const selectedIds = draft.value.filter(model => model.selected).map(model => model.id)
   const activeModel = selectedIds.includes(active.value) ? active.value : (selectedIds[0] || '')
+  dirty.value = false
   emit('confirm', {
     catalog: {
-      fetchedAt: new Date().toISOString(),
+      fetchedAt: draftFetchedAt.value || new Date().toISOString(),
       source: draftSource.value,
       models: draft.value,
     },
@@ -258,6 +336,7 @@ function confirm() {
 .tag { font-size: .7rem; padding: 1px 7px; border-radius: 999px; background: var(--accent-mint-bg); color: #2b7a3d; }
 .tag-edit { border: none; background: none; color: var(--text-muted); font-size: .72rem; cursor: pointer; text-decoration: underline; }
 .tag-editor { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; padding: 8px; background: var(--bg-input); border-radius: var(--radius-sm); }
+.tag-hint { width:100%; font-size:.72rem; color: var(--text-muted); }
 .tag-option { display: flex; align-items: center; gap: 4px; font-size: .78rem; color: var(--text-secondary); }
 .restore-btn { border: none; background: none; color: var(--accent-coral); font-size: .75rem; cursor: pointer; }
 .toggle-btn { width: 34px; height: 34px; flex: 0 0 auto; border-radius: 50%; border: 1px solid var(--border); background: var(--bg-input); color: var(--text-primary); font-size: 1.2rem; line-height: 1; cursor: pointer; }
