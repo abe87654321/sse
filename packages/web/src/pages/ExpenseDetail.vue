@@ -49,6 +49,10 @@
             <h3 class="card-section-title font-heading">基本信息</h3>
             <div class="info-grid">
               <div class="info-item">
+                <span class="info-label">报销人</span>
+                <span class="info-value">{{ report.applicantName || '-' }}</span>
+              </div>
+              <div class="info-item">
                 <span class="info-label">提交时间</span>
                 <span class="info-value">{{ formatDate(report.submittedAt) }}</span>
               </div>
@@ -155,6 +159,7 @@ interface InvoiceItem { id: string; itemId: string; fileName: string }
 interface ExpenseItem { id: string; categoryId: string; amount: number; expenseDate: string; description: string }
 interface Report {
   id: string; serialNo: string; title: string; totalAmount: number; status: string
+  applicantName?: string
   description?: string; submittedAt?: string; createdAt?: string; updatedAt?: string
   paidAt?: string; paymentRef?: string
   items: ExpenseItem[]
