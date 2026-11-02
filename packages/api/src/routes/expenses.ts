@@ -114,7 +114,11 @@ router.get(
       if (query.dateTo) { conditions.push(`er.created_at <= $${idx++}`); values.push(query.dateTo); }
       if (query.applicantId) { conditions.push(`er.user_id = $${idx++}`); values.push(query.applicantId); }
       if (query.status) { conditions.push(`er.status = $${idx++}`); values.push(query.status); }
-      if (query.keyword) { conditions.push(`er.title ILIKE $${idx++}`); values.push(`%${query.keyword}%`); }
+      if (query.keyword) {
+        conditions.push(`(er.serial_no ILIKE $${idx} OR er.title ILIKE $${idx})`);
+        values.push(`%${query.keyword}%`);
+        idx++;
+      }
 
       const where = `WHERE ${conditions.join(' AND ')}`;
       const page = query.page || 1;
@@ -123,7 +127,18 @@ router.get(
 
       const [dataRes, countRes] = await Promise.all([
         pool.query(
-          `SELECT er.* FROM expense_reports er ${where} ORDER BY er.created_at DESC LIMIT $${idx++} OFFSET $${idx++}`,
+          `SELECT er.*, u.name AS applicant_name,
+                  COALESCE(
+                    (SELECT array_agg(DISTINCT ec.name ORDER BY ec.name)
+                       FROM expense_items ei
+                       JOIN expense_categories ec ON ec.id = ei.category_id
+                      WHERE ei.report_id = er.id),
+                    ARRAY[]::text[]
+                  ) AS category_names
+             FROM expense_reports er
+             JOIN users u ON u.id = er.user_id
+            ${where}
+            ORDER BY er.created_at DESC LIMIT $${idx++} OFFSET $${idx++}`,
           [...values, pageSize, offset]
         ),
         pool.query(`SELECT COUNT(*) FROM expense_reports er ${where}`, values),
@@ -645,8 +660,10 @@ function mapReportRow(row: any) {
     id: row.id,
     serialNo: row.serial_no,
     userId: row.user_id,
+    applicantName: row.applicant_name ?? undefined,
     title: row.title,
     totalAmount: Number(row.total_amount),
+    categoryNames: row.category_names ?? [],
     status: row.status,
     currentStep: row.current_step,
     submittedAt: row.submitted_at ?? undefined,

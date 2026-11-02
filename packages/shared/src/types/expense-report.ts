@@ -2,8 +2,10 @@ export type ExpenseReport = {
   id: string;
   serialNo: string;
   userId: string;
+  applicantName?: string;
   title: string;
   totalAmount: number;
+  categoryNames?: string[];
   description?: string;
   status: string;
   currentStep: number;
