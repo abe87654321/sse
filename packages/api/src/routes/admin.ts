@@ -8,12 +8,29 @@ import { AppError } from '../middleware/error';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import {
+  applyAiConfigPatch,
+  classifyEngineError,
+  mergeCatalog,
+  normalizeServiceBase,
+  resolveSecretForEndpoint,
+  toPublicAiConfig,
+  type AiConfig,
+} from '@sse/ai';
+import {
   createOCREngine,
   getSmartFillEngine,
   loadAiConfig,
-  publicAiConfig,
   saveAiConfig,
 } from '../services/ai-engines';
+import {
+  addTestHistory,
+  clearTestHistory,
+  loadTestHistory,
+  newHistoryEntry,
+} from '../services/ai-test-history';
+import { fetchModelList, testConnection } from '../services/ai-engine-probe';
+import { uploadEngineSample, uploadErrorHandler, hasValidSampleSignature } from '../middleware/upload';
+import { resetEngine } from './ontology-helpers';
 
 const router = Router();
 const userRepo = new PgUserRepo();
@@ -380,72 +397,319 @@ router.post(
 
 // ========== AI 模型配置 ==========
 
-const RECOMMENDED_MODELS = ['llama3.1:8b', 'deepseek-r1:8b', 'qwen2.5-vl:7b'];
-
-interface ModelInfo {
-  id: string; name: string; recommended: boolean; reason: string;
-}
-
 router.get(
   '/ai-models',
   asyncWrap(async (_req, res) => {
     const config = loadAiConfig();
-    let models: ModelInfo[] = [];
-
     try {
-      const fill = config.fillEngine;
-      const resp = await fetch(fill.endpoint.replace('/chat/completions', '/models'));
-      if (resp.ok) {
-        const data: any = await resp.json();
-        const rawModels = data.data || data.models || [];
-        models = rawModels.map((m: any) => {
-          const name = m.id || m.name || '';
-          const isRecommended = RECOMMENDED_MODELS.some(r => name.includes(r));
-          const reason = isRecommended
-            ? '推荐：中文支持好，速度与精度均衡'
-            : '';
-          return { id: name, name, recommended: isRecommended, reason };
-        });
-      }
+      const result = await fetchModelList({
+        endpoint: config.fillEngine.endpoint,
+        apiKey: config.fillEngine.apiKey,
+      });
+      res.json({
+        models: result.models.map(model => ({
+          ...model,
+          recommended: false,
+          reason: '',
+        })),
+        source: result.source,
+        elapsedMs: result.elapsedMs,
+      });
     } catch {
-      models = RECOMMENDED_MODELS.map(name => ({
-        id: name, name, recommended: true, reason: '推荐',
-      }));
+      res.json({ models: [], source: 'openai', elapsedMs: 0 });
     }
+  }),
+);
 
-    res.json({ models });
-  })
+router.post(
+  '/ai-models',
+  asyncWrap(async (req, res) => {
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+    if (!checkRateLimit(clientIp)) {
+      throw new AppError(429, 'RATE_LIMITED', '请求过于频繁，请稍后重试');
+    }
+    const saved = loadAiConfig();
+    const endpoint = String(req.body?.endpoint || '');
+    if (!endpoint) throw new AppError(400, 'INVALID_PARAMS', '请填写 API 地址');
+    const apiKey = resolveSecretForEndpoint(
+      endpoint,
+      req.body?.apiKey,
+      saved.fillEngine.endpoint,
+      saved.fillEngine.apiKey,
+    );
+    const result = await fetchModelList({ endpoint, apiKey });
+    const key = normalizeServiceBase(endpoint);
+    const catalog = mergeCatalog(saved.fillEngine.catalogs[key], result.models, result.source);
+    res.json({ ...result, catalog });
+  }),
 );
 
 router.get(
   '/ai-config',
   asyncWrap(async (_req, res) => {
-    res.json(publicAiConfig(loadAiConfig()));
-  })
+    res.json(toPublicAiConfig(loadAiConfig()));
+  }),
 );
 
 router.put(
   '/ai-config',
   asyncWrap(async (req, res) => {
-    const config = loadAiConfig();
-    const { fillEngine, ocrEngine } = req.body;
-    if (fillEngine) {
-      if (fillEngine.endpoint !== undefined) config.fillEngine.endpoint = fillEngine.endpoint;
-      if (fillEngine.model !== undefined) config.fillEngine.model = fillEngine.model;
-      if (fillEngine.enabled !== undefined) config.fillEngine.enabled = fillEngine.enabled;
+    const saved = loadAiConfig();
+    const next = applyAiConfigPatch(saved, req.body || {});
+    saveAiConfig(next);
+    resetEngine();
+    res.json(toPublicAiConfig(next));
+  }),
+);
+
+router.post(
+  '/ai-connection-test',
+  asyncWrap(async (req, res) => {
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+    if (!checkRateLimit(clientIp)) {
+      throw new AppError(429, 'RATE_LIMITED', '请求过于频繁，请稍后重试');
     }
-    if (ocrEngine) {
-      if (ocrEngine.provider !== undefined) config.ocrEngine.provider = ocrEngine.provider;
-      if (ocrEngine.mineruEndpoint !== undefined) config.ocrEngine.mineruEndpoint = ocrEngine.mineruEndpoint;
-      if (ocrEngine.mineruToken) config.ocrEngine.mineruToken = String(ocrEngine.mineruToken).trim();
-      if (ocrEngine.paddleEndpoint !== undefined) config.ocrEngine.paddleEndpoint = ocrEngine.paddleEndpoint;
-      if (ocrEngine.visionEndpoint !== undefined) config.ocrEngine.visionEndpoint = ocrEngine.visionEndpoint;
-      if (ocrEngine.visionModel !== undefined) config.ocrEngine.visionModel = ocrEngine.visionModel;
-      if (ocrEngine.enabled !== undefined) config.ocrEngine.enabled = ocrEngine.enabled;
+
+    const saved = loadAiConfig();
+    const endpoint = String(req.body?.endpoint || '');
+    if (!endpoint) throw new AppError(400, 'INVALID_PARAMS', '请填写 API 地址');
+    const apiKey = resolveSecretForEndpoint(
+      endpoint,
+      req.body?.apiKey,
+      saved.fillEngine.endpoint,
+      saved.fillEngine.apiKey,
+    );
+    const result = await testConnection({
+      endpoint,
+      apiKey,
+      model: req.body?.model,
+    });
+
+    const failed = result.steps.find(step => !step.ok);
+    addTestHistory(newHistoryEntry({
+      type: 'connection',
+      endpoint: normalizeServiceBase(endpoint),
+      success: result.success,
+      elapsedMs: result.steps.reduce((sum, step) => sum + step.elapsedMs, 0),
+      fields: { steps: result.steps },
+      error: failed?.error,
+    }));
+
+    res.json(result);
+  }),
+);
+
+router.post(
+  '/ai-test/fill',
+  asyncWrap(async (req, res) => {
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+    if (!checkRateLimit(clientIp)) {
+      throw new AppError(429, 'RATE_LIMITED', '请求过于频繁，请稍后重试');
     }
-    saveAiConfig(config);
-    res.json(publicAiConfig(config));
-  })
+
+    const saved = loadAiConfig();
+    const endpoint = String(req.body?.endpoint || saved.fillEngine.endpoint);
+    const apiKey = resolveSecretForEndpoint(
+      endpoint,
+      req.body?.apiKey,
+      saved.fillEngine.endpoint,
+      saved.fillEngine.apiKey,
+    );
+    const config: AiConfig = {
+      ...saved,
+      fillEngine: {
+        ...saved.fillEngine,
+        endpoint: normalizeServiceBase(endpoint),
+        apiKey,
+        model: String(req.body?.model || saved.fillEngine.model),
+      },
+    };
+
+    const start = Date.now();
+    try {
+      const engine = getSmartFillEngine(config);
+      if (!engine) throw new Error('智能填单引擎未启用');
+      const items = await engine.parseFromText('测试：打车50元');
+      const success = items.length > 0;
+      const message = success
+        ? `文字识别成功，解析到 ${items.length} 条费用`
+        : '模型响应但未解析到结构化数据';
+      const elapsedMs = Date.now() - start;
+      addTestHistory(newHistoryEntry({
+        type: 'fill',
+        endpoint: config.fillEngine.endpoint,
+        success,
+        elapsedMs,
+        fields: { itemCount: items.length },
+      }));
+      res.json({ success, message, elapsedMs, items });
+    } catch (error: any) {
+      const info = classifyEngineError(error);
+      const elapsedMs = Date.now() - start;
+      addTestHistory(newHistoryEntry({
+        type: 'fill',
+        endpoint: config.fillEngine.endpoint,
+        success: false,
+        elapsedMs,
+        error: info,
+      }));
+      res.json({ success: false, message: info.message, elapsedMs, error: info });
+    }
+  }),
+);
+
+router.post(
+  '/ai-test/ocr',
+  uploadEngineSample.single('file'),
+  uploadErrorHandler,
+  asyncWrap(async (req, res) => {
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+    if (!checkRateLimit(clientIp)) {
+      throw new AppError(429, 'RATE_LIMITED', '请求过于频繁，请稍后重试');
+    }
+
+    const saved = loadAiConfig();
+    const requestedProvider = String(req.body?.provider || '');
+    const provider = requestedProvider === 'mineru'
+      || requestedProvider === 'paddle'
+      || requestedProvider === 'vision'
+      ? (requestedProvider as AiConfig['ocrEngine']['provider'])
+      : saved.ocrEngine.provider;
+    const mineruEndpoint = normalizeServiceBase(String(req.body?.mineruEndpoint || saved.ocrEngine.mineruEndpoint));
+    const paddleEndpoint = normalizeServiceBase(String(req.body?.paddleEndpoint || saved.ocrEngine.paddleEndpoint));
+    const visionEndpoint = normalizeServiceBase(String(req.body?.visionEndpoint || saved.ocrEngine.visionEndpoint));
+    const mineruToken = resolveSecretForEndpoint(
+      mineruEndpoint,
+      req.body?.mineruToken,
+      saved.ocrEngine.mineruEndpoint,
+      saved.ocrEngine.mineruToken,
+    );
+    const visionApiKey = resolveSecretForEndpoint(
+      visionEndpoint,
+      req.body?.visionApiKey,
+      saved.ocrEngine.visionEndpoint,
+      saved.ocrEngine.visionApiKey,
+    );
+
+    const config: AiConfig = {
+      ...saved,
+      ocrEngine: {
+        ...saved.ocrEngine,
+        provider,
+        mineruEndpoint,
+        mineruToken,
+        paddleEndpoint,
+        visionEndpoint,
+        visionModel: String(req.body?.visionModel || saved.ocrEngine.visionModel),
+        visionApiKey,
+      },
+    };
+
+    let buffer: Buffer;
+    let fileName: string;
+    if (req.file) {
+      const dot = req.file.originalname.lastIndexOf('.');
+      const ext = dot >= 0 ? req.file.originalname.slice(dot + 1).toLowerCase() : '';
+      if (!hasValidSampleSignature(req.file.buffer, ext)) {
+        throw new AppError(400, 'INVALID_FILE_CONTENT', '样例文件内容与扩展名不匹配');
+      }
+      buffer = req.file.buffer;
+      fileName = req.file.originalname;
+    } else {
+      const samplePath = join(
+        process.cwd(),
+        'docs',
+        'dzfp_25362000000115126055_深圳市数恒纪元信息技术咨询企业（个人独资）_20251106105357.pdf',
+      );
+      if (!existsSync(samplePath)) {
+        throw new AppError(400, 'SAMPLE_MISSING', '内置样例发票不存在，请上传样例文件');
+      }
+      buffer = readFileSync(samplePath);
+      fileName = 'sample.pdf';
+    }
+
+    const endpoint = provider === 'mineru' ? mineruEndpoint : provider === 'paddle' ? paddleEndpoint : visionEndpoint;
+    const start = Date.now();
+    try {
+      const engine = createOCREngine(config);
+      if (!engine) throw new Error('发票 OCR 引擎未启用');
+      const result = await engine.parseInvoice(buffer, fileName);
+      const fields = {
+        invoiceNo: result.invoiceNo,
+        amount: result.amount,
+        totalAmount: result.totalAmount,
+        invoiceDate: result.invoiceDate,
+        sellerName: result.sellerName,
+        buyerName: result.buyerName,
+        taxAmount: result.taxAmount,
+      };
+      const success = !!(fields.invoiceNo || fields.totalAmount || fields.amount);
+      const error = success
+        ? undefined
+        : classifyEngineError(new Error('未识别到发票信息'));
+      const elapsedMs = Date.now() - start;
+      addTestHistory(newHistoryEntry({
+        type: 'ocr',
+        provider,
+        endpoint,
+        success,
+        elapsedMs,
+        fields,
+        error,
+        rawText: result.rawText,
+      }));
+      res.json({
+        success,
+        elapsedMs,
+        provider,
+        endpoint,
+        fields,
+        rawText: (result.rawText || '').slice(0, 5000),
+        error: error || null,
+      });
+    } catch (error: any) {
+      const info = classifyEngineError(error, { status: error?.status });
+      const elapsedMs = Date.now() - start;
+      addTestHistory(newHistoryEntry({
+        type: 'ocr',
+        provider,
+        endpoint,
+        success: false,
+        elapsedMs,
+        error: info,
+      }));
+      res.json({
+        success: false,
+        elapsedMs,
+        provider,
+        endpoint,
+        fields: {},
+        rawText: '',
+        error: info,
+      });
+    }
+  }),
+);
+
+router.get(
+  '/ai-test-history',
+  asyncWrap(async (req, res) => {
+    const type = typeof req.query.type === 'string' ? req.query.type : '';
+    const rawLimit = Number(req.query.limit);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 10;
+    const entries = loadTestHistory()
+      .filter(entry => !type || entry.type === type)
+      .slice(0, limit);
+    res.json(entries);
+  }),
+);
+
+router.delete(
+  '/ai-test-history',
+  asyncWrap(async (_req, res) => {
+    clearTestHistory();
+    res.json({ message: '测试历史已清空' });
+  }),
 );
 
 router.post(
