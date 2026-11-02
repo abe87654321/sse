@@ -76,6 +76,10 @@ async function fetchJson(
     if (res.status >= 300 && res.status < 400) {
       throw httpError(res.status, '重定向被拒绝');
     }
+    const contentLength = Number(res.headers.get('content-length'));
+    if (Number.isFinite(contentLength) && contentLength > 5_000_000) {
+      throw new Error('响应体过大');
+    }
     const text = await res.text();
     let body: any = null;
     try {
@@ -87,6 +91,12 @@ async function fetchJson(
   } catch (error: any) {
     if (error?.name === 'AbortError') {
       throw new Error(`请求超时（${Math.round(timeoutMs / 1000)}s）`);
+    }
+    const cause = error?.cause?.message || error?.cause?.code || error?.cause?.errno;
+    if (cause && !String(error?.message || '').includes(String(cause))) {
+      const wrapped: any = new Error(`${error?.message || '请求失败'}: ${cause}`);
+      if (error?.status !== undefined) wrapped.status = error.status;
+      throw wrapped;
     }
     throw error;
   } finally {
@@ -135,11 +145,17 @@ export async function fetchModelList(options: ProbeOptions): Promise<ModelListRe
       timeoutMs,
     );
     if (!response.ok) throw httpError(response.status, response.body);
-    return {
-      models: normalizeModels(response.body, 'openai'),
-      source: 'openai',
-      elapsedMs: Date.now() - start,
-    };
+    const openAiBody = response.body;
+    const looksLikeOpenAi = Array.isArray(openAiBody)
+      || Array.isArray(openAiBody?.data)
+      || Array.isArray(openAiBody?.models);
+    if (looksLikeOpenAi) {
+      return {
+        models: normalizeModels(openAiBody, 'openai'),
+        source: 'openai',
+        elapsedMs: Date.now() - start,
+      };
+    }
   } catch (error: any) {
     if (error?.status !== 404) throw error;
   }
