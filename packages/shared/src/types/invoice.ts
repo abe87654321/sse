@@ -6,6 +6,7 @@ export type OcrResult = {
   invoiceDate?: string;
   sellerName?: string;
   buyerName?: string;
+  rawText?: string;
   status: string;
 };
 
