@@ -76,7 +76,7 @@
             <h3 class="card-section-title font-heading">费用明细</h3>
             <table class="data-table">
               <thead>
-                <tr><th>类别</th><th>日期</th><th>说明</th><th class="text-right">金额</th></tr>
+                <tr><th>类别</th><th>日期</th><th>说明</th><th class="text-right">金额</th><th>发票</th></tr>
               </thead>
               <tbody>
                 <tr v-for="item in report.items" :key="item.id">
@@ -84,11 +84,18 @@
                   <td class="text-secondary">{{ item.expenseDate }}</td>
                   <td>{{ item.description || '-' }}</td>
                   <td class="text-right">&yen;{{ item.amount.toLocaleString() }}</td>
+                  <td>
+                    <template v-if="getInvoice(item.id)">
+                      &#x1f4ce; {{ getInvoice(item.id).fileName }}
+                      <span class="table-link" @click="downloadInvoice(item.id, getInvoice(item.id))">下载</span>
+                    </template>
+                    <span v-else class="no-invoice">未上传</span>
+                  </td>
                 </tr>
               </tbody>
               <tfoot>
                 <tr>
-                  <td colspan="3" class="text-right" style="font-weight:600;">合计</td>
+                  <td colspan="4" class="text-right" style="font-weight:600;">合计</td>
                   <td class="text-right" style="font-weight:700;color:var(--accent-coral);font-size:1.1rem;">&yen;{{ report.totalAmount.toLocaleString() }}</td>
                 </tr>
               </tfoot>
@@ -97,6 +104,18 @@
         </div>
         <div class="detail-side">
           <ApprovalTimeline :items="timeline" :rule-name="timeline.length > 0 ? timeline[0].rule : ''" />
+
+          <div class="card">
+            <h3 class="card-section-title font-heading">发票文件</h3>
+            <div v-if="report.invoices?.length" class="attachment-list">
+              <div v-for="inv in report.invoices" :key="inv.id" class="attachment-item">
+                <span class="attachment-emoji">&#128206;</span>
+                <span>{{ inv.fileName }}</span>
+                <span class="table-link" @click="downloadInvoice(inv.itemId, inv)">下载</span>
+              </div>
+            </div>
+            <div v-else class="no-data">暂无发票文件</div>
+          </div>
         </div>
       </div>
     </template>
@@ -137,6 +156,19 @@ function formatDate(dateStr?: string) {
 
 function getCategoryName(categoryId: string) {
   return categories.value.find((c: any) => c.id === categoryId)?.name
+}
+
+function getInvoice(itemId: string) {
+  return report.value?.invoices?.find((inv: any) => inv.itemId === itemId)
+}
+
+async function downloadInvoice(itemId: string, invoice: any) {
+  try {
+    const res = await api.get(`/expenses/${route.params.reportId}/items/${itemId}/invoice/${invoice.id}/download`)
+    window.open(res.data.url, '_blank')
+  } catch (e: any) {
+    alert(e?.response?.data?.error?.message || '下载失败')
+  }
 }
 
 async function handleApprove() {
@@ -244,5 +276,24 @@ onMounted(async () => {
 .reject-dialog h3 { margin-bottom: 12px; font-size: 1.1rem; }
 .reject-dialog textarea { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); resize: vertical; font-size: 0.9rem; }
 .reject-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.table-link { color: var(--accent-coral); cursor: pointer; text-decoration: underline; transition: opacity 0.15s; font-size: 0.85rem; margin-left: 4px; }
+.table-link:hover { opacity: 0.75; }
+.no-invoice { color: var(--text-muted); font-size: 0.82rem; }
+.no-data { color: var(--text-muted); font-size: 0.85rem; }
+.attachment-list { display: flex; flex-direction: column; gap: 8px; }
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-warm);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  border: 1px solid transparent;
+  transition: all var(--transition);
+}
+.attachment-item:hover { color: var(--accent-coral); background: var(--accent-coral-bg); border-color: var(--accent-coral-bg); }
+.attachment-emoji { font-size: 1.1rem; }
 @media (max-width: 768px) { .detail-grid { grid-template-columns: 1fr; } }
 </style>

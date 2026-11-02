@@ -7,7 +7,7 @@ import {
   PgUserRepo,
   pool,
 } from '@sse/db';
-import { ReportService } from '@sse/core';
+import { ReportService, planItemSync } from '@sse/core';
 import { ReportStatus, InvoiceFormat, UserRole, ApprovalResult } from '@sse/shared';
 import type { ExpenseQuery } from '@sse/core';
 import { authMiddleware } from '@sse/auth';
@@ -302,17 +302,43 @@ router.put(
       }
 
       if (items !== undefined && Array.isArray(items)) {
-        await client.query('DELETE FROM expense_items WHERE report_id = $1', [id]);
+        const { rows: existingRows } = await client.query(
+          'SELECT id FROM expense_items WHERE report_id = $1',
+          [id]
+        );
+        const plan = planItemSync(
+          existingRows.map((row: { id: string }) => row.id),
+          items
+        );
 
-        let totalAmount = 0;
-        for (const item of items) {
+        for (const item of plan.updates) {
+          await client.query(
+            `UPDATE expense_items
+                SET category_id = $1, amount = $2, expense_date = $3, description = $4
+              WHERE id = $5 AND report_id = $6`,
+            [item.categoryId, item.amount, item.expenseDate, item.description || '', item.id, id]
+          );
+        }
+
+        for (const item of plan.inserts) {
           await client.query(
             `INSERT INTO expense_items (report_id, category_id, amount, expense_date, description)
              VALUES ($1, $2, $3, $4, $5)`,
             [id, item.categoryId, item.amount, item.expenseDate, item.description || '']
           );
-          totalAmount += Number(item.amount);
         }
+
+        if (plan.deleteIds.length > 0) {
+          await client.query(
+            'DELETE FROM expense_items WHERE report_id = $1 AND id = ANY($2)',
+            [id, plan.deleteIds]
+          );
+        }
+
+        const totalAmount = items.reduce(
+          (sum: number, item: { amount: number }) => sum + Number(item.amount),
+          0
+        );
 
         await client.query(
           'UPDATE expense_reports SET total_amount = $1, updated_at = NOW() WHERE id = $2',

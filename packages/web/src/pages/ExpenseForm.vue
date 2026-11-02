@@ -375,16 +375,22 @@ onMounted(async () => {
       const res = await api.get(`/expenses/${route.params.id}`)
       const data = res.data
       const report = data.report || data
+      const invoices = data.invoices || []
       form.title = report.title || ''
       form.description = report.description || ''
-      form.items = (data.items || []).map((item: any) => ({
-        id: item.id,
-        categoryId: item.categoryId,
-        amount: item.amount,
-        expenseDate: typeof item.expenseDate === 'string' ? item.expenseDate.slice(0, 10) : item.expenseDate,
-        description: item.description || '',
-        uploadedInvoice: undefined,
-      }))
+      form.items = (data.items || []).map((item: any) => {
+        const invoice = invoices.find((inv: any) => inv.itemId === item.id)
+        return {
+          id: item.id,
+          categoryId: item.categoryId,
+          amount: item.amount,
+          expenseDate: typeof item.expenseDate === 'string' ? item.expenseDate.slice(0, 10) : item.expenseDate,
+          description: item.description || '',
+          uploadedInvoice: invoice
+            ? { id: invoice.id, fileName: invoice.fileName, _expenseId: route.params.id as string, _itemId: item.id }
+            : undefined,
+        }
+      })
       if (form.items.length === 0) {
         form.items = [{ categoryId: '', amount: 0, expenseDate: new Date().toISOString().slice(0, 10), description: '' }]
       }
@@ -447,6 +453,7 @@ async function handleSave() {
         title: form.title.trim(),
         description: form.description.trim(),
         items: validItems.map(i => ({
+          id: i.id,
           categoryId: i.categoryId,
           amount: i.amount,
           expenseDate: i.expenseDate,
@@ -465,10 +472,21 @@ async function handleSave() {
         }))
       })
       expenseId.value = res.data.id
-      form.items = form.items.map((item, idx) => ({
-        ...item,
-        id: res.data.items?.[idx]?.id || item.id,
-      }))
+      const created = res.data.items || []
+      const used = new Set<string>()
+      form.items = form.items.map(item => {
+        if (item.id) return item
+        const match = created.find((ci: any) =>
+          !used.has(ci.id) &&
+          ci.categoryId === item.categoryId &&
+          Number(ci.amount) === Number(item.amount) &&
+          ci.expenseDate === item.expenseDate &&
+          (ci.description || '') === (item.description || '')
+        )
+        if (!match) return item
+        used.add(match.id)
+        return { ...item, id: match.id }
+      })
     }
   } catch (e: any) {
     error.value = e?.response?.data?.error?.message || e?.message || '保存失败'
@@ -492,6 +510,7 @@ async function handleSubmit() {
         title: form.title.trim(),
         description: form.description.trim(),
         items: validItems.map(i => ({
+          id: i.id,
           categoryId: i.categoryId,
           amount: i.amount,
           expenseDate: i.expenseDate,
