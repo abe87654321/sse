@@ -5,5 +5,7 @@ export { PgApprovalRuleRepo } from './pg-approval-rule-repo';
 export { PgApprovalRecordRepo } from './pg-approval-record-repo';
 export { PgNotificationLogRepo } from './pg-notification-log-repo';
 export { PgReasoningRuleRepo } from './pg-reasoning-rule-repo';
+export { PgPaymentReceiptRepo } from './pg-payment-receipt-repo';
+export { PgPaymentAuditRepo } from './pg-payment-audit-repo';
 export * from './pg-notification-repo';
 

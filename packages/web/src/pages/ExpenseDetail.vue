@@ -69,16 +69,6 @@
                 <span class="info-label">说明</span>
                 <span class="info-value">{{ report.description || '无' }}</span>
               </div>
-              <template v-if="report.paidAt">
-                <div class="info-item">
-                  <span class="info-label">打款时间</span>
-                  <span class="info-value">{{ formatDate(report.paidAt) }}</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">打款凭证</span>
-                  <span class="info-value">{{ report.paymentRef || '-' }}</span>
-                </div>
-              </template>
             </div>
           </div>
 
@@ -122,6 +112,19 @@
         <div class="detail-side">
           <ApprovalTimeline :items="timeline" :rule-name="timeline.length > 0 ? timeline[0].rule : ''" />
 
+          <PaymentReceiptPanel
+            v-if="report && (report.status === 'paid' || report.paymentRef || report.paymentReceipts?.length)"
+            :report-id="report.id"
+            :report="report"
+            :receipts="report.paymentReceipts || []"
+            :audit-logs="report.paymentAuditLogs || []"
+            :can-manage="viewerActions?.canManagePayment || false"
+            :verifying="verifyingReceipt"
+            @edit="showEditDialog = true"
+            @revert="handleRevert"
+            @verify="handleVerifyReceipt"
+          />
+
           <div class="card">
             <h3 class="card-section-title font-heading">发票文件</h3>
             <div v-if="report.invoices?.length" class="attachment-list">
@@ -138,6 +141,24 @@
     </template>
 
     <div v-else class="loading-state">未找到报销记录</div>
+
+    <PaymentDialog
+      v-if="report"
+      v-model="showPayDialog"
+      :report-id="report.id"
+      mode="pay"
+      @success="loadReport"
+    />
+    <PaymentDialog
+      v-if="report"
+      v-model="showEditDialog"
+      :report-id="report.id"
+      mode="edit"
+      :initial-ref="report.paymentRef || ''"
+      :initial-comment="report.paymentComment || ''"
+      :has-receipt="(report.paymentReceipts || []).length > 0"
+      @success="loadReport"
+    />
   </div>
 </template>
 
@@ -146,6 +167,8 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api/index'
 import ApprovalTimeline from '../components/ApprovalTimeline.vue'
+import PaymentDialog from '../components/PaymentDialog.vue'
+import PaymentReceiptPanel from '../components/PaymentReceiptPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -161,7 +184,10 @@ interface Report {
   id: string; serialNo: string; title: string; totalAmount: number; status: string
   applicantName?: string
   description?: string; submittedAt?: string; createdAt?: string; updatedAt?: string
-  paidAt?: string; paymentRef?: string
+  paidAt?: string; paidBy?: string; paidByName?: string; paymentRef?: string; paymentComment?: string
+  paymentReceipts?: any[]
+  paymentAuditLogs?: any[]
+  approvalRecords?: any[]
   items: ExpenseItem[]
   invoices?: InvoiceItem[]
 }
@@ -170,10 +196,13 @@ const loading = ref(true)
 const report = ref<Report | null>(null)
 const categories = ref<Category[]>([])
 const timeline = ref<Array<{ title: string; desc: string; time: string; rule?: string; done: boolean; active: boolean }>>([])
-const viewerActions = ref<{ canEdit: boolean; canSubmit: boolean; canDelete: boolean; canApprove: boolean; canReject: boolean; canPay: boolean } | null>(null)
+const viewerActions = ref<{ canEdit: boolean; canSubmit: boolean; canDelete: boolean; canApprove: boolean; canReject: boolean; canPay: boolean; canManagePayment?: boolean } | null>(null)
 const deleting = ref(false)
 const confirmAction = ref<'delete' | 'reject' | null>(null)
 const rejectComment = ref('')
+const showPayDialog = ref(false)
+const showEditDialog = ref(false)
+const verifyingReceipt = ref('')
 
 function formatDate(dateStr?: string) {
   if (!dateStr) return '-'
@@ -252,17 +281,33 @@ async function handleApprove() {
   }
 }
 
-async function handlePay() {
-  const ref = prompt('打款凭证号（可选）：')
+function handlePay() {
+  showPayDialog.value = true
+}
+
+async function handleRevert(reason: string) {
   try {
-    await api.post(`/expenses/${route.params.id}/pay`, { paymentRef: ref || undefined })
-    router.replace('/expenses')
+    await api.post(`/expenses/${route.params.id}/payment/revert`, { reason })
+    await loadReport()
   } catch (e: any) {
-    alert(e?.response?.data?.error?.message || '打款失败')
+    alert(e?.response?.data?.error?.message || '撤销打款失败')
   }
 }
 
-onMounted(async () => {
+async function handleVerifyReceipt(receiptId: string, force: boolean) {
+  verifyingReceipt.value = receiptId
+  try {
+    await api.post(`/expenses/${route.params.id}/payment-receipts/${receiptId}/verify`, { force }, { timeout: 180000 })
+    await loadReport()
+  } catch (e: any) {
+    alert(e?.response?.data?.error?.message || '回单识别失败')
+  } finally {
+    verifyingReceipt.value = ''
+  }
+}
+
+async function loadReport() {
+  loading.value = true
   try {
     const expenseRes = await api.get(`/expenses/${route.params.id}`)
     const data = expenseRes.data
@@ -271,6 +316,8 @@ onMounted(async () => {
       items: data.items || [],
       invoices: data.invoices || [],
       approvalRecords: data.approvalRecords || [],
+      paymentReceipts: data.paymentReceipts || [],
+      paymentAuditLogs: data.paymentAuditLogs || [],
     }
     viewerActions.value = data.viewerActions || null
     report.value.totalAmount = report.value.totalAmount || report.value.items?.reduce((s: number, i: any) => s + (i.amount || 0), 0) || 0
@@ -284,7 +331,7 @@ onMounted(async () => {
       try {
         const records = data.approvalRecords || []
         const ruleName = data.ruleName || ''
-        timeline.value = records.map((r: any, i: number, arr: any[]) => ({
+        timeline.value = records.map((r: any, i: number) => ({
           title: `第${r.step}步${r.approverName ? ` — ${r.approverName}` : ''}`,
           desc: r.result === 'approved'
             ? `审批通过${r.comment ? `（${r.comment}）` : ''}`
@@ -306,7 +353,9 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(loadReport)
 </script>
 
 <style scoped>

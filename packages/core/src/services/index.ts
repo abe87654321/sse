@@ -8,3 +8,8 @@ export type {
   VerificationSourceItem,
   VerificationSourceInvoice,
 } from './invoice-verifier';
+export {
+  verifyPaymentReceipt,
+  aggregatePaymentReceiptStatus,
+} from './payment-receipt-verifier';
+export type { VerifyPaymentReceiptInput } from './payment-receipt-verifier';

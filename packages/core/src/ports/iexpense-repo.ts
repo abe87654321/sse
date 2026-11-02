@@ -20,7 +20,12 @@ export interface IExpenseRepo {
   findManyByUser(userId: string, query: ExpenseQuery): Promise<{ results: ExpenseReport[]; total: number }>;
   create(dto: CreateReportDto, userId: string, serialNo: string): Promise<ExpenseReport>;
   updateStatus(id: string, status: string, currentStep?: number): Promise<void>;
-  markPaid(id: string, paidBy: string, paymentRef?: string): Promise<void>;
+  markPaid(id: string, paidBy: string, paymentRef?: string, paymentComment?: string): Promise<boolean>;
+  updatePayment(
+    id: string,
+    input: { paymentRef?: string | null; paymentComment?: string | null; updatedBy: string }
+  ): Promise<boolean>;
+  revertPayment(id: string, updatedBy: string): Promise<boolean>;
   getStatistics(dateFrom?: string, dateTo?: string, department?: string): Promise<any>;
   getUserSummary(userId: string, dateFrom?: string, dateTo?: string): Promise<any>;
 }

@@ -27,6 +27,9 @@ function mapReport(row: any): ExpenseReport {
     paidAt: row.paid_at ?? undefined,
     paidBy: row.paid_by ?? undefined,
     paymentRef: row.payment_ref ?? undefined,
+    paymentComment: row.payment_comment ?? undefined,
+    paymentUpdatedAt: row.payment_updated_at ?? undefined,
+    paymentUpdatedBy: row.payment_updated_by ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -237,11 +240,56 @@ export class PgExpenseRepo implements IExpenseRepo {
     return rows[0];
   }
 
-  async markPaid(id: string, paidBy: string, paymentRef?: string): Promise<void> {
-    await pool.query(
-      'UPDATE expense_reports SET status = $1, paid_at = NOW(), paid_by = $2, payment_ref = $3, updated_at = NOW() WHERE id = $4',
-      ['paid', paidBy, paymentRef || null, id]
+  async markPaid(id: string, paidBy: string, paymentRef?: string, paymentComment?: string): Promise<boolean> {
+    const { rows } = await pool.query(
+      `UPDATE expense_reports
+          SET status = $1,
+              paid_at = NOW(),
+              paid_by = $2,
+              payment_ref = $3,
+              payment_comment = $4,
+              updated_at = NOW()
+        WHERE id = $5 AND status = 'approved'
+        RETURNING id`,
+      ['paid', paidBy, paymentRef || null, paymentComment || null, id]
     );
+    return rows.length > 0;
+  }
+
+  async updatePayment(
+    id: string,
+    input: { paymentRef?: string | null; paymentComment?: string | null; updatedBy: string }
+  ): Promise<boolean> {
+    const { rows } = await pool.query(
+      `UPDATE expense_reports
+          SET payment_ref = $2,
+              payment_comment = $3,
+              payment_updated_at = NOW(),
+              payment_updated_by = $4,
+              updated_at = NOW()
+        WHERE id = $1 AND status = 'paid'
+        RETURNING id`,
+      [id, input.paymentRef ?? null, input.paymentComment ?? null, input.updatedBy]
+    );
+    return rows.length > 0;
+  }
+
+  async revertPayment(id: string, updatedBy: string): Promise<boolean> {
+    const { rows } = await pool.query(
+      `UPDATE expense_reports
+          SET status = 'approved',
+              paid_at = NULL,
+              paid_by = NULL,
+              payment_ref = NULL,
+              payment_comment = NULL,
+              payment_updated_at = NOW(),
+              payment_updated_by = $2,
+              updated_at = NOW()
+        WHERE id = $1 AND status = 'paid'
+        RETURNING id`,
+      [id, updatedBy]
+    );
+    return rows.length > 0;
   }
 
   async getUserSummary(userId: string, dateFrom?: string, dateTo?: string): Promise<any> {

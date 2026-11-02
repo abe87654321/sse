@@ -28,3 +28,16 @@ export const uploadAvatar = multer({
     }
   },
 });
+
+export const uploadPaymentReceipt = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = file.originalname.split('.').pop()?.toLowerCase();
+    if (ext === 'pdf' || ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
+      cb(null, true);
+    } else {
+      cb(new Error('仅支持 PDF、PNG、JPG 格式的打款回单'));
+    }
+  },
+});

@@ -14,6 +14,9 @@ export type ExpenseReport = {
   paidAt?: Date;
   paidBy?: string;
   paymentRef?: string;
+  paymentComment?: string;
+  paymentUpdatedAt?: Date;
+  paymentUpdatedBy?: string;
   createdAt: Date;
   updatedAt: Date;
 };

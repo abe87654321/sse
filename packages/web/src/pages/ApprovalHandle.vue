@@ -145,6 +145,15 @@
       </div>
     </template>
     <div v-else class="loading-state">未找到报销记录</div>
+
+    <PaymentDialog
+      v-if="report"
+      v-model="showPayDialog"
+      :report-id="report.id"
+      mode="pay"
+      :has-receipt="(report.paymentReceipts || []).length > 0"
+      @success="loadReport"
+    />
   </div>
 </template>
 
@@ -154,6 +163,7 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api/index'
 import ApprovalTimeline from '../components/ApprovalTimeline.vue'
 import InvoiceVerificationPanel from '../components/InvoiceVerificationPanel.vue'
+import PaymentDialog from '../components/PaymentDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -176,6 +186,7 @@ const verifying = ref(false)
 const showAckDialog = ref(false)
 const ackChecked = ref(false)
 const ackMessage = ref('')
+const showPayDialog = ref(false)
 
 function formatDate(dateStr?: string) {
   if (!dateStr) return '-'
@@ -267,21 +278,21 @@ async function handleDelete() {
   }
 }
 
-async function handlePay() {
-  const ref = prompt('打款凭证号（可选）：')
-  try {
-    await api.post(`/expenses/${route.params.reportId}/pay`, { paymentRef: ref || undefined })
-    router.replace('/approvals')
-  } catch (e: any) {
-    alert(e?.response?.data?.error?.message || '打款失败')
-  }
+function handlePay() {
+  showPayDialog.value = true
 }
 
-onMounted(async () => {
+async function loadReport() {
+  loading.value = true
   try {
     const expenseRes = await api.get(`/expenses/${route.params.reportId}`)
     const data = expenseRes.data
-    report.value = { ...(data.report || data), items: data.items || [], invoices: data.invoices || [] }
+    report.value = {
+      ...(data.report || data),
+      items: data.items || [],
+      invoices: data.invoices || [],
+      paymentReceipts: data.paymentReceipts || [],
+    }
     report.value.totalAmount = report.value.totalAmount || report.value.items?.reduce((s: number, i: any) => s + (i.amount || 0), 0) || 0
     verification.value = data.verificationSummary || null
     viewerActions.value = data.viewerActions || null
@@ -315,7 +326,9 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(loadReport)
 </script>
 
 <style scoped>

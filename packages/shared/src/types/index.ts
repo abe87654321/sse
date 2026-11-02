@@ -3,6 +3,14 @@ export type { ExpenseReport } from './expense-report';
 export type { ExpenseItem } from './expense-item';
 export type { Invoice, OcrResult } from './invoice';
 export type {
+  PaymentReceiptStatus,
+  PaymentDuplicateReceiptRef,
+  PaymentReceiptVerification,
+  PaymentReceipt,
+  PaymentAuditAction,
+  PaymentAuditLog,
+} from './payment';
+export type {
   VerificationStatus,
   VerificationSeverity,
   VerificationCheck,

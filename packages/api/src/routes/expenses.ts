@@ -5,16 +5,23 @@ import {
   PgApprovalRuleRepo,
   PgApprovalRecordRepo,
   PgUserRepo,
+  PgPaymentReceiptRepo,
+  PgPaymentAuditRepo,
   pool,
 } from '@sse/db';
 import { ReportService, aggregateVerificationStatus, planItemSync, verifyInvoices } from '@sse/core';
 import { ReportStatus, InvoiceFormat, UserRole, ApprovalResult } from '@sse/shared';
 import type { ExpenseQuery, VerificationSourceInvoice } from '@sse/core';
+import type { PaymentReceipt } from '@sse/shared';
 import { authMiddleware } from '@sse/auth';
-import { uploadInvoice } from '../middleware/upload';
+import { uploadInvoice, uploadPaymentReceipt } from '../middleware/upload';
 import { AppError } from '../middleware/error';
 import { MinioStorage } from '../storage/minio-storage';
 import { createOCREngine } from '../services/ai-engines';
+import {
+  queuePaymentReceiptVerification,
+  runPaymentReceiptVerification,
+} from '../services/payment-receipt-verifier';
 import { MINERU_PARSER_VERSION } from '@sse/ai';
 
 const router = Router();
@@ -22,6 +29,8 @@ const expenseRepo = new PgExpenseRepo();
 const ruleRepo = new PgApprovalRuleRepo();
 const recordRepo = new PgApprovalRecordRepo();
 const invoiceRepo = new PgInvoiceRepo();
+const paymentReceiptRepo = new PgPaymentReceiptRepo();
+const paymentAuditRepo = new PgPaymentAuditRepo();
 const reportService = new ReportService(expenseRepo, ruleRepo, recordRepo);
 const minio = new MinioStorage();
 
@@ -211,8 +220,9 @@ router.get(
     const isFinance = role === UserRole.FINANCE;
     const isDraftOrRejected = report.status === ReportStatus.DRAFT || report.status === ReportStatus.REJECTED;
     const isPending = report.status === ReportStatus.PENDING;
+    const isPaid = report.status === ReportStatus.PAID;
 
-    const isApprovedOrPaid = report.status === ReportStatus.APPROVED || report.status === ReportStatus.PAID;
+    const isApprovedOrPaid = report.status === ReportStatus.APPROVED || isPaid;
 
     let canApprove = false;
     let canReject = false;
@@ -227,10 +237,11 @@ router.get(
     const viewerActions = {
       canEdit: (!isApprovedOrPaid && (isAdmin || (isOwner && isDraftOrRejected))),
       canSubmit: (!isApprovedOrPaid && (isAdmin || (isOwner && isDraftOrRejected))),
-      canDelete: isAdmin || (isOwner && report.status === ReportStatus.DRAFT),
+      canDelete: !isPaid && (isAdmin || (isOwner && report.status === ReportStatus.DRAFT)),
       canApprove: (!isApprovedOrPaid && isAdmin) || canApprove,
       canReject: (!isApprovedOrPaid && isAdmin) || canReject,
       canPay: (isAdmin || isFinance) && report.status === ReportStatus.APPROVED,
+      canManagePayment: (isAdmin || isFinance) && isPaid,
     };
 
     const itemIds = items.map((i: any) => i.id);
@@ -243,13 +254,30 @@ router.get(
       invoices = invRows.map(mapInvoiceRow);
     }
 
+    let paidByName: string | undefined;
+    if (report.paidBy) {
+      const { rows: payerRows } = await pool.query('SELECT name FROM users WHERE id = $1', [report.paidBy]);
+      paidByName = payerRows[0]?.name;
+    }
+
+    const receipt = await paymentReceiptRepo.findByReportId(report.id);
+    const canSeePaymentDetails = isAdmin || isFinance;
+    const paymentReceipts = receipt
+      ? [mapPaymentReceiptForResponse(receipt, canSeePaymentDetails)]
+      : [];
+    const paymentAuditLogs = canSeePaymentDetails
+      ? await paymentAuditRepo.findByReportId(report.id)
+      : [];
+
     res.json({
-      report,
+      report: { ...report, paidByName },
       items,
       invoices,
       verificationSummary: buildVerificationSummary(invoices),
       approvalRecords: enrichedRecords,
       ruleName,
+      paymentReceipts,
+      paymentAuditLogs,
       viewerActions,
     });
   })
@@ -355,15 +383,86 @@ router.post(
 );
 
 router.post(
+  '/:id/payment-receipts',
+  uploadPaymentReceipt.single('file'),
+  asyncWrap(async (req, res) => {
+    const { id } = req.params;
+    const { role, userId } = req.user!;
+    assertPaymentManager(role);
+
+    const report = await expenseRepo.findById(id);
+    if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
+    if (report.status !== ReportStatus.APPROVED && report.status !== ReportStatus.PAID) {
+      throw new AppError(400, 'INVALID_PARAMS', '仅已通过或已付款的报销单可上传打款回单');
+    }
+    if (!req.file) throw new AppError(400, 'INVALID_PARAMS', '请上传打款回单');
+
+    const ext = req.file.originalname.split('.').pop()?.toLowerCase() || 'pdf';
+    const contentType = ext === 'pdf' ? 'application/pdf' : ext === 'png' ? 'image/png' : 'image/jpeg';
+    const checksum = minio.calculateChecksum(req.file.buffer);
+    const storageKey = `payment-receipts/${id}/${Date.now()}.${ext}`;
+
+    await minio.upload(storageKey, 'payment-receipts', req.file.buffer, contentType);
+    const receipt = await paymentReceiptRepo.upsert({
+      reportId: id,
+      fileName: req.file.originalname,
+      fileFormat: ext,
+      fileSize: req.file.size,
+      storageKey,
+      storageBucket: 'payment-receipts',
+      checksum,
+      uploadedBy: userId,
+    });
+
+    queuePaymentReceiptVerification(receipt.id);
+    res.status(201).json(mapPaymentReceiptForResponse(receipt, true));
+  })
+);
+
+router.get(
+  '/:id/payment-receipts/:receiptId/download',
+  asyncWrap(async (req, res) => {
+    const report = await expenseRepo.findById(req.params.id);
+    if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
+    await assertReportAccess(report, req.user!);
+
+    const receipt = await paymentReceiptRepo.findById(req.params.receiptId);
+    if (!receipt || receipt.reportId !== report.id) {
+      throw new AppError(404, 'NOT_FOUND', '打款回单不存在');
+    }
+
+    const url = await minio.getSignedUrl(receipt.storageKey, receipt.storageBucket, 3600);
+    res.json({ url });
+  })
+);
+
+router.post(
+  '/:id/payment-receipts/:receiptId/verify',
+  asyncWrap(async (req, res) => {
+    assertPaymentManager(req.user!.role);
+
+    const report = await expenseRepo.findById(req.params.id);
+    if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
+
+    const receipt = await paymentReceiptRepo.findById(req.params.receiptId);
+    if (!receipt || receipt.reportId !== report.id) {
+      throw new AppError(404, 'NOT_FOUND', '打款回单不存在');
+    }
+
+    const result = await runPaymentReceiptVerification(receipt.id, req.body?.force === true);
+    res.json(result);
+  })
+);
+
+router.post(
   '/:id/pay',
   asyncWrap(async (req, res) => {
     const { id } = req.params;
-    const { paymentRef, comment } = req.body;
     const { role, userId } = req.user!;
+    assertPaymentManager(role);
 
-    if (role !== UserRole.FINANCE && role !== UserRole.ADMIN) {
-      throw new AppError(403, 'UNAUTHORIZED', '仅财务或管理员可执行打款');
-    }
+    const paymentRef = normalizePaymentRef(req.body?.paymentRef);
+    const paymentComment = normalizePaymentComment(req.body?.paymentComment ?? req.body?.comment);
 
     const report = await expenseRepo.findById(id);
     if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
@@ -371,8 +470,150 @@ router.post(
       throw new AppError(400, 'INVALID_PARAMS', '仅已通过的报销单可打款');
     }
 
-    await expenseRepo.markPaid(id, userId, paymentRef);
-    res.json({ message: '已标记打款', paidAt: new Date().toISOString(), paymentRef: paymentRef || null });
+    const existingReceipt = await paymentReceiptRepo.findByReportId(id);
+    const requestedReceiptId = typeof req.body?.receiptId === 'string' ? req.body.receiptId : undefined;
+    let receipt = existingReceipt;
+    if (requestedReceiptId) {
+      receipt = await paymentReceiptRepo.findById(requestedReceiptId);
+      if (!receipt || receipt.reportId !== id) {
+        throw new AppError(400, 'INVALID_PARAMS', '打款回单不属于该报销单');
+      }
+    }
+
+    if (!paymentRef && !receipt) {
+      throw new AppError(400, 'INVALID_PARAMS', '请填写打款凭证号或上传打款回单');
+    }
+
+    const ok = await expenseRepo.markPaid(id, userId, paymentRef, paymentComment ?? undefined);
+    if (!ok) {
+      throw new AppError(409, 'PAY_STATE_CONFLICT', '报销单状态已变化，请刷新后重试');
+    }
+
+    const updated = await expenseRepo.findById(id);
+    await paymentAuditRepo.create({
+      reportId: id,
+      action: 'mark_paid',
+      operatorId: userId,
+      before: { status: report.status },
+      after: {
+        status: ReportStatus.PAID,
+        paymentRef: updated?.paymentRef ?? null,
+        paymentComment: updated?.paymentComment ?? null,
+        receiptId: receipt?.id ?? null,
+      },
+    });
+
+    if (receipt) queuePaymentReceiptVerification(receipt.id);
+
+    res.json({
+      message: '已标记打款',
+      paidAt: updated?.paidAt,
+      paymentRef: updated?.paymentRef ?? null,
+      receiptId: receipt?.id ?? null,
+    });
+  })
+);
+
+router.put(
+  '/:id/payment',
+  asyncWrap(async (req, res) => {
+    const { id } = req.params;
+    const { role, userId } = req.user!;
+    assertPaymentManager(role);
+
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    if (!reason) throw new AppError(400, 'INVALID_PARAMS', '请填写修改原因');
+
+    const report = await expenseRepo.findById(id);
+    if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
+    if (report.status !== ReportStatus.PAID) {
+      throw new AppError(400, 'INVALID_PARAMS', '仅已付款的报销单可修改打款信息');
+    }
+
+    const nextRef = req.body?.paymentRef !== undefined
+      ? normalizePaymentRef(req.body.paymentRef)
+      : report.paymentRef;
+    const nextComment = req.body?.paymentComment !== undefined
+      ? normalizePaymentComment(req.body.paymentComment)
+      : report.paymentComment ?? null;
+    const receipt = await paymentReceiptRepo.findByReportId(id);
+
+    if (!nextRef && !receipt) {
+      throw new AppError(400, 'INVALID_PARAMS', '请填写打款凭证号或上传打款回单');
+    }
+
+    const before = {
+      paymentRef: report.paymentRef ?? null,
+      paymentComment: report.paymentComment ?? null,
+      receiptId: receipt?.id ?? null,
+    };
+
+    const ok = await expenseRepo.updatePayment(id, {
+      paymentRef: nextRef ?? null,
+      paymentComment: nextComment ?? null,
+      updatedBy: userId,
+    });
+    if (!ok) {
+      throw new AppError(409, 'PAY_STATE_CONFLICT', '报销单状态已变化，请刷新后重试');
+    }
+
+    await paymentAuditRepo.create({
+      reportId: id,
+      action: 'update_payment',
+      operatorId: userId,
+      reason,
+      before,
+      after: {
+        paymentRef: nextRef ?? null,
+        paymentComment: nextComment ?? null,
+        receiptId: receipt?.id ?? null,
+      },
+    });
+
+    const updated = await expenseRepo.findById(id);
+    res.json({ message: '打款信息已更新', report: updated });
+  })
+);
+
+router.post(
+  '/:id/payment/revert',
+  asyncWrap(async (req, res) => {
+    const { id } = req.params;
+    const { role, userId } = req.user!;
+    assertPaymentManager(role);
+
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    if (!reason) throw new AppError(400, 'INVALID_PARAMS', '请填写撤销原因');
+
+    const report = await expenseRepo.findById(id);
+    if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
+    if (report.status !== ReportStatus.PAID) {
+      throw new AppError(400, 'INVALID_PARAMS', '仅已付款的报销单可撤销打款');
+    }
+
+    const receipt = await paymentReceiptRepo.findByReportId(id);
+    const before = {
+      status: report.status,
+      paymentRef: report.paymentRef ?? null,
+      paymentComment: report.paymentComment ?? null,
+      receiptId: receipt?.id ?? null,
+    };
+
+    const ok = await expenseRepo.revertPayment(id, userId);
+    if (!ok) {
+      throw new AppError(409, 'PAY_STATE_CONFLICT', '报销单状态已变化，请刷新后重试');
+    }
+
+    await paymentAuditRepo.create({
+      reportId: id,
+      action: 'revert_payment',
+      operatorId: userId,
+      reason,
+      before,
+      after: { status: ReportStatus.APPROVED },
+    });
+
+    res.json({ message: '已撤销打款', status: ReportStatus.APPROVED });
   })
 );
 
@@ -551,6 +792,9 @@ router.delete(
     if (!report) {
       throw new AppError(404, 'NOT_FOUND', '报销单不存在');
     }
+    if (report.status === ReportStatus.PAID) {
+      throw new AppError(400, 'INVALID_PARAMS', '已付款单据不可删除');
+    }
     const isAdminDelete = req.user!.role === UserRole.ADMIN;
     if (!isAdminDelete && report.userId !== req.user!.userId) {
       throw new AppError(403, 'UNAUTHORIZED', '无权删除此报销单');
@@ -654,6 +898,48 @@ router.get(
     res.json({ url });
   })
 );
+
+function assertPaymentManager(role: string) {
+  if (role !== UserRole.FINANCE && role !== UserRole.ADMIN) {
+    throw new AppError(403, 'UNAUTHORIZED', '仅财务或管理员可操作打款');
+  }
+}
+
+function normalizePaymentRef(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length > 100) {
+    throw new AppError(400, 'INVALID_PARAMS', '打款凭证号不能超过 100 个字符');
+  }
+  return trimmed;
+}
+
+function normalizePaymentComment(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function mapPaymentReceiptForResponse(receipt: PaymentReceipt, includeDetails: boolean) {
+  return {
+    id: receipt.id,
+    reportId: receipt.reportId,
+    fileName: receipt.fileName,
+    fileFormat: receipt.fileFormat,
+    fileSize: receipt.fileSize,
+    checksum: receipt.checksum,
+    uploadedBy: receipt.uploadedBy,
+    uploadedAt: receipt.uploadedAt,
+    verificationStatus: receipt.verificationStatus,
+    verifiedAt: receipt.verifiedAt,
+    ...(includeDetails
+      ? { verificationResult: receipt.verificationResult, ocrResult: receipt.ocrResult }
+      : {}),
+  };
+}
 
 function mapReportRow(row: any) {
   return {

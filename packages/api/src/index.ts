@@ -19,6 +19,7 @@ import { OntologyEngine } from '@sse/ontology';
 import { scimRoutes } from './routes/scim';
 import { webhookRoutes } from './routes/webhook';
 import { errorHandler } from './middleware/error';
+import { processPendingPaymentReceipts } from './services/payment-receipt-verifier';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -54,6 +55,7 @@ app.get('/health', (_req, res) => {
 app.use(errorHandler);
 
 let schedulerInstance: { start: () => void; stop: () => void } | null = null;
+let paymentReceiptTimer: NodeJS.Timeout | null = null;
 
 async function startScheduler() {
   try {
@@ -87,6 +89,10 @@ async function startScheduler() {
 function shutdown(server: Server) {
   console.log('[SSE] 正在关闭服务...');
   if (schedulerInstance) schedulerInstance.stop();
+  if (paymentReceiptTimer) {
+    clearInterval(paymentReceiptTimer);
+    paymentReceiptTimer = null;
+  }
   server.close(() => {
     console.log('[SSE] 服务已关闭');
     process.exit(0);
@@ -132,6 +138,15 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
   await initOntology();
   console.log(`[SSE API] 服务启动成功，端口: ${PORT}`);
   startScheduler();
+  processPendingPaymentReceipts().catch((err) => {
+    console.warn('[SSE] 打款回单待核对扫描失败:', err);
+  });
+  paymentReceiptTimer = setInterval(() => {
+    processPendingPaymentReceipts().catch((err) => {
+      console.warn('[SSE] 打款回单待核对扫描失败:', err);
+    });
+  }, 5 * 60 * 1000);
+  paymentReceiptTimer.unref?.();
 });
 
 process.on('SIGTERM', () => shutdown(server));
