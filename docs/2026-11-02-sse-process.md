@@ -261,3 +261,24 @@ pnpm build
 | `e819e8e` | feat(payments): 打款凭证/回单、修正撤销审计、异步 OCR 可疑检查 |
 
 当前 `master` 与 `origin/master` 同步于 `e819e8e`。
+
+## 阶段二十一：系统管理引擎设置可用性优化
+
+### 问题
+- 智能填单要求完整 /v1/chat/completions 地址，缺少 API 密钥。
+- 模型只能从固定下拉框选择，无法查看地址实际模型。
+- OCR 测试结果不可观测。
+
+### 实现
+- 地址归一化：根地址、/v1、完整旧地址兼容；LocalProvider 自动补全 /v1/chat/completions。
+- 智能填单：API 密钥、检测（模型列表 + 最小对话）、模型选择对话框（搜索/分类/刷新/+−/手动标签）。
+- 配置：ai-config.json 增加 apiKey、catalogs、visionApiKey；按规范化地址持久化模型清单。
+- OCR：测试耗时/状态/字段/原始文本/失败建议/样例上传/历史记录。
+- 本体、MCP、视觉 OCR 透传 apiKey；配置保存后原地重配本体引擎。
+- 测试历史写入本地 ai-test-history.json，读取和写入均做脱敏/截断，文件已加入 .gitignore。
+
+### 验证
+- @sse/ai 单元测试通过（59 tests）。
+- @sse/core 测试通过。
+- ai/ontology/db/api/mcp/web 构建通过。
+- 运行时冒烟（真实 Ollama、管理员登录、+/− 选择、OCR 样例上传）需在具备服务和测试库的环境手动执行。

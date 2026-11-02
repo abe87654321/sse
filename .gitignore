@@ -5,3 +5,5 @@ dist/
 .superpowers/
 uploads/
 ai-config.json
+ai-test-history.json
+ai-test-history.json.tmp
