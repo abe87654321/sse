@@ -365,7 +365,7 @@ async function onModelPickerConfirm(payload: { catalog: any; activeModel: string
         catalog: payload.catalog,
       },
     }, { timeout: 30000 })
-    if (r.data) Object.assign(cfg, r.data)
+    if (r.data?.fillEngine) Object.assign(cfg.fillEngine, r.data.fillEngine)
   } catch (e: any) {
     alert('保存模型列表失败: ' + errorMessage(e))
   }

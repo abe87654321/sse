@@ -44,6 +44,25 @@ describe('ai config', () => {
     expect(pub.ocrEngine.visionApiKey).toBe('');
   });
 
+  it('reports mineruTokenSet from the normalized config instead of env', () => {
+    const original = process.env.MINERU_TOKEN;
+    try {
+      process.env.MINERU_TOKEN = 'env-token';
+      const config = createDefaultAiConfig({} as any);
+      config.ocrEngine.mineruToken = '';
+      expect(toPublicAiConfig(config).ocrEngine.mineruTokenSet).toBe(false);
+
+      config.ocrEngine.mineruToken = 'config-token';
+      expect(toPublicAiConfig(config).ocrEngine.mineruTokenSet).toBe(true);
+    } finally {
+      if (original === undefined) {
+        delete process.env.MINERU_TOKEN;
+      } else {
+        process.env.MINERU_TOKEN = original;
+      }
+    }
+  });
+
   it('returns a deep copy of catalogs in public config', () => {
     const config = createDefaultAiConfig({} as any);
     config.fillEngine.catalogs['http://localhost:11434'] = {

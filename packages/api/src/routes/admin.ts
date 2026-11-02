@@ -52,7 +52,7 @@ const SAMPLE_INVOICE_PATH = join(
 // ========== 简易内存限流 ==========
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX = 5;
+const RATE_LIMIT_MAX = 30;
 
 function checkRateLimit(ip: string): boolean {
   const now = Date.now();

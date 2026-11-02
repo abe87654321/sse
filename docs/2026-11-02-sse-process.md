@@ -278,7 +278,8 @@ pnpm build
 - 测试历史写入本地 ai-test-history.json，读取和写入均做脱敏/截断，文件已加入 .gitignore。
 
 ### 验证
-- @sse/ai 单元测试通过（59 tests）。
-- @sse/core 测试通过。
+- @sse/ai 单元测试通过（60 tests）。
+- @sse/api 探针/上传测试通过（2 suites，17 tests）；`@sse/api` 已接入 Jest。
+- @sse/core 测试通过（33 tests）。
 - ai/ontology/db/api/mcp/web 构建通过。
 - 运行时冒烟（真实 Ollama、管理员登录、+/− 选择、OCR 样例上传）需在具备服务和测试库的环境手动执行。

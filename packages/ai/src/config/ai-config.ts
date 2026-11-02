@@ -150,7 +150,7 @@ function normalizeCatalog(value: any): ModelCatalog | null {
 }
 
 function normalizeCatalogs(raw: any): Record<string, ModelCatalog> {
-  const catalogs: Record<string, ModelCatalog> = {};
+  const catalogs: Record<string, ModelCatalog> = Object.create(null);
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return catalogs;
   for (const [key, value] of Object.entries(raw)) {
     const normalizedKey = normalizeServiceBase(key);
@@ -298,7 +298,7 @@ export function toPublicAiConfig(
       provider: config.ocrEngine.provider,
       mineruEndpoint: config.ocrEngine.mineruEndpoint,
       mineruToken: '',
-      mineruTokenSet: !!(config.ocrEngine.mineruToken || env.MINERU_TOKEN),
+      mineruTokenSet: !!config.ocrEngine.mineruToken,
       paddleEndpoint: config.ocrEngine.paddleEndpoint,
       visionEndpoint: config.ocrEngine.visionEndpoint,
       visionModel: config.ocrEngine.visionModel,

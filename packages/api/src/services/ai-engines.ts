@@ -31,7 +31,7 @@ export function loadAiConfig(): AiConfig {
 }
 
 export function saveAiConfig(config: AiConfig): void {
-  writeFileSync(AI_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+  writeFileSync(AI_CONFIG_PATH, JSON.stringify(config, null, 2), { encoding: 'utf-8', mode: 0o600 });
 }
 
 export const publicAiConfig = toPublicAiConfig;
