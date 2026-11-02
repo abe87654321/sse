@@ -3,6 +3,7 @@ import { normalizeServiceBase } from '../utils/endpoint';
 import { resolveActiveModel } from './model-catalog';
 
 export type OcrProvider = 'mineru' | 'paddle' | 'vision';
+export type CatalogSource = 'openai' | 'ollama' | 'openrouter';
 
 export interface CatalogModel {
   id: string;
@@ -17,7 +18,7 @@ export interface CatalogModel {
 
 export interface ModelCatalog {
   fetchedAt: string;
-  source: 'openai' | 'ollama' | 'openrouter';
+  source: CatalogSource;
   models: CatalogModel[];
 }
 
@@ -63,6 +64,7 @@ export interface AiConfigPatch {
     visionModel?: string;
     visionApiKey?: string;
     enabled?: boolean;
+    clearMineruToken?: boolean;
     clearVisionApiKey?: boolean;
   };
 }
@@ -82,6 +84,10 @@ export interface PublicAiConfig {
     visionApiKey: '';
     visionApiKeySet: boolean;
   };
+}
+
+function isOcrProvider(value: any): value is OcrProvider {
+  return value === 'mineru' || value === 'paddle' || value === 'vision';
 }
 
 export function createDefaultAiConfig(env: NodeJS.ProcessEnv = process.env): AiConfig {
@@ -125,23 +131,32 @@ function normalizeCatalogModel(value: any): CatalogModel {
   };
 }
 
+function normalizeCatalogSource(value: any): CatalogSource {
+  return value === 'ollama'
+    ? 'ollama'
+    : value === 'openrouter'
+      ? 'openrouter'
+      : 'openai';
+}
+
+function normalizeCatalog(value: any): ModelCatalog | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (!Array.isArray(value.models)) return null;
+  return {
+    fetchedAt: String(value.fetchedAt || ''),
+    source: normalizeCatalogSource(value.source),
+    models: value.models.map(normalizeCatalogModel).filter((model: CatalogModel) => model.id),
+  };
+}
+
 function normalizeCatalogs(raw: any): Record<string, ModelCatalog> {
   const catalogs: Record<string, ModelCatalog> = {};
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return catalogs;
   for (const [key, value] of Object.entries(raw)) {
     const normalizedKey = normalizeServiceBase(key);
-    if (!normalizedKey || !value || typeof value !== 'object') continue;
-    catalogs[normalizedKey] = {
-      fetchedAt: String((value as any).fetchedAt || new Date().toISOString()),
-      source: (value as any).source === 'ollama'
-        ? 'ollama'
-        : (value as any).source === 'openrouter'
-          ? 'openrouter'
-          : 'openai',
-      models: Array.isArray((value as any).models)
-        ? (value as any).models.map(normalizeCatalogModel).filter((model: CatalogModel) => model.id)
-        : [],
-    };
+    if (!normalizedKey) continue;
+    const catalog = normalizeCatalog(value);
+    if (catalog) catalogs[normalizedKey] = catalog;
   }
   return catalogs;
 }
@@ -150,7 +165,7 @@ function ensureActiveModelSelected(config: AiConfig): void {
   const key = normalizeServiceBase(config.fillEngine.endpoint);
   const catalog = config.fillEngine.catalogs[key];
   if (!catalog || !config.fillEngine.model) return;
-  const entry = catalog.models.find(model => model.id === config.fillEngine.model);
+  const entry = (catalog.models || []).find(model => model.id === config.fillEngine.model);
   if (entry) entry.selected = true;
 }
 
@@ -167,7 +182,7 @@ export function normalizeAiConfig(saved: any, env: NodeJS.ProcessEnv = process.e
       catalogs: normalizeCatalogs(fill.catalogs),
     },
     ocrEngine: {
-      provider: ocr.provider === 'paddle' || ocr.provider === 'vision' ? ocr.provider : 'mineru',
+      provider: isOcrProvider(ocr.provider) ? ocr.provider : 'mineru',
       mineruEndpoint: normalizeServiceBase(ocr.mineruEndpoint || defaults.ocrEngine.mineruEndpoint),
       mineruToken: typeof ocr.mineruToken === 'string' ? ocr.mineruToken : defaults.ocrEngine.mineruToken,
       paddleEndpoint: normalizeServiceBase(ocr.paddleEndpoint || defaults.ocrEngine.paddleEndpoint),
@@ -178,6 +193,11 @@ export function normalizeAiConfig(saved: any, env: NodeJS.ProcessEnv = process.e
     },
   };
   ensureActiveModelSelected(config);
+  const key = normalizeServiceBase(config.fillEngine.endpoint);
+  const catalog = key ? config.fillEngine.catalogs[key] : undefined;
+  if (catalog) {
+    config.fillEngine.model = resolveActiveModel(catalog, config.fillEngine.model);
+  }
   return config;
 }
 
@@ -185,39 +205,70 @@ export function applyAiConfigPatch(config: AiConfig, patch: AiConfigPatch): AiCo
   const next = JSON.parse(JSON.stringify(config)) as AiConfig;
   const fill = patch.fillEngine;
   if (fill) {
-    if (fill.endpoint !== undefined) next.fillEngine.endpoint = normalizeServiceBase(fill.endpoint);
-    if (fill.model !== undefined) next.fillEngine.model = fill.model;
-    if (fill.enabled !== undefined) next.fillEngine.enabled = fill.enabled;
+    const previousFillEndpoint = normalizeServiceBase(next.fillEngine.endpoint);
+    if (typeof fill.endpoint === 'string') {
+      next.fillEngine.endpoint = normalizeServiceBase(fill.endpoint);
+    }
+    if (typeof fill.model === 'string') next.fillEngine.model = fill.model;
+    if (typeof fill.enabled === 'boolean') next.fillEngine.enabled = fill.enabled;
+
+    const endpointChanged =
+      normalizeServiceBase(next.fillEngine.endpoint) !== previousFillEndpoint;
     if (fill.clearApiKey) {
       next.fillEngine.apiKey = '';
-    } else if (typeof fill.apiKey === 'string' && fill.apiKey.trim()) {
-      next.fillEngine.apiKey = fill.apiKey.trim();
+    } else {
+      if (endpointChanged) next.fillEngine.apiKey = '';
+      if (typeof fill.apiKey === 'string' && fill.apiKey.trim()) {
+        next.fillEngine.apiKey = fill.apiKey.trim();
+      }
     }
+
     if (fill.catalog) {
       const key = normalizeServiceBase(next.fillEngine.endpoint);
-      if (key) next.fillEngine.catalogs[key] = fill.catalog;
+      const catalog = normalizeCatalog(fill.catalog);
+      if (key && catalog) next.fillEngine.catalogs[key] = catalog;
     }
   }
 
   const ocr = patch.ocrEngine;
   if (ocr) {
-    if (ocr.provider !== undefined) {
-      next.ocrEngine.provider = ['mineru', 'paddle', 'vision'].includes(ocr.provider)
-        ? ocr.provider
-        : next.ocrEngine.provider;
+    const previousMineruEndpoint = normalizeServiceBase(next.ocrEngine.mineruEndpoint);
+    const previousVisionEndpoint = normalizeServiceBase(next.ocrEngine.visionEndpoint);
+
+    if (isOcrProvider(ocr.provider)) next.ocrEngine.provider = ocr.provider;
+    if (typeof ocr.mineruEndpoint === 'string') {
+      next.ocrEngine.mineruEndpoint = normalizeServiceBase(ocr.mineruEndpoint);
     }
-    if (ocr.mineruEndpoint !== undefined) next.ocrEngine.mineruEndpoint = normalizeServiceBase(ocr.mineruEndpoint);
-    if (ocr.paddleEndpoint !== undefined) next.ocrEngine.paddleEndpoint = normalizeServiceBase(ocr.paddleEndpoint);
-    if (ocr.visionEndpoint !== undefined) next.ocrEngine.visionEndpoint = normalizeServiceBase(ocr.visionEndpoint);
-    if (ocr.visionModel !== undefined) next.ocrEngine.visionModel = ocr.visionModel;
-    if (ocr.enabled !== undefined) next.ocrEngine.enabled = ocr.enabled;
-    if (typeof ocr.mineruToken === 'string' && ocr.mineruToken.trim()) {
-      next.ocrEngine.mineruToken = ocr.mineruToken.trim();
+    if (typeof ocr.paddleEndpoint === 'string') {
+      next.ocrEngine.paddleEndpoint = normalizeServiceBase(ocr.paddleEndpoint);
     }
+    if (typeof ocr.visionEndpoint === 'string') {
+      next.ocrEngine.visionEndpoint = normalizeServiceBase(ocr.visionEndpoint);
+    }
+    if (typeof ocr.visionModel === 'string') next.ocrEngine.visionModel = ocr.visionModel;
+    if (typeof ocr.enabled === 'boolean') next.ocrEngine.enabled = ocr.enabled;
+
+    const mineruChanged =
+      normalizeServiceBase(next.ocrEngine.mineruEndpoint) !== previousMineruEndpoint;
+    const visionChanged =
+      normalizeServiceBase(next.ocrEngine.visionEndpoint) !== previousVisionEndpoint;
+
+    if (ocr.clearMineruToken) {
+      next.ocrEngine.mineruToken = '';
+    } else {
+      if (mineruChanged) next.ocrEngine.mineruToken = '';
+      if (typeof ocr.mineruToken === 'string' && ocr.mineruToken.trim()) {
+        next.ocrEngine.mineruToken = ocr.mineruToken.trim();
+      }
+    }
+
     if (ocr.clearVisionApiKey) {
       next.ocrEngine.visionApiKey = '';
-    } else if (typeof ocr.visionApiKey === 'string' && ocr.visionApiKey.trim()) {
-      next.ocrEngine.visionApiKey = ocr.visionApiKey.trim();
+    } else {
+      if (visionChanged) next.ocrEngine.visionApiKey = '';
+      if (typeof ocr.visionApiKey === 'string' && ocr.visionApiKey.trim()) {
+        next.ocrEngine.visionApiKey = ocr.visionApiKey.trim();
+      }
     }
   }
 
@@ -230,7 +281,10 @@ export function applyAiConfigPatch(config: AiConfig, patch: AiConfigPatch): AiCo
   return next;
 }
 
-export function toPublicAiConfig(config: AiConfig): PublicAiConfig {
+export function toPublicAiConfig(
+  config: AiConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): PublicAiConfig {
   return {
     fillEngine: {
       endpoint: config.fillEngine.endpoint,
@@ -238,13 +292,13 @@ export function toPublicAiConfig(config: AiConfig): PublicAiConfig {
       apiKeySet: !!config.fillEngine.apiKey,
       model: config.fillEngine.model,
       enabled: config.fillEngine.enabled,
-      catalogs: config.fillEngine.catalogs,
+      catalogs: JSON.parse(JSON.stringify(config.fillEngine.catalogs)),
     },
     ocrEngine: {
       provider: config.ocrEngine.provider,
       mineruEndpoint: config.ocrEngine.mineruEndpoint,
       mineruToken: '',
-      mineruTokenSet: !!(config.ocrEngine.mineruToken || process.env.MINERU_TOKEN),
+      mineruTokenSet: !!(config.ocrEngine.mineruToken || env.MINERU_TOKEN),
       paddleEndpoint: config.ocrEngine.paddleEndpoint,
       visionEndpoint: config.ocrEngine.visionEndpoint,
       visionModel: config.ocrEngine.visionModel,

@@ -1,18 +1,18 @@
 import { classifyModel } from '../utils/model-tagger';
-import type { CatalogModel, ModelCatalog } from './ai-config';
+import type { CatalogModel, CatalogSource, ModelCatalog } from './ai-config';
 
 export interface FetchedModel {
   id: string;
   name?: string;
   owner?: string;
   metadata?: Record<string, any>;
-  source?: 'openai' | 'ollama' | 'openrouter';
+  source?: CatalogSource;
 }
 
 export function mergeCatalog(
   existing: ModelCatalog | undefined,
   fetched: FetchedModel[],
-  source: 'openai' | 'ollama' | 'openrouter',
+  source: CatalogSource,
 ): ModelCatalog {
   const oldById = new Map((existing?.models || []).map(model => [model.id, model]));
   const fetchedIds = new Set(fetched.map(model => model.id));
@@ -31,15 +31,15 @@ export function mergeCatalog(
         metadata: model.metadata,
         source: model.source || source,
       }),
-      manualTags: old?.manualTags || [],
+      manualTags: [...(old?.manualTags || [])],
       selected: old?.selected ?? false,
       missing: undefined,
     };
   });
 
   for (const old of existing?.models || []) {
-    if (!fetchedIds.has(old.id)) {
-      models.push({ ...old, missing: true });
+    if (old.selected && !fetchedIds.has(old.id)) {
+      models.push({ ...old, manualTags: [...(old.manualTags || [])], missing: true });
     }
   }
 

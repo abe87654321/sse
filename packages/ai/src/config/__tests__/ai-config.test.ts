@@ -44,8 +44,27 @@ describe('ai config', () => {
     expect(pub.ocrEngine.visionApiKey).toBe('');
   });
 
-  it('applies patches without overwriting a saved secret with blank input', () => {
+  it('returns a deep copy of catalogs in public config', () => {
     const config = createDefaultAiConfig({} as any);
+    config.fillEngine.catalogs['http://localhost:11434'] = {
+      fetchedAt: 'now',
+      source: 'openai',
+      models: [],
+    };
+    const pub = toPublicAiConfig(config);
+    pub.fillEngine.catalogs['http://localhost:11434'].models.push({
+      id: 'x',
+      name: 'x',
+      autoTags: [],
+      manualTags: [],
+      selected: false,
+      metadata: {},
+    });
+    expect(config.fillEngine.catalogs['http://localhost:11434'].models).toHaveLength(0);
+  });
+
+  it('applies patches without overwriting a saved secret with blank input on the same endpoint', () => {
+    const config = createDefaultAiConfig({ AI_ENDPOINT: 'http://host:11434' } as any);
     config.fillEngine.apiKey = 'saved';
     const next = applyAiConfigPatch(config, {
       fillEngine: { endpoint: 'http://host:11434', apiKey: '', model: 'm' },
@@ -54,11 +73,125 @@ describe('ai config', () => {
     expect(next.fillEngine.model).toBe('m');
   });
 
+  it('clears a saved fill secret when the endpoint changes with a blank secret', () => {
+    const config = createDefaultAiConfig({ AI_ENDPOINT: 'http://old:11434' } as any);
+    config.fillEngine.apiKey = 'SECRET';
+    const next = applyAiConfigPatch(config, {
+      fillEngine: { endpoint: 'http://new:11434', apiKey: '' },
+    });
+    expect(next.fillEngine.apiKey).toBe('');
+  });
+
+  it('keeps a newly provided secret when the endpoint changes', () => {
+    const config = createDefaultAiConfig({ AI_ENDPOINT: 'http://old:11434' } as any);
+    config.fillEngine.apiKey = 'SECRET';
+    const next = applyAiConfigPatch(config, {
+      fillEngine: { endpoint: 'http://new:11434', apiKey: 'NEW' },
+    });
+    expect(next.fillEngine.apiKey).toBe('NEW');
+  });
+
   it('clears a secret only when asked', () => {
     const config = createDefaultAiConfig({} as any);
     config.fillEngine.apiKey = 'saved';
     const next = applyAiConfigPatch(config, { fillEngine: { clearApiKey: true } });
     expect(next.fillEngine.apiKey).toBe('');
+  });
+
+  it('clears saved OCR secrets when their endpoints change without new values', () => {
+    const config = createDefaultAiConfig({
+      AI_ENDPOINT: 'http://old-vision:11434',
+      MINERU_ENDPOINT: 'https://old-mineru',
+    } as any);
+    config.ocrEngine.mineruToken = 'MINERU_SECRET';
+    config.ocrEngine.visionApiKey = 'VISION_SECRET';
+    const next = applyAiConfigPatch(config, {
+      ocrEngine: {
+        mineruEndpoint: 'https://new-mineru',
+        visionEndpoint: 'http://new-vision:11434',
+      },
+    });
+    expect(next.ocrEngine.mineruToken).toBe('');
+    expect(next.ocrEngine.visionApiKey).toBe('');
+  });
+
+  it('keeps newly provided OCR secrets when endpoints change', () => {
+    const config = createDefaultAiConfig({
+      AI_ENDPOINT: 'http://old-vision:11434',
+      MINERU_ENDPOINT: 'https://old-mineru',
+    } as any);
+    config.ocrEngine.mineruToken = 'MINERU_SECRET';
+    config.ocrEngine.visionApiKey = 'VISION_SECRET';
+    const next = applyAiConfigPatch(config, {
+      ocrEngine: {
+        mineruEndpoint: 'https://new-mineru',
+        mineruToken: 'NEW_MINERU',
+        visionEndpoint: 'http://new-vision:11434',
+        visionApiKey: 'NEW_VISION',
+      },
+    });
+    expect(next.ocrEngine.mineruToken).toBe('NEW_MINERU');
+    expect(next.ocrEngine.visionApiKey).toBe('NEW_VISION');
+  });
+
+  it('clears a saved MinerU token only when asked', () => {
+    const config = createDefaultAiConfig({} as any);
+    config.ocrEngine.mineruToken = 'saved';
+    const next = applyAiConfigPatch(config, { ocrEngine: { clearMineruToken: true } });
+    expect(next.ocrEngine.mineruToken).toBe('');
+  });
+
+  it('ignores malformed catalogs instead of throwing', () => {
+    const config = createDefaultAiConfig({} as any);
+    config.fillEngine.catalogs['http://localhost:11434'] = {
+      fetchedAt: 'old',
+      source: 'openai',
+      models: [],
+    };
+    const before = JSON.parse(JSON.stringify(config.fillEngine.catalogs));
+    let next;
+    expect(() => {
+      next = applyAiConfigPatch(config, { fillEngine: { catalog: {} as any } });
+    }).not.toThrow();
+    expect(next!.fillEngine.catalogs).toEqual(before);
+  });
+
+  it('resolves the active model on load when the saved model is absent', () => {
+    const config = normalizeAiConfig({
+      fillEngine: {
+        endpoint: 'http://host:11434',
+        model: 'x',
+        catalogs: {
+          'http://host:11434': {
+            fetchedAt: 'now',
+            source: 'openai',
+            models: [
+              { id: 'a', name: 'a', autoTags: [], manualTags: [], selected: true, metadata: {} },
+            ],
+          },
+        },
+      },
+    });
+    expect(config.fillEngine.model).toBe('a');
+  });
+
+  it('clears the active model on load when no catalog entry is selected', () => {
+    const config = normalizeAiConfig({
+      fillEngine: {
+        endpoint: 'http://host:11434',
+        model: 'x',
+        catalogs: {
+          'http://host:11434': {
+            fetchedAt: 'now',
+            source: 'openai',
+            models: [
+              { id: 'b', name: 'b', autoTags: [], manualTags: [], selected: false, metadata: {} },
+            ],
+          },
+        },
+      },
+    });
+    expect(config.fillEngine.model).toBe('');
   });
 
   it('reuses a saved secret only for the same endpoint', () => {
