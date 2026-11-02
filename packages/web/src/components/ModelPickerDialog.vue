@@ -133,7 +133,7 @@ watch(
     tab.value = '全部'
     error.value = ''
     editingId.value = ''
-    if (draft.value.length === 0 && props.endpoint) refresh()
+    if ((props.catalog?.models || []).length === 0 && props.endpoint) refresh()
   },
 )
 
@@ -184,11 +184,11 @@ async function refresh() {
         ...model,
         manualTags: old?.manualTags ?? model.manualTags ?? [],
         selected: old?.selected ?? model.selected ?? false,
-        missing: false,
+        missing: model.missing === true,
       }
     })
     for (const old of draft.value) {
-      if (!next.some((model: any) => model.id === old.id)) {
+      if (old.selected && !next.some((model: any) => model.id === old.id)) {
         next.push({ ...old, missing: true })
       }
     }
