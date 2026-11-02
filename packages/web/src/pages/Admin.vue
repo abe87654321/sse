@@ -7,8 +7,9 @@
       <h3 class="font-heading section-title">📝 智能填单引擎</h3>
       <div class="form-grid">
         <div class="field full">
-          <label>API 地址</label>
+          <label for="fill-endpoint">API 地址</label>
           <input
+            id="fill-endpoint"
             v-model="cfg.fillEngine.endpoint"
             placeholder="http://192.168.3.117:11434"
             @blur="loadCatalogForEndpoint"
@@ -16,9 +17,10 @@
           <div class="field-hint">填写到端口或 /v1 即可，系统会自动补全接口路径</div>
         </div>
         <div class="field full">
-          <label>API 密钥</label>
+          <label for="fill-api-key">API 密钥</label>
           <div class="key-row">
             <input
+              id="fill-api-key"
               v-model="cfg.fillEngine.apiKey"
               type="password"
               autocomplete="new-password"
@@ -31,15 +33,17 @@
           <div
             v-if="connectionResult"
             class="inline-result"
+            role="status"
+            aria-live="polite"
             :class="{ success: connectionResult.success, fail: !connectionResult.success }"
           >
             {{ connectionMessage }}
           </div>
         </div>
         <div class="field full">
-          <label>模型</label>
+          <label for="fill-model">模型</label>
           <div class="model-select-row">
-            <select v-model="cfg.fillEngine.model">
+            <select id="fill-model" v-model="cfg.fillEngine.model">
               <option v-for="model in selectedModels" :key="model.id" :value="model.id">{{ model.id }}</option>
             </select>
             <button type="button" class="btn-secondary btn-sm" @click="showModelPicker = true">获取模型列表</button>
@@ -52,10 +56,10 @@
       </div>
       <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         <button type="button" class="btn-primary btn-sm" @click="saveConfig" :disabled="saving">💾 保存</button>
-        <button type="button" class="btn-secondary btn-sm" @click="testFill" :disabled="testing">{{ testing==='text'?'测试中...':'📝 检验文字识别' }}</button>
+        <button type="button" class="btn-secondary btn-sm" @click="testFill" :disabled="!!testing">{{ testing==='text'?'测试中...':'📝 检验文字识别' }}</button>
         <label class="toggle-label"><input type="checkbox" v-model="cfg.fillEngine.enabled" @change="saveConfig" /><span>启用</span></label>
       </div>
-      <div v-if="fillTestResult" class="ai-test-result" :class="{success:fillTestResult.success,fail:!fillTestResult.success}">
+      <div v-if="fillTestResult" class="ai-test-result" role="status" aria-live="polite" :class="{success:fillTestResult.success,fail:!fillTestResult.success}">
         {{ fillTestResult.message }}（{{ fillTestResult.elapsedMs }}ms）
       </div>
     </div>
@@ -65,18 +69,19 @@
       <h3 class="font-heading section-title">🧾 发票OCR引擎</h3>
       <div class="form-grid">
         <div class="field">
-          <label>引擎方案</label>
-          <select v-model="cfg.ocrEngine.provider" @change="saveConfig">
+          <label for="ocr-provider">引擎方案</label>
+          <select id="ocr-provider" v-model="cfg.ocrEngine.provider" @change="saveConfig">
             <option value="mineru">MinerU (文档智能解析)</option>
             <option value="paddle">PaddleOCR (通用OCR)</option>
             <option value="vision">视觉模型 (glm-ocr等)</option>
           </select>
         </div>
         <template v-if="cfg.ocrEngine.provider==='mineru'">
-          <div class="field full"><label>MinerU 端点</label><input v-model="cfg.ocrEngine.mineruEndpoint" placeholder="https://mineru.net" /></div>
+          <div class="field full"><label for="mineru-endpoint">MinerU 端点</label><input id="mineru-endpoint" v-model="cfg.ocrEngine.mineruEndpoint" placeholder="https://mineru.net" /></div>
           <div class="field full">
-            <label>MinerU Token</label>
+            <label for="mineru-token">MinerU Token</label>
             <input
+              id="mineru-token"
               v-model="cfg.ocrEngine.mineruToken"
               type="password"
               autocomplete="new-password"
@@ -85,14 +90,15 @@
           </div>
         </template>
         <template v-else-if="cfg.ocrEngine.provider==='paddle'">
-          <div class="field full"><label>PaddleOCR 端点</label><input v-model="cfg.ocrEngine.paddleEndpoint" placeholder="http://localhost:8899" /></div>
+          <div class="field full"><label for="paddle-endpoint">PaddleOCR 端点</label><input id="paddle-endpoint" v-model="cfg.ocrEngine.paddleEndpoint" placeholder="http://localhost:8899" /></div>
         </template>
         <template v-else>
-          <div class="field"><label>视觉模型端点</label><input v-model="cfg.ocrEngine.visionEndpoint" placeholder="http://192.168.3.117:11434" /></div>
-          <div class="field"><label>视觉模型名</label><input v-model="cfg.ocrEngine.visionModel" /></div>
+          <div class="field"><label for="vision-endpoint">视觉模型端点</label><input id="vision-endpoint" v-model="cfg.ocrEngine.visionEndpoint" placeholder="http://192.168.3.117:11434" /></div>
+          <div class="field"><label for="vision-model">视觉模型名</label><input id="vision-model" v-model="cfg.ocrEngine.visionModel" /></div>
           <div class="field full">
-            <label>视觉模型 API 密钥</label>
+            <label for="vision-api-key">视觉模型 API 密钥</label>
             <input
+              id="vision-api-key"
               v-model="cfg.ocrEngine.visionApiKey"
               type="password"
               autocomplete="new-password"
@@ -160,7 +166,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import api from '../api/index'
 import WorkflowDesigner from '@/components/WorkflowDesigner.vue'
 import ModelPickerDialog from '@/components/ModelPickerDialog.vue'
@@ -217,6 +223,21 @@ const connectionMessage = computed(() => {
   return `✗ ${label ? `${label}：` : ''}${failed?.message || connectionResult.value.message}`
 })
 
+watch(
+  () => cfg.fillEngine.endpoint,
+  (value, oldValue) => {
+    const nextKey = normalizeEndpoint(value)
+    const oldKey = normalizeEndpoint(oldValue)
+    if (oldKey && nextKey !== oldKey) {
+      cfg.fillEngine.model = ''
+      cfg.fillEngine.apiKey = ''
+      cfg.fillEngine.apiKeySet = false
+      connectionResult.value = null
+      fillTestResult.value = null
+    }
+  },
+)
+
 const rules = ref<any[]>([])
 const selectedRuleId = ref('')
 const ruleSaving = ref(false)
@@ -239,13 +260,16 @@ onMounted(async () => {
 
 async function saveConfig() {
   saving.value = true
+  catalogRequestId++
   try {
+    const catalog = currentCatalog.value
     const payload: any = {
       fillEngine: {
         endpoint: cfg.fillEngine.endpoint,
         apiKey: cfg.fillEngine.apiKey,
         model: cfg.fillEngine.model,
         enabled: cfg.fillEngine.enabled,
+        ...(catalog ? { catalog } : {}),
       },
       ocrEngine: {
         provider: cfg.ocrEngine.provider,
@@ -260,7 +284,16 @@ async function saveConfig() {
     }
     const r = await api.put('/admin/ai-config', payload, { timeout: 30000 })
     if (r.data) Object.assign(cfg, r.data)
+  } catch (e: any) {
+    alert('保存失败: ' + errorMessage(e))
   } finally { saving.value = false }
+}
+
+function errorMessage(e: any): string {
+  return e?.response?.data?.error?.message
+    || e?.response?.data?.message
+    || e?.message
+    || '未知错误'
 }
 
 async function testConnection() {
@@ -274,50 +307,44 @@ async function testConnection() {
     }, { timeout: 60000 })
     connectionResult.value = r.data
   } catch (e: any) {
-    connectionResult.value = { success: false, message: e?.response?.data?.message || e?.message || '检测失败', steps: [] }
+    connectionResult.value = { success: false, message: errorMessage(e), steps: [] }
   } finally { connectionTesting.value = false }
 }
 
 async function loadCatalogForEndpoint() {
   if (!normalizeEndpoint(cfg.fillEngine.endpoint)) return
   if (!currentCatalog.value) await refreshCatalogInBackground()
+  if (!cfg.fillEngine.model) {
+    const firstSelected = currentCatalog.value?.models?.find((model: any) => model.selected)
+    if (firstSelected) cfg.fillEngine.model = firstSelected.id
+  }
 }
 
+let catalogRequestId = 0
+
 async function refreshCatalogInBackground() {
+  const endpoint = cfg.fillEngine.endpoint
+  const key = normalizeEndpoint(endpoint)
+  if (!key) return
+  const requestId = ++catalogRequestId
   try {
     const r = await api.post('/admin/ai-models', {
-      endpoint: cfg.fillEngine.endpoint,
+      endpoint,
       apiKey: cfg.fillEngine.apiKey || undefined,
     }, { timeout: 30000 })
-    const key = normalizeEndpoint(cfg.fillEngine.endpoint)
-    if (!key) return
+    if (requestId !== catalogRequestId) return
+    if (normalizeEndpoint(cfg.fillEngine.endpoint) !== key) return
     const nextCatalog = r.data?.catalog
-    if (!nextCatalog || !Array.isArray(nextCatalog.models)) return
-    if (nextCatalog.models.length === 0) return
-    if (cfg.fillEngine.model && !nextCatalog.models.some((model: any) => model.id === cfg.fillEngine.model)) {
-      nextCatalog.models.unshift({
-        id: cfg.fillEngine.model,
-        name: cfg.fillEngine.model,
-        autoTags: [],
-        manualTags: [],
-        selected: true,
-        metadata: {},
-        missing: true,
-      })
-    }
+    if (!nextCatalog || !Array.isArray(nextCatalog.models) || nextCatalog.models.length === 0) return
     if (!nextCatalog.models.some((model: any) => model.selected) && nextCatalog.models[0]) {
       nextCatalog.models[0].selected = true
-      cfg.fillEngine.model = nextCatalog.models[0].id
+    }
+    if (!cfg.fillEngine.model) {
+      const firstSelected = nextCatalog.models.find((model: any) => model.selected)
+      if (firstSelected) cfg.fillEngine.model = firstSelected.id
     }
     cfg.fillEngine.catalogs = { ...(cfg.fillEngine.catalogs || {}), [key]: nextCatalog }
-    await api.put('/admin/ai-config', {
-      fillEngine: {
-        endpoint: cfg.fillEngine.endpoint,
-        model: cfg.fillEngine.model,
-        catalog: nextCatalog,
-      },
-    }, { timeout: 30000 })
-  } catch { /* 后台自动获取失败时保持旧配置 */ }
+  } catch { /* keep old catalog */ }
 }
 
 async function onModelPickerConfirm(payload: { catalog: any; activeModel: string }) {
@@ -325,6 +352,7 @@ async function onModelPickerConfirm(payload: { catalog: any; activeModel: string
     alert('请先填写 API 地址')
     return
   }
+  catalogRequestId++
   const key = normalizeEndpoint(cfg.fillEngine.endpoint)
   cfg.fillEngine.catalogs = { ...(cfg.fillEngine.catalogs || {}), [key]: payload.catalog }
   cfg.fillEngine.model = payload.activeModel
@@ -339,7 +367,7 @@ async function onModelPickerConfirm(payload: { catalog: any; activeModel: string
     }, { timeout: 30000 })
     if (r.data) Object.assign(cfg, r.data)
   } catch (e: any) {
-    alert('保存模型列表失败: ' + (e?.response?.data?.message || e?.message || ''))
+    alert('保存模型列表失败: ' + errorMessage(e))
   }
 }
 
@@ -354,7 +382,7 @@ async function testFill() {
     }, { timeout: 180000 })
     fillTestResult.value = r.data
   } catch (e: any) {
-    fillTestResult.value = { success: false, message: e?.response?.data?.message || e?.message || '测试失败', elapsedMs: 0 }
+    fillTestResult.value = { success: false, message: errorMessage(e), elapsedMs: 0 }
   } finally { testing.value = false }
 }
 
@@ -375,12 +403,17 @@ async function testOcr(payload: { file?: File }) {
     ocrTestResult.value = r.data
     loadOcrHistory()
   } catch (e: any) {
+    const data = e?.response?.data
     ocrTestResult.value = {
       success: false,
       elapsedMs: 0,
       fields: {},
       rawText: '',
-      error: { code: 'UNKNOWN', message: e?.response?.data?.message || e?.message || '测试失败', suggestion: '查看 API 日志' },
+      error: {
+        code: data?.error?.code || 'UNKNOWN',
+        message: errorMessage(e),
+        suggestion: data?.error?.suggestion || '查看 API 日志',
+      },
     }
   } finally { testing.value = false }
 }
