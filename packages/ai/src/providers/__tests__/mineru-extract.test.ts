@@ -12,6 +12,7 @@ describe('extractInvoiceDataFromMarkdown', () => {
     const result = extractInvoiceDataFromMarkdown(markdown);
 
     expect(result.invoiceNo).toBe('25362000000115126055');
+    expect(result.parserVersion).toBe(2);
     expect(result.totalAmount).toBe(600);
     expect(result.amount).toBe(566.04);
     expect(result.taxAmount).toBe(33.96);

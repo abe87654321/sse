@@ -202,10 +202,10 @@ async function downloadInvoice(itemId: string, invoice: any) {
   }
 }
 
-async function runVerification() {
+async function runVerification(force = false) {
   verifying.value = true
   try {
-    const res = await api.post(`/expenses/${route.params.reportId}/verify`, {}, { timeout: 180000 })
+    const res = await api.post(`/expenses/${route.params.reportId}/verify`, { force }, { timeout: 180000 })
     verification.value = res.data
   } catch (e: any) {
     alert(e?.response?.data?.error?.message || e?.message || 'AI 核对失败')

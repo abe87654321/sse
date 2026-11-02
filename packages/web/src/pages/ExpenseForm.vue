@@ -534,7 +534,7 @@ async function reloadItemIds(reportId: string) {
   syncItemIds(res.data.items || [])
 }
 
-async function runVerification() {
+async function runVerification(force = false) {
   if (!expenseId.value) {
     error.value = '请先保存草稿后再进行 AI 核对'
     return
@@ -542,7 +542,7 @@ async function runVerification() {
   verifying.value = true
   error.value = ''
   try {
-    const res = await api.post(`/expenses/${expenseId.value}/verify`, {}, { timeout: 180000 })
+    const res = await api.post(`/expenses/${expenseId.value}/verify`, { force }, { timeout: 180000 })
     verification.value = res.data
   } catch (e: any) {
     error.value = e?.response?.data?.error?.message || e?.message || 'AI 核对失败'

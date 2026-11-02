@@ -7,6 +7,7 @@ export type OcrResult = {
   sellerName?: string;
   buyerName?: string;
   rawText?: string;
+  parserVersion?: number;
   status: string;
 };
 

@@ -5,12 +5,19 @@
         <h3 class="card-section-title font-heading">{{ title }}</h3>
         <p class="verification-subtitle">使用系统管理配置的 OCR 引擎识别发票并与填报金额核对</p>
       </div>
-      <button
-        v-if="canRun"
-        class="btn-secondary btn-sm"
-        :disabled="loading"
-        @click="$emit('verify')"
-      >{{ loading ? '核对中...' : '🔍 AI 核对' }}</button>
+      <div v-if="canRun" class="verification-actions">
+        <button
+          class="btn-secondary btn-sm"
+          :disabled="loading"
+          @click="$emit('verify', false)"
+        >{{ loading ? '核对中...' : '🔍 重新核对' }}</button>
+        <button
+          class="btn-link btn-sm"
+          :disabled="loading"
+          title="忽略已缓存的识别结果，重新调用 OCR 引擎（会消耗 MinerU 额度）"
+          @click="$emit('verify', true)"
+        >重新识别</button>
+      </div>
     </div>
 
     <div v-if="!summary" class="verification-empty">
@@ -25,6 +32,7 @@
           共 {{ summary.counts.total }} 张 · 通过 {{ summary.counts.pass }} · 差异 {{ summary.counts.warning }} · 未核对 {{ summary.counts.unverified }}
         </span>
       </div>
+      <p v-if="summary.checkedAt" class="verification-time">最后核对：{{ formatCheckedAt(summary.checkedAt) }}</p>
 
       <div v-if="rows.length" class="verification-rows">
         <div v-for="row in rows" :key="row.invoiceId || row.id" class="verification-row">
@@ -85,7 +93,7 @@ const props = withDefaults(defineProps<{
   title: 'AI 核对',
 })
 
-defineEmits<{ verify: [] }>()
+defineEmits<{ verify: [force: boolean] }>()
 
 const rows = computed<PanelInvoice[]>(() => {
   if (props.summary?.invoices?.length) return props.summary.invoices
@@ -115,11 +123,23 @@ const statusLabels: Record<string, string> = {
 function statusLabel(status?: string) {
   return statusLabels[status || 'pending'] || status || '未核对'
 }
+
+function formatCheckedAt(value?: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
 </script>
 
 <style scoped>
 .verification-card { display: flex; flex-direction: column; gap: 14px; }
 .verification-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.verification-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.btn-link { background: none; border: none; color: var(--accent-coral); cursor: pointer; font-size: 0.78rem; text-decoration: underline; padding: 6px 4px; }
+.btn-link:disabled { opacity: 0.5; cursor: not-allowed; }
+.verification-time { font-size: 0.75rem; color: var(--text-muted); margin-top: -6px; }
 .verification-header .card-section-title { margin-bottom: 4px; padding-bottom: 0; border-bottom: none; }
 .verification-subtitle { font-size: 0.8rem; color: var(--text-muted); }
 .verification-empty { color: var(--text-muted); font-size: 0.85rem; }

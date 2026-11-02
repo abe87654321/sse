@@ -15,6 +15,7 @@ import { uploadInvoice } from '../middleware/upload';
 import { AppError } from '../middleware/error';
 import { MinioStorage } from '../storage/minio-storage';
 import { createOCREngine } from '../services/ai-engines';
+import { MINERU_PARSER_VERSION } from '@sse/ai';
 
 const router = Router();
 const expenseRepo = new PgExpenseRepo();
@@ -263,7 +264,7 @@ router.post(
       if (force || !row.ocr_result) return true;
       const hasAmount = (row.ocr_result.totalAmount !== undefined && row.ocr_result.totalAmount !== null)
         || (row.ocr_result.amount !== undefined && row.ocr_result.amount !== null);
-      return !hasAmount && !row.ocr_result.rawText;
+      return !hasAmount && row.ocr_result.parserVersion !== MINERU_PARSER_VERSION;
     });
     const engine = needsOcr ? createOCREngine() : null;
     const canSeeDuplicateDetails =

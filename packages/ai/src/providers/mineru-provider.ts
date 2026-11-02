@@ -2,6 +2,8 @@ import type { OcrResult } from '@sse/shared';
 import type { IInvoiceOCRProvider } from '../ports/iocr-provider';
 import type { AIProviderConfig } from '../ports/iai-provider';
 
+export const MINERU_PARSER_VERSION = 2;
+
 interface FileUrlEntry {
   file_name: string;
   file_url: string;
@@ -168,6 +170,7 @@ export function extractInvoiceDataFromMarkdown(markdown: string): OcrResult {
     buyerName: lineValue(text, ['购方名称', '购买方名称', '购买方', 'BuyerName']),
     taxAmount,
     rawText: text.slice(0, 8000),
+    parserVersion: MINERU_PARSER_VERSION,
     status: 'verified',
   };
 }
