@@ -2,7 +2,7 @@ import type { OcrResult } from '@sse/shared';
 import type { IInvoiceOCRProvider } from '../ports/iocr-provider';
 import type { AIProviderConfig } from '../ports/iai-provider';
 
-export const MINERU_PARSER_VERSION = 2;
+export const MINERU_PARSER_VERSION = 3;
 
 interface FileUrlEntry {
   file_name: string;
@@ -33,7 +33,7 @@ export class MinerUProvider implements IInvoiceOCRProvider {
 
     const { batch_id } = await this.uploadFile(fileBuffer, fileName);
     const markdown = await this.pollResult(batch_id);
-    return extractInvoiceDataFromMarkdown(markdown);
+    return extractInvoiceDataFromMarkdown(markdown, fileName);
   }
 
   private async uploadFile(buffer: Buffer, fileName: string): Promise<FileUrlEntry> {
@@ -116,14 +116,31 @@ export class MinerUProvider implements IInvoiceOCRProvider {
 
 }
 
-export function extractInvoiceDataFromMarkdown(markdown: string): OcrResult {
-  const text = (markdown || '').replace(/([\u4e00-\u9fa5])\s+(?=[\u4e00-\u9fa5])/g, '$1');
+export function extractInvoiceDataFromMarkdown(markdown: string, fileName?: string): OcrResult {
+  const cleaned = (markdown || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/&nbsp;|&#160;/gi, ' ')
+    .replace(/&yen;|&#165;|&#xa5;/gi, '¥')
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'");
+
+  const text = cleaned.replace(/([\u4e00-\u9fa5])\s+(?=[\u4e00-\u9fa5])/g, '$1');
   const flat = text.replace(/[|*#]/g, ' ').replace(/\s+/g, ' ');
 
   const invoiceNo =
     findFirst(flat, [
       /(?:发票号码|发票代码|Invoice\s*No\.?)[\s:：]*([A-Za-z0-9]{8,30})/i,
-    ]) || lineValue(text, ['发票号码', '发票代码', 'InvoiceNo']);
+    ])
+    || lineValue(text, ['发票号码', '发票代码', 'InvoiceNo'])
+    || invoiceNumberFromFileName(fileName);
 
   const invoiceDate = normalizeDate(
     findFirst(flat, [
@@ -139,27 +156,26 @@ export function extractInvoiceDataFromMarkdown(markdown: string): OcrResult {
     ])
   );
 
-  let amount = parseNumber(
-    findFirst(flat, [
-      /(?:金额合计|合计金额)[^0-9]{0,40}[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
-      /(?:^|\s)金额[\s:：]*[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
-      /(?:^|\s)合计[^0-9¥￥]{0,40}[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
-    ])
-  );
-
-  let taxAmount = parseNumber(
-    findFirst(flat, [
-      /(?:税额|合计税额)[^0-9]{0,30}[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
-    ])
-  );
-
   const totalsMatch = flat.match(
     /(?:^|\s)合计\s*[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)\s*[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/
   );
-  if (totalsMatch) {
-    if (amount === undefined) amount = parseNumber(totalsMatch[1]);
-    if (taxAmount === undefined) taxAmount = parseNumber(totalsMatch[2]);
-  }
+
+  const amount = totalsMatch
+    ? parseNumber(totalsMatch[1])
+    : parseNumber(
+        findFirst(flat, [
+          /(?:金额合计|合计金额)[^0-9]{0,40}[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
+          /(?:^|\s)金额[\s:：]*[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
+        ])
+      );
+
+  const taxAmount = totalsMatch
+    ? parseNumber(totalsMatch[2])
+    : parseNumber(
+        findFirst(flat, [
+          /(?:税额|合计税额)[^0-9]{0,30}[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
+        ])
+      );
 
   return {
     invoiceNo,
@@ -173,6 +189,12 @@ export function extractInvoiceDataFromMarkdown(markdown: string): OcrResult {
     parserVersion: MINERU_PARSER_VERSION,
     status: 'verified',
   };
+}
+
+function invoiceNumberFromFileName(fileName?: string): string | undefined {
+  if (!fileName) return undefined;
+  const base = fileName.replace(/\.[^.]+$/, '');
+  return base.match(/\d{8,30}/)?.[0];
 }
 
 function findFirst(text: string, patterns: RegExp[]): string | undefined {

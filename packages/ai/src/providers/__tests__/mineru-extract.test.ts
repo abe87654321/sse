@@ -12,7 +12,7 @@ describe('extractInvoiceDataFromMarkdown', () => {
     const result = extractInvoiceDataFromMarkdown(markdown);
 
     expect(result.invoiceNo).toBe('25362000000115126055');
-    expect(result.parserVersion).toBe(2);
+    expect(result.parserVersion).toBe(3);
     expect(result.totalAmount).toBe(600);
     expect(result.amount).toBe(566.04);
     expect(result.taxAmount).toBe(33.96);
@@ -34,6 +34,19 @@ describe('extractInvoiceDataFromMarkdown', () => {
     expect(result.totalAmount).toBe(1400);
   });
 
+  it('ignores HTML table attributes such as colspan when extracting amounts', () => {
+    const markdown = `<table><tr><td>发票号码</td><td>26957000000284554466</td></tr>
+<tr><td colspan="7">合计</td><td>¥670.80</td><td>¥84.05</td></tr>
+<tr><td colspan="3">价税合计(大写)</td><td colspan="4">捌佰伍拾肆元捌角伍分</td><td colspan="3">(小写)¥754.85</td></tr></table>`;
+
+    const result = extractInvoiceDataFromMarkdown(markdown);
+
+    expect(result.invoiceNo).toBe('26957000000284554466');
+    expect(result.amount).toBe(670.8);
+    expect(result.taxAmount).toBe(84.05);
+    expect(result.totalAmount).toBe(754.85);
+  });
+
   it('handles Chinese labels that are split by spaces in the markdown', () => {
     const markdown = `
 发 票 号 码: 12345678
@@ -47,6 +60,12 @@ describe('extractInvoiceDataFromMarkdown', () => {
     expect(result.amount).toBe(100);
     expect(result.taxAmount).toBe(13);
     expect(result.totalAmount).toBe(113);
+  });
+
+  it('falls back to the file name when the invoice number is missing', () => {
+    const result = extractInvoiceDataFromMarkdown('开票日期: 2026-11-02', '26957000000284554466.pdf');
+
+    expect(result.invoiceNo).toBe('26957000000284554466');
   });
 
   it('keeps invoice number and date even when the amount is missing', () => {

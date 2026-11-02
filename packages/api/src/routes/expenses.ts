@@ -264,7 +264,8 @@ router.post(
       if (force || !row.ocr_result) return true;
       const hasAmount = (row.ocr_result.totalAmount !== undefined && row.ocr_result.totalAmount !== null)
         || (row.ocr_result.amount !== undefined && row.ocr_result.amount !== null);
-      return !hasAmount && row.ocr_result.parserVersion !== MINERU_PARSER_VERSION;
+      return row.ocr_result.parserVersion !== MINERU_PARSER_VERSION
+        || (!hasAmount && !row.ocr_result.rawText);
     });
     const engine = needsOcr ? createOCREngine() : null;
     const canSeeDuplicateDetails =
