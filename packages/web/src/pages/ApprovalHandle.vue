@@ -24,6 +24,23 @@
         </template>
       </div>
     </div>
+    <div v-if="showAckDialog" class="reject-overlay" @click.self="showAckDialog = false">
+      <div class="reject-dialog">
+        <h3>AI 核对提示</h3>
+        <p class="ack-text">{{ ackMessage }}</p>
+        <label class="ack-check">
+          <input type="checkbox" v-model="ackChecked" />
+          我已核对 AI 核对差异并确认继续审批
+        </label>
+        <div class="reject-actions">
+          <button class="btn-secondary btn-sm" @click="showAckDialog = false">取消</button>
+          <button class="btn-primary btn-sm" :disabled="!ackChecked || acting" @click="submitApprove(true)">
+            确认审批通过
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showRejectInput" class="reject-overlay" @click.self="showRejectInput = false">
       <div class="reject-dialog">
         <h3>驳回原因</h3>
@@ -103,6 +120,14 @@
           </div>
         </div>
         <div class="detail-side">
+          <InvoiceVerificationPanel
+            :summary="verification"
+            :invoices="report.invoices"
+            :loading="verifying"
+            :can-run="true"
+            @verify="runVerification"
+          />
+
           <ApprovalTimeline :items="timeline" :rule-name="timeline.length > 0 ? timeline[0].rule : ''" />
 
           <div class="card">
@@ -128,6 +153,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api/index'
 import ApprovalTimeline from '../components/ApprovalTimeline.vue'
+import InvoiceVerificationPanel from '../components/InvoiceVerificationPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -145,6 +171,11 @@ const applicantName = ref('')
 const timeline = ref<Array<{ title: string; desc: string; time: string; rule?: string; done: boolean; active: boolean }>>([])
 const viewerActions = ref<{ canEdit: boolean; canSubmit: boolean; canDelete: boolean; canApprove: boolean; canReject: boolean; canPay: boolean } | null>(null)
 const categories = ref<any[]>([])
+const verification = ref<any>(null)
+const verifying = ref(false)
+const showAckDialog = ref(false)
+const ackChecked = ref(false)
+const ackMessage = ref('')
 
 function formatDate(dateStr?: string) {
   if (!dateStr) return '-'
@@ -171,12 +202,42 @@ async function downloadInvoice(itemId: string, invoice: any) {
   }
 }
 
+async function runVerification() {
+  verifying.value = true
+  try {
+    const res = await api.post(`/expenses/${route.params.reportId}/verify`, {}, { timeout: 180000 })
+    verification.value = res.data
+  } catch (e: any) {
+    alert(e?.response?.data?.error?.message || e?.message || 'AI 核对失败')
+  } finally {
+    verifying.value = false
+  }
+}
+
 async function handleApprove() {
+  const status = verification.value?.status
+  if (status === 'warning' || status === 'unverified' || status === 'error') {
+    ackChecked.value = false
+    ackMessage.value = verification.value?.summary || '该报销单存在核对差异或尚未核对'
+    showAckDialog.value = true
+    return
+  }
+  await submitApprove(false)
+}
+
+async function submitApprove(acknowledgeVerification: boolean) {
   acting.value = true
   try {
-    await api.post(`/approvals/${route.params.reportId}/approve`, {})
+    await api.post(`/approvals/${route.params.reportId}/approve`, { acknowledgeVerification })
+    showAckDialog.value = false
     router.replace('/approvals')
   } catch (e: any) {
+    if (e?.response?.status === 409) {
+      ackChecked.value = false
+      ackMessage.value = e.response.data?.error?.message || '该报销单存在核对差异或尚未核对'
+      showAckDialog.value = true
+      return
+    }
     alert(e?.response?.data?.error?.message || '审批失败')
   } finally {
     acting.value = false
@@ -222,6 +283,7 @@ onMounted(async () => {
     const data = expenseRes.data
     report.value = { ...(data.report || data), items: data.items || [], invoices: data.invoices || [] }
     report.value.totalAmount = report.value.totalAmount || report.value.items?.reduce((s: number, i: any) => s + (i.amount || 0), 0) || 0
+    verification.value = data.verificationSummary || null
     viewerActions.value = data.viewerActions || null
     applicantName.value = data.report?.applicantName || ''
 
@@ -276,6 +338,8 @@ onMounted(async () => {
 .reject-dialog h3 { margin-bottom: 12px; font-size: 1.1rem; }
 .reject-dialog textarea { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); resize: vertical; font-size: 0.9rem; }
 .reject-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.ack-text { color: var(--text-secondary); font-size: 0.88rem; margin-bottom: 12px; }
+.ack-check { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; color: var(--text-primary); }
 .table-link { color: var(--accent-coral); cursor: pointer; text-decoration: underline; transition: opacity 0.15s; font-size: 0.85rem; margin-left: 4px; }
 .table-link:hover { opacity: 0.75; }
 .no-invoice { color: var(--text-muted); font-size: 0.82rem; }

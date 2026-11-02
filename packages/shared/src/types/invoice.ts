@@ -9,6 +9,8 @@ export type OcrResult = {
   status: string;
 };
 
+import type { InvoiceVerificationResult, VerificationStatus } from './invoice-verification';
+
 export type Invoice = {
   id: string;
   itemId: string;
@@ -18,6 +20,10 @@ export type Invoice = {
   storageKey: string;
   storageBucket: string;
   checksum: string;
+  invoiceNo?: string;
   ocrResult?: OcrResult;
+  verificationStatus?: VerificationStatus;
+  verificationResult?: InvoiceVerificationResult;
+  verifiedAt?: Date;
   uploadedAt: Date;
 };

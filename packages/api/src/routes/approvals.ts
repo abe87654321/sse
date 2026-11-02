@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { PgApprovalRecordRepo, PgExpenseRepo, PgApprovalRuleRepo, PgUserRepo, pool } from '@sse/db';
-import { ApprovalEngine } from '@sse/core';
+import { ApprovalEngine, aggregateVerificationStatus } from '@sse/core';
 import { ApprovalResult, ReportStatus, UserRole } from '@sse/shared';
 import { authMiddleware } from '@sse/auth';
 import { requireRole } from '../middleware/rbac';
@@ -94,7 +94,7 @@ router.post(
   '/:reportId/approve',
   asyncWrap(async (req, res) => {
     const { reportId } = req.params;
-    const { comment } = req.body;
+    const { comment, acknowledgeVerification } = req.body;
     const { role, department } = req.user!;
 
     const report = await expenseRepo.findById(reportId);
@@ -119,7 +119,37 @@ router.post(
     );
 
     if (!pendingRecord) {
-      throw new AppError(400, 'INVALID_PARAMS', `没有需要你审批的步骤: ${role}`);
+      throw new AppError(400, 'INVALID_PARAMS', `没有需要你审批的步骤 ${role}`);
+    }
+
+    const { rows: verificationRows } = await pool.query(
+      `SELECT i.verification_status
+         FROM invoices i
+         JOIN expense_items ei ON ei.id = i.item_id
+        WHERE ei.report_id = $1`,
+      [reportId]
+    );
+    const verificationStatus = aggregateVerificationStatus(
+      verificationRows.map((row: any) => row.verification_status || 'pending')
+    );
+    const needsAcknowledgement =
+      verificationStatus === 'warning' ||
+      verificationStatus === 'unverified' ||
+      verificationStatus === 'error';
+
+    if (needsAcknowledgement && acknowledgeVerification !== true) {
+      throw new AppError(
+        409,
+        'VERIFICATION_ACK_REQUIRED',
+        '该报销单存在 AI 核对差异或尚未核对，请确认后再审批'
+      );
+    }
+
+    if (acknowledgeVerification === true) {
+      await pool.query(
+        'UPDATE approval_records SET verification_acknowledged = true WHERE id = $1',
+        [pendingRecord.id]
+      );
     }
 
     await engine.approveStep(

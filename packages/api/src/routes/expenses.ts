@@ -7,13 +7,14 @@ import {
   PgUserRepo,
   pool,
 } from '@sse/db';
-import { ReportService, planItemSync } from '@sse/core';
+import { ReportService, aggregateVerificationStatus, planItemSync, verifyInvoices } from '@sse/core';
 import { ReportStatus, InvoiceFormat, UserRole, ApprovalResult } from '@sse/shared';
-import type { ExpenseQuery } from '@sse/core';
+import type { ExpenseQuery, VerificationSourceInvoice } from '@sse/core';
 import { authMiddleware } from '@sse/auth';
 import { uploadInvoice } from '../middleware/upload';
 import { AppError } from '../middleware/error';
 import { MinioStorage } from '../storage/minio-storage';
+import { createOCREngine } from '../services/ai-engines';
 
 const router = Router();
 const expenseRepo = new PgExpenseRepo();
@@ -27,6 +28,20 @@ function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Prom
   return (req: Request, res: Response, next: NextFunction) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
+}
+
+async function assertReportAccess(report: any, user: { role: string; department?: string; userId: string }) {
+  const { rows: ownerRows } = await pool.query(
+    'SELECT department FROM users WHERE id = $1',
+    [report.userId]
+  );
+  const ownerDept = ownerRows.length > 0 ? ownerRows[0].department : '';
+
+  if (user.role === UserRole.ADMIN || user.role === UserRole.FINANCE) return;
+  if (user.role === UserRole.DEPT_APPROVER && ownerDept === user.department) return;
+  if (report.userId !== user.userId) {
+    throw new AppError(403, 'UNAUTHORIZED', '无权查看此报销单');
+  }
 }
 
 router.use(authMiddleware);
@@ -139,21 +154,8 @@ router.get(
       throw new AppError(404, 'NOT_FOUND', '报销单不存在');
     }
 
-    const { role, department, userId } = req.user!;
-
-    const { rows: ownerRows } = await pool.query(
-      'SELECT department FROM users WHERE id = $1',
-      [report.userId]
-    );
-    const ownerDept = ownerRows.length > 0 ? ownerRows[0].department : '';
-
-    if (role === UserRole.ADMIN || role === UserRole.FINANCE) {
-      // 可以查看
-    } else if (role === UserRole.DEPT_APPROVER && ownerDept === department) {
-      // 可以查看
-    } else if (report.userId !== userId) {
-      throw new AppError(403, 'UNAUTHORIZED', '无权查看此报销单');
-    }
+    const { role, userId } = req.user!;
+    await assertReportAccess(report, req.user!);
 
     const [itemsRes, records] = await Promise.all([
       pool.query('SELECT * FROM expense_items WHERE report_id = $1 ORDER BY expense_date', [report.id]),
@@ -229,10 +231,104 @@ router.get(
       report,
       items,
       invoices,
+      verificationSummary: buildVerificationSummary(invoices),
       approvalRecords: enrichedRecords,
       ruleName,
       viewerActions,
     });
+  })
+);
+
+router.post(
+  '/:id/verify',
+  asyncWrap(async (req, res) => {
+    const force = req.body?.force === true;
+    const report = await expenseRepo.findById(req.params.id);
+    if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
+
+    await assertReportAccess(report, req.user!);
+
+    const { rows: itemRows } = await pool.query(
+      'SELECT * FROM expense_items WHERE report_id = $1 ORDER BY expense_date',
+      [report.id]
+    );
+    const items = itemRows.map(mapItemRow);
+    const itemIds = items.map((item: any) => item.id);
+
+    const { rows: invoiceRows } = itemIds.length > 0
+      ? await pool.query('SELECT * FROM invoices WHERE item_id = ANY($1)', [itemIds])
+      : { rows: [] as any[] };
+
+    const needsOcr = invoiceRows.some((row: any) => force || !row.ocr_result);
+    const engine = needsOcr ? createOCREngine() : null;
+    const canSeeDuplicateDetails =
+      req.user!.role === UserRole.ADMIN ||
+      req.user!.role === UserRole.FINANCE ||
+      req.user!.role === UserRole.DEPT_APPROVER;
+
+    const sources: VerificationSourceInvoice[] = [];
+    for (const row of invoiceRows) {
+      const invoice = mapInvoiceRow(row);
+      let ocr = invoice.ocrResult;
+      let ocrError: string | undefined;
+
+      if (force || !ocr) {
+        ocr = undefined;
+        if (!engine) {
+          ocrError = '发票 OCR 引擎未启用';
+        } else {
+          try {
+            const buffer = await minio.getObject(invoice.storageKey, invoice.storageBucket);
+            ocr = await engine.parseInvoice(buffer, invoice.fileName);
+            await invoiceRepo.updateOcrResult(invoice.id, ocr, ocr.invoiceNo);
+          } catch (e: any) {
+            ocrError = e?.message || '发票识别失败';
+          }
+        }
+      } else if (ocr.invoiceNo && !invoice.invoiceNo) {
+        await invoiceRepo.updateOcrResult(invoice.id, ocr, ocr.invoiceNo);
+      }
+
+      const duplicates = ocr?.invoiceNo
+        ? (await invoiceRepo.findDuplicatesByInvoiceNo(ocr.invoiceNo, invoice.id)).map((duplicate) =>
+            canSeeDuplicateDetails ? duplicate : { invoiceId: duplicate.invoiceId, restricted: true }
+          )
+        : [];
+
+      sources.push({
+        id: invoice.id,
+        itemId: invoice.itemId,
+        fileName: invoice.fileName,
+        ocrResult: ocr ?? null,
+        ocrError,
+        duplicates,
+      });
+    }
+
+    const summary = verifyInvoices({
+      reportTotal: report.totalAmount,
+      items: items.map((item: any) => ({
+        id: item.id,
+        amount: item.amount,
+        expenseDate: item.expenseDate,
+      })),
+      invoices: sources,
+    });
+
+    const sourcesById = new Map(sources.map((source) => [source.id, source]));
+    for (const view of summary.invoices) {
+      const source = sourcesById.get(view.invoiceId);
+      await invoiceRepo.updateVerification(view.invoiceId, view.status, {
+        status: view.status,
+        checks: view.checks,
+        summary: view.message || '',
+        checkedAt: summary.checkedAt,
+        ocr: source?.ocrResult ?? undefined,
+        duplicates: view.duplicates,
+      });
+    }
+
+    res.json(summary);
   })
 );
 
@@ -343,6 +439,13 @@ router.put(
         await client.query(
           'UPDATE expense_reports SET total_amount = $1, updated_at = NOW() WHERE id = $2',
           [totalAmount, id]
+        );
+
+        await client.query(
+          `UPDATE invoices
+              SET verification_status = 'pending', verification_result = NULL, verified_at = NULL
+            WHERE item_id IN (SELECT id FROM expense_items WHERE report_id = $1)`,
+          [id]
         );
       }
 
@@ -467,6 +570,8 @@ router.post(
       throw new AppError(404, 'NOT_FOUND', '报销单不存在');
     }
 
+    await assertReportAccess(report, req.user!);
+
     const { rows: itemRows } = await pool.query(
       'SELECT * FROM expense_items WHERE id = $1 AND report_id = $2',
       [itemId, req.params.id]
@@ -492,6 +597,13 @@ router.post(
       checksum,
     });
 
+    await pool.query(
+      `UPDATE invoices
+          SET verification_status = 'pending', verification_result = NULL, verified_at = NULL
+        WHERE item_id IN (SELECT id FROM expense_items WHERE report_id = $1)`,
+      [req.params.id]
+    );
+
     res.status(201).json(invoice);
   })
 );
@@ -500,7 +612,21 @@ router.get(
   '/:id/items/:itemId/invoice/:invoiceId/download',
   asyncWrap(async (req, res) => {
     const inv = await invoiceRepo.findById(req.params.invoiceId);
-    if (!inv) throw new AppError(404, 'NOT_FOUND', '发票不存在');
+    if (!inv || inv.itemId !== req.params.itemId) {
+      throw new AppError(404, 'NOT_FOUND', '发票不存在');
+    }
+
+    const { rows: itemRows } = await pool.query(
+      'SELECT report_id FROM expense_items WHERE id = $1 AND report_id = $2',
+      [req.params.itemId, req.params.id]
+    );
+    if (itemRows.length === 0) {
+      throw new AppError(404, 'NOT_FOUND', '发票不存在');
+    }
+
+    const report = await expenseRepo.findById(req.params.id);
+    if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
+    await assertReportAccess(report, req.user!);
 
     const url = await minio.getSignedUrl(inv.storageKey, inv.storageBucket, 3600);
     res.json({ url });
@@ -551,9 +677,39 @@ function mapInvoiceRow(row: any) {
     storageKey: row.storage_key,
     storageBucket: row.storage_bucket,
     checksum: row.checksum,
+    invoiceNo: row.invoice_no ?? undefined,
     ocrResult: row.ocr_result ?? undefined,
+    verificationStatus: row.verification_status ?? 'pending',
+    verificationResult: row.verification_result ?? undefined,
+    verifiedAt: row.verified_at ?? undefined,
     uploadedAt: row.uploaded_at,
   };
+}
+
+function buildVerificationSummary(invoices: any[]) {
+  const statuses = invoices.map((invoice) => invoice.verificationStatus || 'pending');
+  const status = aggregateVerificationStatus(statuses);
+  const counts = {
+    total: invoices.length,
+    pass: statuses.filter((s) => s === 'pass').length,
+    warning: statuses.filter((s) => s === 'warning').length,
+    unverified: statuses.filter((s) => s === 'unverified' || s === 'pending').length,
+    pending: statuses.filter((s) => s === 'pending').length,
+  };
+  const timestamps = invoices
+    .map((invoice) => (invoice.verifiedAt ? new Date(invoice.verifiedAt).getTime() : 0))
+    .filter((time) => time > 0);
+  const checkedAt = timestamps.length > 0 ? new Date(Math.max(...timestamps)).toISOString() : null;
+
+  let summary = '暂无发票附件';
+  if (counts.total > 0) {
+    if (status === 'pass') summary = '全部发票核对通过';
+    else if (counts.warning > 0) summary = `${counts.warning} 张发票核对存在差异`;
+    else if (counts.unverified > 0) summary = `${counts.unverified} 张发票未核对`;
+    else summary = '核对未通过';
+  }
+
+  return { status, checkedAt, summary, counts };
 }
 
 router.post(
