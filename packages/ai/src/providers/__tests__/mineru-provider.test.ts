@@ -65,4 +65,17 @@ describe('MinerUProvider', () => {
     expect(init.headers).toMatchObject({ Authorization: 'Bearer token-123' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it('does not fall back to an environment token when no apiKey is provided', async () => {
+    const originalToken = process.env.MINERU_TOKEN;
+    process.env.MINERU_TOKEN = 'env-token';
+    try {
+      const provider = new MinerUProvider({ endpoint: 'https://mineru.net' });
+      await expect(provider.parseInvoice(Buffer.from('pdf'), 'invoice.pdf'))
+        .rejects.toThrow(/未配置/);
+    } finally {
+      if (originalToken === undefined) delete process.env.MINERU_TOKEN;
+      else process.env.MINERU_TOKEN = originalToken;
+    }
+  });
 });

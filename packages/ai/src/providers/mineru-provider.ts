@@ -19,7 +19,7 @@ export class MinerUProvider implements IInvoiceOCRProvider {
     this.baseUrl = (config.endpoint || 'https://mineru.net')
       .replace(/\/+$/, '')
       .replace(/\/api\/v4$/, '');
-    this.token = (config.apiKey || process.env.MINERU_TOKEN || '').trim();
+    this.token = (config.apiKey || '').trim();
   }
 
   private authError(): Error {
