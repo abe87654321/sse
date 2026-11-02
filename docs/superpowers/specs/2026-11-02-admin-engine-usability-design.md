@@ -226,7 +226,7 @@ API 密钥   [ •••••••••••••••••••••�
 ### 7.3 确认与取消
 
 - 对话框内修改先写入草稿。
-- 点「确定」时通过 `PUT /admin/ai-config` 提交 `fillEngine.catalogs[当前地址]` 与可能变化的 `fillEngine.model`，成功后刷新页面模型下拉框。
+- 点「确定」时通过 `PUT /admin/ai-config` 提交当前地址的模型清单（`fillEngine.catalog`）与可能变化的 `fillEngine.model`，成功后刷新页面模型下拉框。
 - 点「取消」丢弃本次修改。
 - 若移除了当前使用模型：
   - 仍有其他已选模型：自动选中第一个剩余模型。
@@ -495,8 +495,10 @@ pnpm --filter @sse/core build
 pnpm --filter @sse/api build
 pnpm --filter @sse/web build
 pnpm --filter @sse/ai test
-pnpm --filter @sse/api test
+pnpm --filter @sse/core test
 ```
+
+说明：`@sse/api` 当前没有 Jest 配置与测试依赖，本次以 `tsc` 构建、`@sse/ai` 单元测试和真实服务冒烟验证为主。
 
 ---
 
