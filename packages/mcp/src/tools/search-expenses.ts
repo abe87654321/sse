@@ -15,26 +15,36 @@ export const definition: ToolDefinition = {
       category_id: { type: "string", description: "费用类别ID" },
       amount_min: { type: "number", description: "最低金额" },
       amount_max: { type: "number", description: "最高金额" },
-      keyword: { type: "string", description: "标题关键词搜索" },
+      keyword: { type: "string", description: "编号或标题关键词搜索" },
       page: { type: "number", description: "页码，默认1", default: 1 },
       page_size: { type: "number", description: "每页条数，默认20，最大100", default: 20 },
     },
   },
 };
 
+const CATEGORY_NAMES_SQL = `COALESCE(
+  (SELECT array_agg(DISTINCT ec.name ORDER BY ec.name)
+     FROM expense_items ei
+     JOIN expense_categories ec ON ec.id = ei.category_id
+    WHERE ei.report_id = er.id),
+  ARRAY[]::text[]
+)`;
+
 function mapReport(row: any) {
   return {
     id: row.id,
-    serial_no: row.serial_no,
-    user_id: row.user_id,
+    serial_no: row.serial_no ?? row.serialNo,
+    user_id: row.user_id ?? row.userId,
+    applicant_name: row.applicant_name ?? row.applicantName ?? null,
+    category_names: row.category_names ?? row.categoryNames ?? [],
     title: row.title,
-    total_amount: Number(row.total_amount),
+    total_amount: Number(row.total_amount ?? row.totalAmount),
     status: row.status,
-    current_step: row.current_step,
-    submitted_at: row.submitted_at ?? undefined,
-    completed_at: row.completed_at ?? undefined,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
+    current_step: row.current_step ?? row.currentStep,
+    submitted_at: row.submitted_at ?? row.submittedAt ?? undefined,
+    completed_at: row.completed_at ?? row.completedAt ?? undefined,
+    created_at: row.created_at ?? row.createdAt,
+    updated_at: row.updated_at ?? row.updatedAt,
   };
 }
 
@@ -62,7 +72,7 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
         page,
         pageSize,
       });
-      return successResult(toPaginated(results, total, page, pageSize));
+      return successResult(toPaginated(results.map(mapReport), total, page, pageSize));
     }
 
     const conditions: string[] = [];
@@ -87,7 +97,11 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
     if (dateTo) { conditions.push(`er.created_at <= $${idx++}`); values.push(dateTo); }
     if (applicantId) { conditions.push(`er.user_id = $${idx++}`); values.push(applicantId); }
     if (status) { conditions.push(`er.status = $${idx++}`); values.push(status); }
-    if (keyword) { conditions.push(`er.title ILIKE $${idx++}`); values.push(`%${keyword}%`); }
+    if (keyword) {
+      conditions.push(`(er.serial_no ILIKE $${idx} OR er.title ILIKE $${idx})`);
+      values.push(`%${keyword}%`);
+      idx++;
+    }
 
     if (categoryId || amountMin !== undefined || amountMax !== undefined) {
       const itemConds: string[] = [];
@@ -97,8 +111,7 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
       conditions.push(`er.id IN (SELECT ei.report_id FROM expense_items ei WHERE ${itemConds.join(" AND ")})`);
     }
 
-    const joinClause = auth.role === "dept_approver" ? "JOIN users u ON u.id = er.user_id" : "";
-    const fromClause = joinClause ? `expense_reports er ${joinClause}` : "expense_reports er";
+    const fromClause = "expense_reports er JOIN users u ON u.id = er.user_id";
     const orderClause = "ORDER BY er.created_at DESC";
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -106,7 +119,8 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
 
     const [dataRes, countRes] = await Promise.all([
       pool.query(
-        `SELECT er.* FROM ${fromClause} ${where} ${orderClause} LIMIT $${idx++} OFFSET $${idx++}`,
+        `SELECT er.*, u.name AS applicant_name, ${CATEGORY_NAMES_SQL} AS category_names
+           FROM ${fromClause} ${where} ${orderClause} LIMIT $${idx++} OFFSET $${idx++}`,
         [...values, pageSize, offset],
       ),
       pool.query(`SELECT COUNT(*) FROM ${fromClause} ${where}`, values),

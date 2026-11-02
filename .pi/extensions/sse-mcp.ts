@@ -190,11 +190,15 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
       properties: { report_id: strReq("报销单UUID") },
       required: ["report_id"],
       call: (a) =>
-        api("GET", `/expenses/${encodeURIComponent(a.report_id as string)}`).then((r) => ({
-          status: r.data.status,
-          current_step: r.data.currentStep,
-          approval_records: deepSnake(r.data.approvalRecords || []),
-        })),
+        api("GET", `/expenses/${encodeURIComponent(a.report_id as string)}`).then((r) => {
+          const report = r.data.report || {};
+          return {
+            report_id: report.id || a.report_id,
+            status: report.status,
+            current_step: report.currentStep,
+            approval_records: deepSnake(r.data.approvalRecords || []),
+          };
+        }),
     },
 
     {
@@ -276,12 +280,16 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
       properties: { report_id: strReq("报销单 UUID") },
       required: ["report_id"],
       call: (a) =>
-        api("GET", `/expenses/${encodeURIComponent(a.report_id as string)}`).then((r) => ({
-          status: r.data.status,
-          rule_name: r.data.ruleName || null,
-          matched_rule: r.data.ruleName ? { name: r.data.ruleName } : null,
-          approval_records: deepSnake(r.data.approvalRecords || []),
-        })),
+        api("GET", `/expenses/${encodeURIComponent(a.report_id as string)}`).then((r) => {
+          const report = r.data.report || {};
+          return {
+            status: report.status,
+            report: deepSnake(report),
+            rule_name: r.data.ruleName || null,
+            matched_rule: r.data.ruleName ? { name: r.data.ruleName } : null,
+            approval_records: deepSnake(r.data.approvalRecords || []),
+          };
+        }),
     },
 
     {
