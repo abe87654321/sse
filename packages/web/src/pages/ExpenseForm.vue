@@ -173,8 +173,13 @@
                   &#x1f4ce; {{ item.uploadedInvoice.fileName }} &mdash;
                   <span class="table-link" @click="downloadInvoice(item.uploadedInvoice)">下载</span>
                 </td>
+                <td colspan="5" v-else-if="item.pendingInvoiceFile">
+                  &#x1f4ce; {{ item.pendingInvoiceFile.name }} &mdash;
+                  <span class="pending-hint">保存后自动上传</span>
+                  <span class="table-link" @click="item.pendingInvoiceFile = undefined">移除</span>
+                </td>
                 <td colspan="5" v-else>
-                  <input type="file" accept=".pdf,.ofd" @change="(e:any) => uploadInvoiceForItem(i, e)" style="font-size:12px" />
+                  <input type="file" accept=".pdf,.ofd" @change="(e:any) => selectInvoiceForItem(i, e)" style="font-size:12px" />
                 </td>
               </tr>
             </template>
@@ -249,6 +254,7 @@ interface FormItem {
   description: string
   id?: string
   uploadedInvoice?: InvoiceInfo
+  pendingInvoiceFile?: File
 }
 
 const form = reactive({
@@ -410,24 +416,72 @@ function addItem() {
 }
 function removeItem(index: number) { if (form.items.length > 1) form.items.splice(index, 1) }
 
-async function uploadInvoiceForItem(index: number, event: Event) {
+function selectInvoiceForItem(index: number, event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
   const item = form.items[index]
-  if (!expenseId.value || !item.id) {
-    error.value = '请先保存草稿后再上传发票'
-    return
+  input.value = ''
+
+  if (expenseId.value && item.id) {
+    uploadInvoiceFile(item, file)
+  } else {
+    item.pendingInvoiceFile = file
   }
+}
+
+async function uploadInvoiceFile(item: FormItem, file: File): Promise<boolean> {
+  if (!expenseId.value || !item.id) {
+    item.pendingInvoiceFile = file
+    return false
+  }
+
+  error.value = ''
   const formData = new FormData()
   formData.append('file', file)
   try {
     const res = await api.post(`/expenses/${expenseId.value}/items/${item.id}/invoice`, formData)
     item.uploadedInvoice = { ...res.data, _expenseId: expenseId.value, _itemId: item.id }
-    input.value = ''
+    item.pendingInvoiceFile = undefined
+    return true
   } catch (e: any) {
-    error.value = e?.response?.data?.error?.message || '上传失败'
+    item.pendingInvoiceFile = file
+    error.value = e?.response?.data?.error?.message || '附件上传失败，请重试'
+    return false
   }
+}
+
+async function uploadPendingInvoices(): Promise<boolean> {
+  let allUploaded = true
+  for (const item of form.items) {
+    if (item.pendingInvoiceFile && item.id) {
+      const ok = await uploadInvoiceFile(item, item.pendingInvoiceFile)
+      if (!ok) allUploaded = false
+    }
+  }
+  return allUploaded
+}
+
+function syncItemIds(returnedItems: any[]) {
+  const used = new Set<string>()
+  form.items = form.items.map(item => {
+    if (item.id) return item
+    const match = returnedItems.find((ci: any) =>
+      !used.has(ci.id) &&
+      ci.categoryId === item.categoryId &&
+      Number(ci.amount) === Number(item.amount) &&
+      ci.expenseDate === item.expenseDate &&
+      (ci.description || '') === (item.description || '')
+    )
+    if (!match) return item
+    used.add(match.id)
+    return { ...item, id: match.id }
+  })
+}
+
+async function reloadItemIds(reportId: string) {
+  const res = await api.get(`/expenses/${reportId}`)
+  syncItemIds(res.data.items || [])
 }
 
 async function downloadInvoice(invoice: InvoiceInfo) {
@@ -460,6 +514,9 @@ async function handleSave() {
           description: i.description || ''
         }))
       })
+      if (form.items.some(i => i.pendingInvoiceFile && !i.id)) {
+        await reloadItemIds(expenseId.value)
+      }
     } else {
       const res = await api.post('/expenses', {
         title: form.title.trim(),
@@ -472,22 +529,9 @@ async function handleSave() {
         }))
       })
       expenseId.value = res.data.id
-      const created = res.data.items || []
-      const used = new Set<string>()
-      form.items = form.items.map(item => {
-        if (item.id) return item
-        const match = created.find((ci: any) =>
-          !used.has(ci.id) &&
-          ci.categoryId === item.categoryId &&
-          Number(ci.amount) === Number(item.amount) &&
-          ci.expenseDate === item.expenseDate &&
-          (ci.description || '') === (item.description || '')
-        )
-        if (!match) return item
-        used.add(match.id)
-        return { ...item, id: match.id }
-      })
+      syncItemIds(res.data.items || [])
     }
+    await uploadPendingInvoices()
   } catch (e: any) {
     error.value = e?.response?.data?.error?.message || e?.message || '保存失败'
   } finally {
@@ -517,6 +561,9 @@ async function handleSubmit() {
           description: i.description || ''
         }))
       })
+      if (form.items.some(i => i.pendingInvoiceFile && !i.id)) {
+        await reloadItemIds(reportId)
+      }
     } else {
       const res = await api.post('/expenses', {
         title: form.title.trim(),
@@ -529,8 +576,14 @@ async function handleSubmit() {
         }))
       })
       reportId = res.data.id || res.data.report?.id
+      if (reportId) {
+        expenseId.value = reportId
+        syncItemIds(res.data.items || [])
+      }
     }
     if (reportId) {
+      const uploaded = await uploadPendingInvoices()
+      if (!uploaded) return
       await api.post(`/expenses/${reportId}/submit`)
     }
     router.push('/expenses')
@@ -820,4 +873,5 @@ async function handleSubmit() {
   transition: opacity 0.15s;
 }
 .table-link:hover { opacity: 0.75; }
+.pending-hint { color: var(--text-muted); font-size: 0.78rem; margin-left: 4px; }
 </style>
