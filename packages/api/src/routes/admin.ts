@@ -13,6 +13,7 @@ import {
   mergeCatalog,
   normalizeServiceBase,
   resolveSecretForEndpoint,
+  sanitizeEndpoint,
   toPublicAiConfig,
   type AiConfig,
 } from '@sse/ai';
@@ -37,6 +38,16 @@ const userRepo = new PgUserRepo();
 const ruleRepo = new PgApprovalRuleRepo();
 
 const USER_COLUMNS = 'id, name, phone, email, department, role, parent_id, status, deleted_at, created_at, updated_at';
+
+const SAMPLE_INVOICE_PATH = join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  '..',
+  'docs',
+  'dzfp_25362000000115126055_深圳市数恒纪元信息技术咨询企业（个人独资）_20251106105357.pdf',
+);
 
 // ========== 简易内存限流 ==========
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -70,6 +81,15 @@ function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Prom
   return (req: Request, res: Response, next: NextFunction) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
+}
+
+function enforceRateLimit(req: Request, _res: Response, next: NextFunction) {
+  const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+  if (!checkRateLimit(clientIp)) {
+    next(new AppError(429, 'RATE_LIMITED', '请求过于频繁，请稍后重试'));
+    return;
+  }
+  next();
 }
 
 router.use(authMiddleware);
@@ -423,11 +443,8 @@ router.get(
 
 router.post(
   '/ai-models',
+  enforceRateLimit,
   asyncWrap(async (req, res) => {
-    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(clientIp)) {
-      throw new AppError(429, 'RATE_LIMITED', '请求过于频繁，请稍后重试');
-    }
     const saved = loadAiConfig();
     const endpoint = String(req.body?.endpoint || '');
     if (!endpoint) throw new AppError(400, 'INVALID_PARAMS', '请填写 API 地址');
@@ -437,10 +454,15 @@ router.post(
       saved.fillEngine.endpoint,
       saved.fillEngine.apiKey,
     );
-    const result = await fetchModelList({ endpoint, apiKey });
-    const key = normalizeServiceBase(endpoint);
-    const catalog = mergeCatalog(saved.fillEngine.catalogs[key], result.models, result.source);
-    res.json({ ...result, catalog });
+    try {
+      const result = await fetchModelList({ endpoint, apiKey });
+      const key = normalizeServiceBase(endpoint);
+      const catalog = mergeCatalog(saved.fillEngine.catalogs[key], result.models, result.source);
+      res.json({ ...result, catalog });
+    } catch (error: any) {
+      const info = classifyEngineError(error, { status: error?.status });
+      res.status(400).json({ success: false, message: info.message, error: info });
+    }
   }),
 );
 
@@ -464,12 +486,8 @@ router.put(
 
 router.post(
   '/ai-connection-test',
+  enforceRateLimit,
   asyncWrap(async (req, res) => {
-    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(clientIp)) {
-      throw new AppError(429, 'RATE_LIMITED', '请求过于频繁，请稍后重试');
-    }
-
     const saved = loadAiConfig();
     const endpoint = String(req.body?.endpoint || '');
     if (!endpoint) throw new AppError(400, 'INVALID_PARAMS', '请填写 API 地址');
@@ -501,12 +519,8 @@ router.post(
 
 router.post(
   '/ai-test/fill',
+  enforceRateLimit,
   asyncWrap(async (req, res) => {
-    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(clientIp)) {
-      throw new AppError(429, 'RATE_LIMITED', '请求过于频繁，请稍后重试');
-    }
-
     const saved = loadAiConfig();
     const endpoint = String(req.body?.endpoint || saved.fillEngine.endpoint);
     const apiKey = resolveSecretForEndpoint(
@@ -560,14 +574,10 @@ router.post(
 
 router.post(
   '/ai-test/ocr',
+  enforceRateLimit,
   uploadEngineSample.single('file'),
   uploadErrorHandler,
   asyncWrap(async (req, res) => {
-    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
-    if (!checkRateLimit(clientIp)) {
-      throw new AppError(429, 'RATE_LIMITED', '请求过于频繁，请稍后重试');
-    }
-
     const saved = loadAiConfig();
     const requestedProvider = String(req.body?.provider || '');
     const provider = requestedProvider === 'mineru'
@@ -614,17 +624,12 @@ router.post(
         throw new AppError(400, 'INVALID_FILE_CONTENT', '样例文件内容与扩展名不匹配');
       }
       buffer = req.file.buffer;
-      fileName = req.file.originalname;
+      fileName = `sample.${ext || 'pdf'}`;
     } else {
-      const samplePath = join(
-        process.cwd(),
-        'docs',
-        'dzfp_25362000000115126055_深圳市数恒纪元信息技术咨询企业（个人独资）_20251106105357.pdf',
-      );
-      if (!existsSync(samplePath)) {
+      if (!existsSync(SAMPLE_INVOICE_PATH)) {
         throw new AppError(400, 'SAMPLE_MISSING', '内置样例发票不存在，请上传样例文件');
       }
-      buffer = readFileSync(samplePath);
+      buffer = readFileSync(SAMPLE_INVOICE_PATH);
       fileName = 'sample.pdf';
     }
 
@@ -662,7 +667,7 @@ router.post(
         success,
         elapsedMs,
         provider,
-        endpoint,
+        endpoint: sanitizeEndpoint(endpoint) || endpoint,
         fields,
         rawText: (result.rawText || '').slice(0, 5000),
         error: error || null,
@@ -682,7 +687,7 @@ router.post(
         success: false,
         elapsedMs,
         provider,
-        endpoint,
+        endpoint: sanitizeEndpoint(endpoint) || endpoint,
         fields: {},
         rawText: '',
         error: info,
@@ -745,7 +750,7 @@ router.post(
           }
         }
       } else if (type === 'ocr') {
-        const pdfPath = join(process.cwd(), 'docs', 'dzfp_25362000000115126055_深圳市数恒纪元信息技术咨询企业（个人独资）_20251106105357.pdf');
+        const pdfPath = SAMPLE_INVOICE_PATH;
         if (!existsSync(pdfPath)) {
           result = `发票样例文件不存在: ${pdfPath}`;
         } else {

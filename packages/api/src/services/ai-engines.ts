@@ -44,7 +44,7 @@ export function createOCREngine(config: AiConfig = loadAiConfig()): InvoiceOCREn
     return new InvoiceOCREngine(
       new MinerUProvider({
         endpoint: ocr.mineruEndpoint,
-        apiKey: ocr.mineruToken || process.env.MINERU_TOKEN,
+        apiKey: ocr.mineruToken,
       }),
     );
   }

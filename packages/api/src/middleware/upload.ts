@@ -72,12 +72,16 @@ export function uploadErrorHandler(
     });
     return;
   }
+  if (typeof err?.code === 'string' && err.code.startsWith('LIMIT_')) {
+    res.status(400).json({ error: { code: err.code, message: '上传文件不符合要求' } });
+    return;
+  }
   next(err);
 }
 
 export function hasValidSampleSignature(buffer: Buffer, ext: string): boolean {
   const normalized = String(ext || '').toLowerCase();
-  if (normalized === 'pdf') return buffer.subarray(0, 5).toString('ascii') === '%PDF-';
+  if (normalized === 'pdf') return buffer.subarray(0, 1024).includes(Buffer.from('%PDF-'));
   if (normalized === 'png') {
     return buffer.length >= 8
       && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47
