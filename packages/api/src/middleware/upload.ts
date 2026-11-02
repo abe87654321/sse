@@ -41,3 +41,16 @@ export const uploadPaymentReceipt = multer({
     }
   },
 });
+
+export const uploadEngineSample = multer({
+  storage,
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = file.originalname.split('.').pop()?.toLowerCase();
+    if (ext === 'pdf' || ext === 'ofd' || ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
+      cb(null, true);
+    } else {
+      cb(new Error('仅支持 PDF、OFD、PNG、JPG 格式的样例文件'));
+    }
+  },
+});
