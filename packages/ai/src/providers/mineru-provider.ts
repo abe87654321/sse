@@ -14,8 +14,14 @@ export class MinerUProvider implements IInvoiceOCRProvider {
   private token: string;
 
   constructor(config: AIProviderConfig) {
-    this.baseUrl = (config.endpoint || 'https://mineru.net').replace(/\/+$/, '');
+    this.baseUrl = (config.endpoint || 'https://mineru.net')
+      .replace(/\/+$/, '')
+      .replace(/\/api\/v4$/, '');
     this.token = (config.apiKey || process.env.MINERU_TOKEN || '').trim();
+  }
+
+  private authError(): Error {
+    return new Error('MinerU 认证失败：Token 无效或已过期，请在系统管理中更新 MinerU Token');
   }
 
   async parseInvoice(fileBuffer: Buffer, fileName: string): Promise<OcrResult> {
@@ -44,10 +50,11 @@ export class MinerUProvider implements IInvoiceOCRProvider {
     });
 
     if (res.status === 401 || res.status === 403) {
-      throw new Error('MinerU 认证失败：Token 无效或已过期，请在系统管理中更新 MinerU Token');
+      throw this.authError();
     }
     if (!res.ok) throw new Error(`MinerU 申请上传链接失败 (${res.status})`);
     const data: any = await res.json();
+    if (data.code === 'A0202' || data.code === 'A0211') throw this.authError();
     if (data.code !== 0) throw new Error(`MinerU 错误: ${data.msg}`);
 
     const batchId = data.data.batch_id;
@@ -74,6 +81,7 @@ export class MinerUProvider implements IInvoiceOCRProvider {
 
       if (!res.ok) continue;
       const data: any = await res.json();
+      if (data.code === 'A0202' || data.code === 'A0211') throw this.authError();
       if (data.code !== 0) continue;
 
       const results = data.data.extract_result || [];
