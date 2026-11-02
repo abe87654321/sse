@@ -25,12 +25,12 @@ export class OntologyEngine {
   public executor: ActionExecutor;
   public nlp: NlpGenerator;
 
-  constructor(aiEndpoint: string, aiModel: string, apiBase?: string) {
+  constructor(aiEndpoint: string, aiModel: string, apiBase?: string, aiApiKey?: string) {
     this.store = new OwlStore();
     this.mapper = new SemanticMapper(this.store);
-    this.extractor = new EntityExtractor(aiEndpoint, aiModel);
+    this.extractor = new EntityExtractor(aiEndpoint, aiModel, aiApiKey);
     this.reasoner = new ActionReasoner();
-    this.nlp = new NlpGenerator(aiEndpoint, aiModel);
+    this.nlp = new NlpGenerator(aiEndpoint, aiModel, aiApiKey);
     this.executor = new ActionExecutor(apiBase);
   }
 

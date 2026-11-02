@@ -9,8 +9,8 @@ export interface GraphExtraction {
 export class EntityExtractor {
   private provider: LocalProvider;
 
-  constructor(endpoint: string, model: string) {
-    this.provider = new LocalProvider({ endpoint, modelName: model });
+  constructor(endpoint: string, model: string, apiKey?: string) {
+    this.provider = new LocalProvider({ endpoint, modelName: model, apiKey });
   }
 
   async analyzeText(text: string, prompt: string): Promise<string> {

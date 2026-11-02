@@ -3,8 +3,8 @@ import { LocalProvider } from '@sse/ai';
 export class NlpGenerator {
   private provider: LocalProvider;
 
-  constructor(endpoint: string, model: string) {
-    this.provider = new LocalProvider({ endpoint, modelName: model });
+  constructor(endpoint: string, model: string, apiKey?: string) {
+    this.provider = new LocalProvider({ endpoint, modelName: model, apiKey });
   }
 
   async generateExplanation(reportId: string, serialNo: string, title: string, amount: number, submitter: string, approver?: string): Promise<string> {

@@ -1,7 +1,7 @@
 import { config } from 'dotenv';
 import { resolve, join } from 'path';
 config({ path: resolve(__dirname, '..', '..', '..', '.env') });
-import { readFileSync, existsSync } from 'fs';
+import { existsSync } from 'fs';
 import express from 'express';
 import cors from 'cors';
 import type { Server } from 'http';
@@ -20,6 +20,7 @@ import { scimRoutes } from './routes/scim';
 import { webhookRoutes } from './routes/webhook';
 import { errorHandler } from './middleware/error';
 import { processPendingPaymentReceipts } from './services/payment-receipt-verifier';
+import { loadAiConfig } from './services/ai-engines';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -104,21 +105,13 @@ function shutdown(server: Server) {
 }
 
 async function initOntology() {
-  const CONFIG_PATH = join(process.cwd(), 'ai-config.json');
-  const defaults = {
-    fillEngine: {
-      endpoint: process.env.AI_ENDPOINT || 'http://localhost:11434/v1/chat/completions',
-      model: process.env.AI_MODEL || 'llama3.2-vision',
-    },
-  };
-  let cfg = defaults;
-  try {
-    if (existsSync(CONFIG_PATH)) {
-      const saved = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-      cfg = { ...defaults, fillEngine: { ...defaults.fillEngine, ...(saved.fillEngine || {}) } };
-    }
-  } catch { /* use defaults */ }
-  const engine = new OntologyEngine(cfg.fillEngine.endpoint, cfg.fillEngine.model);
+  const cfg = loadAiConfig();
+  const engine = new OntologyEngine(
+    cfg.fillEngine.endpoint,
+    cfg.fillEngine.model,
+    undefined,
+    cfg.fillEngine.apiKey,
+  );
   try {
     await engine.store.loadFromDb();
     console.log('[Ontology] 已从数据库恢复本体');

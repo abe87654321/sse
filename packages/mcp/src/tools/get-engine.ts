@@ -5,18 +5,16 @@ import { join } from "path";
 const CONFIG_PATH = join(process.cwd(), "ai-config.json");
 
 export function getEngine(): OntologyEngine {
-  const defaults = {
-    fillEngine: {
-      endpoint: process.env.AI_ENDPOINT || "http://localhost:11434/v1/chat/completions",
-      model: process.env.AI_MODEL || "llama3.2-vision",
-    },
-  };
-  let cfg = defaults;
+  let endpoint = process.env.AI_ENDPOINT || "http://localhost:11434";
+  let model = process.env.AI_MODEL || "llama3.2-vision";
+  let apiKey = "";
   try {
     if (existsSync(CONFIG_PATH)) {
       const saved = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
-      cfg = { ...defaults, fillEngine: { ...defaults.fillEngine, ...(saved.fillEngine || {}) } };
+      endpoint = saved?.fillEngine?.endpoint || endpoint;
+      model = saved?.fillEngine?.model || model;
+      apiKey = saved?.fillEngine?.apiKey || "";
     }
   } catch { /* use defaults */ }
-  return new OntologyEngine(cfg.fillEngine.endpoint, cfg.fillEngine.model);
+  return new OntologyEngine(endpoint, model, undefined, apiKey);
 }
