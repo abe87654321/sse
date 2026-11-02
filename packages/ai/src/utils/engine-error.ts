@@ -16,30 +16,35 @@ const SUGGESTIONS: Record<EngineErrorCode, string> = {
   UNKNOWN: '查看原始错误信息并检查服务日志',
 };
 
+const AUTH_TEXT = /\b401\b|\b403\b|unauthorized|forbidden|认证|api key|a0202|a0211/;
+const CREDENTIAL_TEXT = /\btokens?\b[^\n]{0,40}?(invalid|expired|missing|not configured|无效|过期|未配置)|令牌/;
+const TIMEOUT_TEXT = /timeout|timed out|abort|超时/;
+const ADDRESS_TEXT = /\b404\b|enotfound|econnrefused|eai_again|not found|连接|地址|network/;
+const NO_RESULT_TEXT = /no result|未识别|未解析|empty/;
+const FORMAT_TEXT = /json|parse|format|格式/;
+
 export function classifyEngineError(error: any, context?: { status?: number }): EngineErrorInfo {
-  const status = context?.status;
+  const rawStatus = context?.status ?? error?.status ?? error?.response?.status;
+  const status = rawStatus === undefined || rawStatus === null ? undefined : Number(rawStatus);
   const message = String(error?.message || error || '未知错误');
   const lower = message.toLowerCase();
   let code: EngineErrorCode = 'UNKNOWN';
 
-  if (
-    status === 401 || status === 403
-    || /401|403|unauthorized|forbidden|认证|token|api key|a0202|a0211/.test(lower)
-  ) {
+  if (status === 401 || status === 403) {
     code = 'AUTH';
-  } else if (
-    error?.name === 'AbortError'
-    || /timeout|timed out|abort|超时/.test(lower)
-  ) {
+  } else if (status === 408) {
     code = 'TIMEOUT';
-  } else if (
-    status === 404
-    || /enotfound|econnrefused|eai_again|not found|连接|地址|network/.test(lower)
-  ) {
+  } else if (status === 404) {
     code = 'ADDRESS';
-  } else if (/no result|未识别|未解析|empty/.test(lower)) {
+  } else if (AUTH_TEXT.test(lower) || CREDENTIAL_TEXT.test(lower)) {
+    code = 'AUTH';
+  } else if (error?.name === 'AbortError' || TIMEOUT_TEXT.test(lower)) {
+    code = 'TIMEOUT';
+  } else if (ADDRESS_TEXT.test(lower)) {
+    code = 'ADDRESS';
+  } else if (NO_RESULT_TEXT.test(lower)) {
     code = 'NO_RESULT';
-  } else if (/json|parse|format|格式/.test(lower)) {
+  } else if (FORMAT_TEXT.test(lower)) {
     code = 'FORMAT';
   }
 
