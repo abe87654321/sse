@@ -15,12 +15,11 @@ import { notificationRoutes } from './routes/notifications';
 import { userRoutes } from './routes/user';
 import { adminMessageRoutes } from './routes/admin-messages';
 import { ontologyRoutes } from './routes/ontology';
-import { OntologyEngine } from '@sse/ontology';
+import { getEngine } from './routes/ontology-helpers';
 import { scimRoutes } from './routes/scim';
 import { webhookRoutes } from './routes/webhook';
 import { errorHandler } from './middleware/error';
 import { processPendingPaymentReceipts } from './services/payment-receipt-verifier';
-import { loadAiConfig } from './services/ai-engines';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -105,13 +104,7 @@ function shutdown(server: Server) {
 }
 
 async function initOntology() {
-  const cfg = loadAiConfig();
-  const engine = new OntologyEngine(
-    cfg.fillEngine.endpoint,
-    cfg.fillEngine.model,
-    undefined,
-    cfg.fillEngine.apiKey,
-  );
+  const engine = getEngine();
   try {
     await engine.store.loadFromDb();
     console.log('[Ontology] 已从数据库恢复本体');

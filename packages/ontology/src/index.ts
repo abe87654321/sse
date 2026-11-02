@@ -34,6 +34,11 @@ export class OntologyEngine {
     this.executor = new ActionExecutor(apiBase);
   }
 
+  configureAi(aiEndpoint: string, aiModel: string, aiApiKey?: string): void {
+    this.extractor = new EntityExtractor(aiEndpoint, aiModel, aiApiKey);
+    this.nlp = new NlpGenerator(aiEndpoint, aiModel, aiApiKey);
+  }
+
   async submitFromText(text: string, userId: string, token: string): Promise<ActionResult> {
     const extraction = await this.extractor.extractFromText(text);
     if (!extraction.amount && !extraction.person && !extraction.category) {

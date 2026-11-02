@@ -17,5 +17,7 @@ export function getEngine(): OntologyEngine {
 }
 
 export function resetEngine(): void {
-  engine = undefined;
+  if (!engine) return;
+  const cfg = loadAiConfig();
+  engine.configureAi(cfg.fillEngine.endpoint, cfg.fillEngine.model, cfg.fillEngine.apiKey);
 }
