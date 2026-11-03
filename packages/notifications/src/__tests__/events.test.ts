@@ -25,7 +25,20 @@ describe('notification events', () => {
       title: '报销单被驳回',
       body: '你的报销单 RE-2026-001「差旅报销」被驳回：发票不符',
       channels: ['email'],
+      emailBody: '<p>你的报销单 RE-2026-001「差旅报销」被驳回：发票不符</p>',
     });
+  });
+
+  it('escapes html in the rejection email body', () => {
+    const message = expenseRejectedMessage(
+      { serialNo: 'RE-1', title: '<b>x</b>' },
+      '<img src=x onerror=alert(1)>',
+    );
+
+    expect(message.emailBody).toContain('&lt;b&gt;x&lt;/b&gt;');
+    expect(message.emailBody).toContain('&lt;img');
+    expect(message.emailBody).not.toContain('<img');
+    expect(message.emailBody).not.toContain('<b>');
   });
 
   it('builds a paid message with sms', () => {
@@ -43,6 +56,7 @@ describe('notification events', () => {
       title: '欢迎加入 SSE',
       body: '张三，你的账号已创建，请登录系统完善个人信息。',
       channels: ['email'],
+      emailBody: '<p>张三，你的账号已创建，请登录系统完善个人信息。</p>',
     });
   });
 });
