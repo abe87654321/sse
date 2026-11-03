@@ -13,13 +13,14 @@ function mapUser(row: any): User {
     parentId: row.parent_id ?? undefined,
     status: row.status,
     avatarUrl: row.avatar_url ?? undefined,
+    notify_prefs: row.notify_prefs ?? undefined,
     deletedAt: row.deleted_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-const USER_COLUMNS = 'id, name, phone, email, department, role, parent_id, status, deleted_at, avatar_url, created_at, updated_at';
+const USER_COLUMNS = 'id, name, phone, email, department, role, parent_id, status, deleted_at, avatar_url, notify_prefs, created_at, updated_at';
 
 export class PgUserRepo implements IUserRepo {
   async findById(id: string): Promise<User | null> {

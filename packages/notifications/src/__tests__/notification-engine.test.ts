@@ -19,7 +19,13 @@ function harness() {
     },
   };
   const users: Record<string, any> = {
-    u1: { id: 'u1', name: '张三', phone: '13800000001', email: 'a@example.com', notify_prefs: prefs },
+    u1: {
+      id: 'u1',
+      name: '张三',
+      phone: '13800000001',
+      email: 'a@example.com',
+      notify_prefs: { ...prefs, broadcast: false },
+    },
     u2: {
       id: 'u2',
       name: '李四',
@@ -67,6 +73,7 @@ describe('NotificationEngine', () => {
     const { engine, notifications, deliveries } = harness();
 
     await engine.send('u1', NotificationTriggerType.BROADCAST, '公告', '正文', [], {
+      notifyPrefs: prefs as any,
       systemMessageId: 'm1',
     });
 
@@ -175,12 +182,26 @@ describe('NotificationEngine', () => {
   });
 
   it('skips broadcast for a user who disabled broadcasts', async () => {
-    const { engine, notifications, deliveries } = harness();
+    const direct = harness();
 
-    await engine.sendBatch(['u2'], NotificationTriggerType.BROADCAST, '公告', '正文', []);
+    const result = await direct.engine.send(
+      'u1',
+      NotificationTriggerType.BROADCAST,
+      '公告',
+      '正文',
+      [],
+    );
 
-    expect(notifications).toHaveLength(0);
-    expect(deliveries).toHaveLength(0);
+    expect(result).toBeNull();
+    expect(direct.notifications).toHaveLength(0);
+    expect(direct.deliveries).toHaveLength(0);
+
+    const batch = harness();
+
+    await batch.engine.sendBatch(['u2'], NotificationTriggerType.BROADCAST, '公告', '正文', []);
+
+    expect(batch.notifications).toHaveLength(0);
+    expect(batch.deliveries).toHaveLength(0);
   });
 
   it('skips sms without throwing when preferences are malformed', async () => {
