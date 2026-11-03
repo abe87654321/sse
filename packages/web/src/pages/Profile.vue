@@ -183,12 +183,17 @@ const notifyPrefs = reactive({
   sms: { reminder: true, escalation: true, rejected: true, paid: false },
   email: { reminder: true, escalation: true, rejected: true, paid: false },
   broadcast: true,
+  in_app: { rejected: true, paid: true, broadcast: true },
 })
 
 async function fetchNotifyPrefs() {
   try {
     const res = await api.get('/user/notify-prefs')
-    if (res.data?.sms) Object.assign(notifyPrefs, res.data)
+    const data = res.data || {}
+    notifyPrefs.sms = { ...notifyPrefs.sms, ...(data.sms || {}) }
+    notifyPrefs.email = { ...notifyPrefs.email, ...(data.email || {}) }
+    notifyPrefs.in_app = { ...notifyPrefs.in_app, ...(data.in_app || {}) }
+    if (typeof data.broadcast === 'boolean') notifyPrefs.broadcast = data.broadcast
   } catch {}
 }
 
@@ -196,7 +201,9 @@ async function saveNotifyPrefs() {
   try {
     await api.put('/user/notify-prefs', { notify_prefs: { ...notifyPrefs } })
     profileSuccess.value = '通知设置已保存'
-  } catch {}
+  } catch (err: any) {
+    alert(err.response?.data?.error?.message || '保存通知设置失败')
+  }
 }
 
 onMounted(fetchNotifyPrefs)
