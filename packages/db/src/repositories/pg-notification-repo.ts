@@ -1,4 +1,4 @@
-import type { NotificationLog, NotificationDelivery, SystemMessage } from '@sse/shared';
+import type { NotificationLog, NotificationDelivery, SystemMessage, SystemMessageDelivery } from '@sse/shared';
 import type { INotificationRepo } from '@sse/core';
 import { pool } from '../connection';
 
@@ -9,6 +9,7 @@ function mapNotification(row: any): NotificationLog {
     type: row.type,
     title: row.title,
     body: row.body,
+    system_message_id: row.system_message_id ?? undefined,
     read_at: row.read_at ?? undefined,
     created_at: row.created_at,
   };
@@ -74,8 +75,15 @@ export class PgNotificationRepo implements INotificationRepo {
 
   async create(notification: Omit<NotificationLog, 'id'>) {
     const { rows } = await pool.query(
-      `INSERT INTO notification_logs (user_id, type, title, body) VALUES ($1, $2, $3, $4) RETURNING *`,
-      [notification.user_id, notification.type, notification.title, notification.body]
+      `INSERT INTO notification_logs (user_id, type, title, body, system_message_id)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [
+        notification.user_id,
+        notification.type,
+        notification.title,
+        notification.body,
+        notification.system_message_id ?? null,
+      ]
     );
     return mapNotification(rows[0]);
   }
@@ -91,6 +99,37 @@ export class PgNotificationRepo implements INotificationRepo {
   async findDeliveriesByNotification(notificationId: string) {
     const { rows } = await pool.query('SELECT * FROM notification_deliveries WHERE notification_id = $1', [notificationId]);
     return rows.map(mapDelivery);
+  }
+
+  async findDeliveriesBySystemMessage(systemMessageId: string): Promise<SystemMessageDelivery[]> {
+    const { rows } = await pool.query(
+      `SELECT nl.id AS notification_id,
+              nl.user_id,
+              u.name AS user_name,
+              nl.type,
+              nl.title,
+              nd.channel,
+              nd.status,
+              nd.error_message,
+              nd.sent_at
+         FROM notification_logs nl
+         JOIN notification_deliveries nd ON nd.notification_id = nl.id
+         LEFT JOIN users u ON u.id = nl.user_id
+        WHERE nl.system_message_id = $1
+        ORDER BY u.name ASC, nd.channel ASC`,
+      [systemMessageId]
+    );
+    return rows.map((row: any) => ({
+      notificationId: row.notification_id,
+      userId: row.user_id,
+      userName: row.user_name ?? undefined,
+      type: row.type,
+      title: row.title,
+      channel: row.channel,
+      status: row.status,
+      errorMessage: row.error_message ?? undefined,
+      sentAt: row.sent_at ?? undefined,
+    }));
   }
 
   async findSystemMessages(status?: string) {
