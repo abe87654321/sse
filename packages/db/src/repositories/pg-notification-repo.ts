@@ -103,7 +103,7 @@ export class PgNotificationRepo implements INotificationRepo {
     return rows.map(mapDelivery);
   }
 
-  async findDeliveriesBySystemMessage(systemMessageId: string): Promise<SystemMessageDelivery[]> {
+  async findDeliveriesBySystemMessage(systemMessageId: string, limit = 500): Promise<SystemMessageDelivery[]> {
     const { rows } = await pool.query(
       `SELECT nl.id AS notification_id,
               nl.user_id,
@@ -118,8 +118,9 @@ export class PgNotificationRepo implements INotificationRepo {
          JOIN notification_deliveries nd ON nd.notification_id = nl.id
          LEFT JOIN users u ON u.id = nl.user_id
         WHERE nl.system_message_id = $1
-        ORDER BY u.name ASC, nd.channel ASC`,
-      [systemMessageId]
+        ORDER BY u.name ASC, nd.channel ASC
+        LIMIT $2`,
+      [systemMessageId, limit]
     );
     return rows.map((row: any) => ({
       notificationId: row.notification_id,
@@ -132,6 +133,23 @@ export class PgNotificationRepo implements INotificationRepo {
       errorMessage: row.error_message ?? undefined,
       sentAt: row.sent_at ?? undefined,
     }));
+  }
+
+  async summarizeDeliveriesBySystemMessage(systemMessageId: string): Promise<Record<string, number>> {
+    const { rows } = await pool.query(
+      `SELECT nd.status, COUNT(*)::int AS count
+         FROM notification_logs nl
+         JOIN notification_deliveries nd ON nd.notification_id = nl.id
+        WHERE nl.system_message_id = $1
+        GROUP BY nd.status`,
+      [systemMessageId]
+    );
+    const summary: Record<string, number> = { total: 0 };
+    for (const row of rows) {
+      summary[row.status] = Number(row.count);
+      summary.total += Number(row.count);
+    }
+    return summary;
   }
 
   async findSystemMessages(status?: string) {
@@ -150,11 +168,22 @@ export class PgNotificationRepo implements INotificationRepo {
 
   async createSystemMessage(msg: Omit<SystemMessage, 'id'>) {
     const { rows } = await pool.query(
-      `INSERT INTO system_messages (title, body, body_ai, body_ai_instruction, target_roles, target_user_ids, sender_id, delivery_channels, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      `INSERT INTO system_messages (title, body, body_ai, body_ai_instruction, target_roles, target_user_ids, sender_id, delivery_channels, status, sent_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $9 = 'sent' THEN NOW() ELSE NULL END) RETURNING *`,
       [msg.title, msg.body, msg.body_ai ?? null, msg.body_ai_instruction ?? null, msg.target_roles ?? [], msg.target_user_ids ?? [], msg.sender_id, msg.delivery_channels ?? [], msg.status || 'draft']
     );
     return mapSystemMessage(rows[0]);
+  }
+
+  async claimSystemMessageForSend(id: string) {
+    const { rows } = await pool.query(
+      `UPDATE system_messages
+          SET status = 'sent', sent_at = NOW(), updated_at = NOW()
+        WHERE id = $1 AND status = 'draft'
+        RETURNING *`,
+      [id]
+    );
+    return rows.length === 0 ? null : mapSystemMessage(rows[0]);
   }
 
   async updateSystemMessage(id: string, msg: Partial<SystemMessage>) {
@@ -168,7 +197,7 @@ export class PgNotificationRepo implements INotificationRepo {
     if (msg.target_roles !== undefined) { fields.push(`target_roles = $${idx++}`); values.push(msg.target_roles); }
     if (msg.target_user_ids !== undefined) { fields.push(`target_user_ids = $${idx++}`); values.push(msg.target_user_ids); }
     if (msg.delivery_channels !== undefined) { fields.push(`delivery_channels = $${idx++}`); values.push(msg.delivery_channels); }
-    if (msg.status !== undefined) { fields.push(`status = $${idx++}`); values.push(msg.status); if (msg.status === 'sent') fields.push('sent_at = NOW()'); }
+    if (msg.status !== undefined) { fields.push(`status = $${idx++}`); values.push(msg.status); if (msg.status === 'sent') fields.push('sent_at = NOW()'); else fields.push('sent_at = NULL'); }
     fields.push('updated_at = NOW()');
     if (fields.length === 0) return;
     values.push(id);

@@ -9,10 +9,12 @@ export interface INotificationRepo {
   create(notification: Omit<NotificationLog, 'id'>): Promise<NotificationLog>;
   createDelivery(delivery: Omit<NotificationDelivery, 'id'>): Promise<NotificationDelivery>;
   findDeliveriesByNotification(notificationId: string): Promise<NotificationDelivery[]>;
-  findDeliveriesBySystemMessage(systemMessageId: string): Promise<SystemMessageDelivery[]>;
+  findDeliveriesBySystemMessage(systemMessageId: string, limit?: number): Promise<SystemMessageDelivery[]>;
+  summarizeDeliveriesBySystemMessage(systemMessageId: string): Promise<Record<string, number>>;
   findSystemMessages(status?: string): Promise<SystemMessage[]>;
   findSystemMessageById(id: string): Promise<SystemMessage | null>;
   createSystemMessage(msg: Omit<SystemMessage, 'id'>): Promise<SystemMessage>;
+  claimSystemMessageForSend(id: string): Promise<SystemMessage | null>;
   updateSystemMessage(id: string, msg: Partial<SystemMessage>): Promise<void>;
   deleteSystemMessage(id: string): Promise<void>;
 }

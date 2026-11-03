@@ -22,12 +22,12 @@
         <div class="message-actions">
           <template v-if="m.status === 'draft'">
             <button class="btn-secondary btn-sm" @click="editDraft(m)">编辑</button>
-            <button class="btn-primary btn-sm" @click="sendDraft(m.id)">发送</button>
+            <button class="btn-primary btn-sm" @click="sendDraft(m.id)" :disabled="sendingId === m.id">发送</button>
             <button class="btn-danger btn-sm" @click="deleteDraft(m.id)">删除</button>
           </template>
           <template v-else>
             <span class="text-muted" style="font-size:0.82rem;">{{ formatDate(m.sent_at) }} 已发送</span>
-            <button class="btn-secondary btn-sm" @click="openDeliveries(m.id)">查看送达</button>
+            <button class="btn-secondary btn-sm" @click="openDeliveries(m.id)" :disabled="deliveryLoading">{{ deliveryLoading ? '加载中...' : '查看送达' }}</button>
           </template>
         </div>
       </div>
@@ -92,11 +92,12 @@
       <div class="modal-card composer-modal">
         <h3 class="form-section-title font-heading">送达统计</h3>
         <p class="text-muted" style="font-size:0.82rem;">
-          共 {{ deliverySummary.total || 0 }} 条 · 成功 {{ deliverySummary.sent || 0 }} ·
-          失败 {{ deliverySummary.failed || 0 }} · 跳过 {{ deliverySummary.skipped || 0 }}
+          共 {{ deliverySummary.total || 0 }} 条记录 · 成功 {{ deliverySummary.sent || 0 }} ·
+          失败 {{ deliverySummary.failed || 0 }} · 跳过 {{ deliverySummary.skipped || 0 }} · 待处理 {{ deliverySummary.pending || 0 }}
         </p>
+        <p v-if="!deliveryRows.length" class="text-muted">暂无送达记录</p>
         <div class="delivery-list">
-          <div v-for="row in deliveryRows" :key="`${row.notificationId}-${row.channel}`" class="delivery-row">
+          <div v-for="row in deliveryRows" :key="row.notificationId + '-' + row.channel + '-' + (row.sentAt || '')" class="delivery-row">
             <span>{{ row.userName || row.userId }}</span>
             <span>{{ row.channel }}</span>
             <span :class="`delivery-status status-${row.status}`">{{ row.status }}</span>
@@ -123,6 +124,8 @@ const showPolishDialog = ref(false)
 const showDeliveries = ref(false)
 const deliveryRows = ref<any[]>([])
 const deliverySummary = ref<Record<string, number>>({})
+const deliveryLoading = ref(false)
+const sendingId = ref('')
 const editingId = ref('')
 const polishedBody = ref('')
 const polishInstruction = ref('')
@@ -233,11 +236,13 @@ async function sendNow() {
 }
 
 async function sendDraft(id: string) {
+  sendingId.value = id
   try {
     const res = await api.post(`/admin/messages/${id}/send`)
     alert(`发送成功，已推送给 ${res.data.sent_to} 人`)
     fetchMessages()
   } catch (err: any) { alert(err.response?.data?.error?.message || err.response?.data?.message || err.message || '发送失败') }
+  finally { sendingId.value = '' }
 }
 
 async function deleteDraft(id: string) {
@@ -270,6 +275,7 @@ async function aiPolish() {
 function acceptPolish() { form.body = polishedBody.value; form.body_ai = polishedBody.value; polishInstruction.value = ''; showPolishDialog.value = false }
 
 async function openDeliveries(id: string) {
+  deliveryLoading.value = true
   try {
     const res = await api.get(`/admin/messages/${id}/deliveries`)
     deliveryRows.value = res.data.deliveries || []
@@ -277,6 +283,8 @@ async function openDeliveries(id: string) {
     showDeliveries.value = true
   } catch (err: any) {
     alert(err.response?.data?.error?.message || '加载送达统计失败')
+  } finally {
+    deliveryLoading.value = false
   }
 }
 
@@ -316,4 +324,5 @@ onMounted(fetchMessages)
 .delivery-status.status-sent { color: #2f9e44; }
 .delivery-status.status-failed { color: #c92a2a; }
 .delivery-status.status-skipped { color: var(--text-muted); }
+.delivery-status.status-pending { color: var(--text-secondary); }
 </style>

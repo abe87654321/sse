@@ -30,15 +30,10 @@ router.get('/:id', asyncWrap(async (req, res) => {
 router.get('/:id/deliveries', asyncWrap(async (req, res) => {
   const msg = await repo.findSystemMessageById(req.params.id);
   if (!msg) throw new AppError(404, 'NOT_FOUND', '消息不存在');
-  const deliveries = await repo.findDeliveriesBySystemMessage(req.params.id);
-  const summary = deliveries.reduce(
-    (acc, row) => {
-      acc.total += 1;
-      acc[row.status] = (acc[row.status] || 0) + 1;
-      return acc;
-    },
-    { total: 0 } as Record<string, number>,
-  );
+  const [summary, deliveries] = await Promise.all([
+    repo.summarizeDeliveriesBySystemMessage(req.params.id),
+    repo.findDeliveriesBySystemMessage(req.params.id, 500),
+  ]);
   res.json({ summary, deliveries });
 }));
 
@@ -93,9 +88,16 @@ router.post('/:id/send', asyncWrap(async (req, res) => {
   const { createNotificationEngine } = await import('@sse/notifications');
   const engine = createNotificationEngine();
   const finalBody = msg.body_ai || msg.body;
-  await engine.sendBatch(targetUsers, 'broadcast', msg.title, finalBody, (msg.delivery_channels || []).filter((c: string) => c === 'sms' || c === 'email') as ('sms' | 'email')[], msg.id);
 
-  await repo.updateSystemMessage(msg.id, { status: 'sent' });
+  const claimed = await repo.claimSystemMessageForSend(msg.id);
+  if (!claimed) throw new AppError(409, 'MESSAGE_ALREADY_SENT', '消息已发送');
+  try {
+    await engine.sendBatch(targetUsers, 'broadcast', msg.title, finalBody, (msg.delivery_channels || []).filter((c: string) => c === 'sms' || c === 'email') as ('sms' | 'email')[], claimed.id);
+  } catch (err) {
+    await repo.updateSystemMessage(claimed.id, { status: 'draft' });
+    throw err;
+  }
+
   res.json({ message: '发送成功', sent_to: targetUsers.length });
 }));
 
