@@ -7,3 +7,5 @@ export { ApprovalReminderScheduler } from './scheduler';
 export { NotificationEngine } from './notification-engine';
 export { reminderMessage } from './templates/reminder';
 export { escalationMessage } from './templates/escalation';
+export { createNotificationEngine } from './factory';
+export * from './events';
