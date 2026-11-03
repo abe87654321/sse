@@ -41,6 +41,16 @@ describe('notification events', () => {
     expect(message.emailBody).not.toContain('<b>');
   });
 
+  it('does not throw for a numeric reject comment', () => {
+    const message = expenseRejectedMessage({ serialNo: 'x', title: 't' }, 123 as any);
+    expect(message.emailBody).toContain('123');
+  });
+
+  it('does not throw for a null reject comment', () => {
+    const message = expenseRejectedMessage({ serialNo: 'x', title: 't' }, null as any);
+    expect(message.emailBody).toContain('被驳回：</p>');
+  });
+
   it('builds a paid message with sms', () => {
     expect(paymentPaidMessage(report)).toEqual({
       type: NotificationTriggerType.PAID,

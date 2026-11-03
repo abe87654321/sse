@@ -14,8 +14,8 @@ const ruleRepo = new PgApprovalRuleRepo();
 const expenseRepo = new PgExpenseRepo();
 const engine = new ApprovalEngine(ruleRepo, recordRepo);
 
-async function notifyApproved(report: { userId: string; serialNo: string; title: string }) {
-  await sendNotificationSafe(
+function notifyApproved(report: { userId: string; serialNo: string; title: string }) {
+  void sendNotificationSafe(
     report.userId,
     expenseApprovedMessage({ serialNo: report.serialNo, title: report.title }),
   );
@@ -177,7 +177,7 @@ router.post(
     const matchedRule = await engine.matchRule(report.totalAmount, categoryIds);
     if (!matchedRule) {
       await expenseRepo.updateStatus(reportId, ReportStatus.APPROVED);
-      await notifyApproved(report);
+      notifyApproved(report);
       res.json({ message: '审批成功（无匹配规则，直接通过）', result: ApprovalResult.APPROVED });
       return;
     }
@@ -196,7 +196,7 @@ router.post(
 
     if (engine.isLastStep(matchedRule, pendingRecord.step)) {
       await expenseRepo.updateStatus(reportId, ReportStatus.APPROVED);
-      await notifyApproved(report);
+      notifyApproved(report);
       res.json({ message: '审批成功，流程结束', result: ApprovalResult.APPROVED });
       return;
     }
@@ -204,7 +204,7 @@ router.post(
     const nextRecord = await engine.createNextStep(reportId, matchedRule, pendingRecord.step);
     if (!nextRecord) {
       await expenseRepo.updateStatus(reportId, ReportStatus.APPROVED);
-      await notifyApproved(report);
+      notifyApproved(report);
       res.json({ message: '审批成功，流程结束', result: ApprovalResult.APPROVED });
       return;
     }
@@ -222,7 +222,7 @@ router.post(
     const { comment } = req.body;
     const { role, department } = req.user!;
 
-    if (!comment) {
+    if (typeof comment !== 'string' || !comment.trim()) {
       throw new AppError(400, 'INVALID_PARAMS', '驳回时必须填写意见');
     }
 
@@ -260,7 +260,7 @@ router.post(
 
     await expenseRepo.updateStatus(reportId, ReportStatus.REJECTED);
 
-    await sendNotificationSafe(
+    void sendNotificationSafe(
       report.userId,
       expenseRejectedMessage({ serialNo: report.serialNo, title: report.title }, comment),
     );

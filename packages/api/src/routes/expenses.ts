@@ -518,12 +518,12 @@ router.post(
 
     const updated = await expenseRepo.findById(id);
 
-    await sendNotificationSafe(
+    if (receipt) queuePaymentReceiptVerification(receipt.id);
+
+    void sendNotificationSafe(
       report.userId,
       paymentPaidMessage({ serialNo: report.serialNo, title: report.title }),
     );
-
-    if (receipt) queuePaymentReceiptVerification(receipt.id);
 
     res.json({
       message: '已标记打款',

@@ -139,7 +139,7 @@ router.post(
     );
 
     const created = mapUserRow(rows[0]);
-    await sendNotificationSafe(created.id, welcomeMessage({ name: created.name }));
+    void sendNotificationSafe(created.id, welcomeMessage({ name: created.name }));
     res.status(201).json(created);
   })
 );
