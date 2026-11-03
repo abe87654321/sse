@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "scripts": { "build": "tsc", "migrate": "node dist/migrate.js up", "migrate:rollback": "node dist/migrate.js down" },
+  "scripts": { "build": "tsc", "test": "jest", "migrate": "node dist/migrate.js up", "migrate:rollback": "node dist/migrate.js down" },
   "dependencies": { "@sse/core": "workspace:*", "@sse/shared": "workspace:*", "pg": "^8.11" },
-  "devDependencies": { "@types/pg": "^8.10", "typescript": "^5.3" }
+  "devDependencies": { "@types/jest": "^29", "@types/pg": "^8.10", "jest": "^29", "ts-jest": "^29", "typescript": "^5.3" }
 }

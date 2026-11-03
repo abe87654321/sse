@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- ============================================================
 -- 用户表
 -- ============================================================
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT NOT NULL,
   phone TEXT NOT NULL UNIQUE,
@@ -20,7 +20,7 @@ CREATE TABLE users (
 -- ============================================================
 -- 费用类别表
 -- ============================================================
-CREATE TABLE expense_categories (
+CREATE TABLE IF NOT EXISTS expense_categories (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT NOT NULL UNIQUE,
   sort_order INT NOT NULL DEFAULT 0,
@@ -41,7 +41,7 @@ ON CONFLICT (name) DO NOTHING;
 -- ============================================================
 -- 报销单表
 -- ============================================================
-CREATE TABLE expense_reports (
+CREATE TABLE IF NOT EXISTS expense_reports (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   serial_no TEXT NOT NULL UNIQUE,
   user_id UUID NOT NULL REFERENCES users(id),
@@ -55,15 +55,15 @@ CREATE TABLE expense_reports (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_expense_reports_user_id ON expense_reports(user_id);
-CREATE INDEX idx_expense_reports_status ON expense_reports(status);
-CREATE INDEX idx_expense_reports_serial_no ON expense_reports(serial_no);
-CREATE INDEX idx_expense_reports_created_at ON expense_reports(created_at);
+CREATE INDEX IF NOT EXISTS idx_expense_reports_user_id ON expense_reports(user_id);
+CREATE INDEX IF NOT EXISTS idx_expense_reports_status ON expense_reports(status);
+CREATE INDEX IF NOT EXISTS idx_expense_reports_serial_no ON expense_reports(serial_no);
+CREATE INDEX IF NOT EXISTS idx_expense_reports_created_at ON expense_reports(created_at);
 
 -- ============================================================
 -- 报销明细表
 -- ============================================================
-CREATE TABLE expense_items (
+CREATE TABLE IF NOT EXISTS expense_items (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   report_id UUID NOT NULL REFERENCES expense_reports(id) ON DELETE CASCADE,
   category_id UUID NOT NULL REFERENCES expense_categories(id),
@@ -72,13 +72,13 @@ CREATE TABLE expense_items (
   description TEXT NOT NULL DEFAULT ''
 );
 
-CREATE INDEX idx_expense_items_report_id ON expense_items(report_id);
-CREATE INDEX idx_expense_items_category_id ON expense_items(category_id);
+CREATE INDEX IF NOT EXISTS idx_expense_items_report_id ON expense_items(report_id);
+CREATE INDEX IF NOT EXISTS idx_expense_items_category_id ON expense_items(category_id);
 
 -- ============================================================
 -- 发票表 (存储元信息，文件存 MinIO)
 -- ============================================================
-CREATE TABLE invoices (
+CREATE TABLE IF NOT EXISTS invoices (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   item_id UUID NOT NULL REFERENCES expense_items(id) ON DELETE CASCADE,
   file_name TEXT NOT NULL,
@@ -91,12 +91,12 @@ CREATE TABLE invoices (
   uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_invoices_item_id ON invoices(item_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_item_id ON invoices(item_id);
 
 -- ============================================================
 -- 审批规则表
 -- ============================================================
-CREATE TABLE approval_rules (
+CREATE TABLE IF NOT EXISTS approval_rules (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT NOT NULL,
   min_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
@@ -108,7 +108,7 @@ CREATE TABLE approval_rules (
 );
 
 INSERT INTO approval_rules (name, min_amount, max_amount, approval_chain, priority, is_active)
-VALUES (
+SELECT
   '默认审批规则',
   0,
   10000,
@@ -118,12 +118,12 @@ VALUES (
   ]'::jsonb,
   1,
   true
-) ON CONFLICT DO NOTHING;
+WHERE NOT EXISTS (SELECT 1 FROM approval_rules WHERE name = '默认审批规则');
 
 -- ============================================================
 -- 审批记录表
 -- ============================================================
-CREATE TABLE approval_records (
+CREATE TABLE IF NOT EXISTS approval_records (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   report_id UUID NOT NULL REFERENCES expense_reports(id) ON DELETE CASCADE,
   step INT NOT NULL,
@@ -136,14 +136,14 @@ CREATE TABLE approval_records (
   escalated_at TIMESTAMPTZ
 );
 
-CREATE INDEX idx_approval_records_report_id ON approval_records(report_id);
-CREATE INDEX idx_approval_records_approver_id ON approval_records(approver_id);
-CREATE INDEX idx_approval_records_result ON approval_records(result);
+CREATE INDEX IF NOT EXISTS idx_approval_records_report_id ON approval_records(report_id);
+CREATE INDEX IF NOT EXISTS idx_approval_records_approver_id ON approval_records(approver_id);
+CREATE INDEX IF NOT EXISTS idx_approval_records_result ON approval_records(result);
 
 -- ============================================================
 -- 通知日志表
 -- ============================================================
-CREATE TABLE notification_logs (
+CREATE TABLE IF NOT EXISTS notification_logs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   report_id UUID NOT NULL REFERENCES expense_reports(id) ON DELETE CASCADE,
   recipient_id UUID NOT NULL REFERENCES users(id),
@@ -154,8 +154,8 @@ CREATE TABLE notification_logs (
   error_message TEXT
 );
 
-CREATE INDEX idx_notification_logs_report_id ON notification_logs(report_id);
-CREATE INDEX idx_notification_logs_recipient_id ON notification_logs(recipient_id);
+CREATE INDEX IF NOT EXISTS idx_notification_logs_report_id ON notification_logs(report_id);
+CREATE INDEX IF NOT EXISTS idx_notification_logs_recipient_id ON notification_logs(recipient_id);
 
 -- ============================================================
 -- 默认管理员账号 (密码: admin123)
@@ -180,8 +180,10 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS update_users_updated_at ON users;
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_expense_reports_updated_at ON expense_reports;
 CREATE TRIGGER update_expense_reports_updated_at BEFORE UPDATE ON expense_reports
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
