@@ -1,6 +1,6 @@
 export type NotifyPrefs = {
   sms: { reminder: boolean; escalation: boolean; rejected: boolean; paid: boolean };
-  email: { rejected: boolean; paid: boolean };
+  email: { rejected: boolean; paid: boolean; reminder?: boolean; escalation?: boolean };
   broadcast: boolean;
   in_app: { rejected: boolean; paid: boolean; broadcast: boolean };
 };

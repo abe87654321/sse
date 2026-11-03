@@ -171,6 +171,20 @@ describe('NotificationEngine', () => {
     );
   });
 
+  it('allows email reminders via defaults when the email pref omits the key', async () => {
+    const { engine, sentEmail } = harness();
+
+    await engine.send(
+      'u1',
+      NotificationTriggerType.APPROVAL_REMINDER,
+      '提醒',
+      '正文',
+      ['email'],
+    );
+
+    expect(sentEmail).toHaveLength(1);
+  });
+
   it('returns null and creates nothing for an unknown user', async () => {
     const { engine, notifications, deliveries } = harness();
 
@@ -204,7 +218,7 @@ describe('NotificationEngine', () => {
     expect(batch.deliveries).toHaveLength(0);
   });
 
-  it('skips sms without throwing when preferences are malformed', async () => {
+  it('falls back to defaults without throwing when preferences are malformed', async () => {
     const { engine, notifications, deliveries } = harness();
 
     await expect(
@@ -216,7 +230,7 @@ describe('NotificationEngine', () => {
     expect(notifications).toHaveLength(1);
     expect(deliveries).toEqual([
       expect.objectContaining({ channel: 'in_app', status: 'sent' }),
-      expect.objectContaining({ channel: 'sms', status: 'skipped' }),
+      expect.objectContaining({ channel: 'sms', status: 'sent' }),
     ]);
   });
 });

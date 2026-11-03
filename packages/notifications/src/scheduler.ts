@@ -6,6 +6,7 @@ import { escalationMessage } from './templates/escalation';
 
 export class ApprovalReminderScheduler {
   private intervalId: NodeJS.Timeout | null = null;
+  private running = false;
 
   constructor(
     private approvalRecordRepo: IApprovalRecordRepo,
@@ -27,44 +28,60 @@ export class ApprovalReminderScheduler {
   }
 
   async tick(): Promise<void> {
-    const overdueRecords = await this.approvalRecordRepo.findPendingOverdue();
+    if (this.running) return;
+    this.running = true;
+    try {
+      const overdueRecords = await this.approvalRecordRepo.findPendingOverdue();
 
-    for (const record of overdueRecords) {
-      try {
-        const report = await this.expenseRepo.findById(record.reportId);
-        if (!report) continue;
+      for (const record of overdueRecords) {
+        if (record.escalatedAt) continue;
 
-        const approvers = await this.findApproversForRecord(record, report);
-        if (approvers.length === 0) continue;
+        try {
+          const report = await this.expenseRepo.findById(record.reportId);
+          if (!report) continue;
 
-        const isEscalation = record.reminderSentAt != null;
-        const triggerType = isEscalation
-          ? NotificationTriggerType.ESCALATION
-          : NotificationTriggerType.APPROVAL_REMINDER;
+          const approvers = await this.findApproversForRecord(record, report);
+          if (approvers.length === 0) continue;
 
-        for (const approver of approvers) {
-          const messages = isEscalation
-            ? escalationMessage(report.title, approver.name)
-            : reminderMessage(report.title, approver.name);
+          const isEscalation = record.reminderSentAt != null;
+          const triggerType = isEscalation
+            ? NotificationTriggerType.ESCALATION
+            : NotificationTriggerType.APPROVAL_REMINDER;
 
-          await this.notificationEngine.send(
-            approver.id,
-            triggerType,
-            messages.email.subject,
-            messages.sms,
-            ['sms', 'email'],
-            { emailBody: messages.email.body },
-          );
+          let sentAny = false;
+          for (const approver of approvers) {
+            const messages = isEscalation
+              ? escalationMessage(report.title, approver.name)
+              : reminderMessage(report.title, approver.name);
+
+            try {
+              const log = await this.notificationEngine.send(
+                approver.id,
+                triggerType,
+                messages.email.subject,
+                messages.sms,
+                ['sms', 'email'],
+                { emailBody: messages.email.body },
+              );
+              if (log) sentAny = true;
+            } catch (err) {
+              console.error(`[Scheduler] 发送提醒给 ${approver.id} 失败:`, err);
+            }
+          }
+
+          if (!sentAny) continue;
+
+          if (isEscalation) {
+            await this.approvalRecordRepo.markEscalated(record.id);
+          } else {
+            await this.approvalRecordRepo.markReminderSent(record.id);
+          }
+        } catch (err) {
+          console.error(`[Scheduler] 处理审批记录 ${record.id} 失败:`, err);
         }
-
-        if (isEscalation) {
-          await this.approvalRecordRepo.markEscalated(record.id);
-        } else {
-          await this.approvalRecordRepo.markReminderSent(record.id);
-        }
-      } catch (err) {
-        console.error(`[Scheduler] 处理审批记录 ${record.id} 失败:`, err);
       }
+    } finally {
+      this.running = false;
     }
   }
 

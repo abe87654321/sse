@@ -10,7 +10,7 @@ export interface SendOptions {
 
 const DEFAULT_PREFS: NotifyPrefs = {
   sms: { reminder: true, escalation: true, rejected: true, paid: false },
-  email: { rejected: true, paid: false },
+  email: { rejected: true, paid: false, reminder: true, escalation: true },
   broadcast: true,
   in_app: { rejected: true, paid: true, broadcast: true },
 };
@@ -142,7 +142,10 @@ export class NotificationEngine {
     if (type === 'welcome') return channel === 'email';
     const prefKey = type === 'approval_reminder' ? 'reminder' : type;
     const bucket = channel === 'sms' ? prefs?.sms : prefs?.email;
-    return Boolean(bucket && (bucket as Record<string, boolean>)[prefKey]);
+    const value = bucket ? (bucket as Record<string, boolean | undefined>)[prefKey] : undefined;
+    if (value !== undefined) return Boolean(value);
+    const defaults = channel === 'sms' ? DEFAULT_PREFS.sms : DEFAULT_PREFS.email;
+    return Boolean((defaults as Record<string, boolean | undefined>)[prefKey]);
   }
 
   private async sendBounceAlert(user: any, channel: string, title: string, errorMessage?: string) {

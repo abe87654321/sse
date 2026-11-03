@@ -30,7 +30,8 @@ export class PgApprovalRecordRepo implements IApprovalRecordRepo {
     const { rows } = await pool.query(
       `SELECT ar.* FROM approval_records ar
        WHERE ar.result = 'pending'
-         AND ar.step_started_at < NOW() - INTERVAL '24 hours'`
+         AND ar.step_started_at < NOW() - INTERVAL '24 hours'
+         AND ar.escalated_at IS NULL`
     );
     return rows.map(mapRecord);
   }
