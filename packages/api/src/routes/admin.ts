@@ -3,7 +3,9 @@ import { PgUserRepo, PgApprovalRuleRepo, pool } from '@sse/db';
 import { authMiddleware } from '@sse/auth';
 import { requireRole } from '../middleware/rbac';
 import { UserRole } from '@sse/shared';
+import { welcomeMessage } from '@sse/notifications';
 import { AppError } from '../middleware/error';
+import { sendNotificationSafe } from '../services/notifications';
 
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -136,7 +138,9 @@ router.post(
       [name, phone, email || null, department, role]
     );
 
-    res.status(201).json(mapUserRow(rows[0]));
+    const created = mapUserRow(rows[0]);
+    await sendNotificationSafe(created.id, welcomeMessage({ name: created.name }));
+    res.status(201).json(created);
   })
 );
 

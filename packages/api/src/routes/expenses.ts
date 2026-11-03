@@ -12,6 +12,8 @@ import {
 } from '@sse/db';
 import { ReportService, aggregateVerificationStatus, planItemSync, verifyInvoices } from '@sse/core';
 import { ReportStatus, InvoiceFormat, UserRole, ApprovalResult } from '@sse/shared';
+import { paymentPaidMessage } from '@sse/notifications';
+import { sendNotificationSafe } from '../services/notifications';
 import type { ExpenseQuery, VerificationSourceInvoice } from '@sse/core';
 import type { PaymentReceipt } from '@sse/shared';
 import { authMiddleware } from '@sse/auth';
@@ -515,6 +517,11 @@ router.post(
     });
 
     const updated = await expenseRepo.findById(id);
+
+    await sendNotificationSafe(
+      report.userId,
+      paymentPaidMessage({ serialNo: report.serialNo, title: report.title }),
+    );
 
     if (receipt) queuePaymentReceiptVerification(receipt.id);
 

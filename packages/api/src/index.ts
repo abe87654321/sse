@@ -59,24 +59,14 @@ let paymentReceiptTimer: NodeJS.Timeout | null = null;
 
 async function startScheduler() {
   try {
-    const { PgApprovalRecordRepo, PgNotificationLogRepo, PgUserRepo, PgExpenseRepo } = await import('@sse/db');
-    const { NotificationService, ApprovalReminderScheduler } = await import('@sse/notifications');
-
-    const smsProvider = !process.env.SMS_PROVIDER || process.env.SMS_PROVIDER === 'dev' || process.env.SMS_PROVIDER === 'log'
-      ? new (await import('@sse/notifications')).DevSmsProvider()
-      : (await import('@sse/notifications')).createSmsProvider();
-    const emailProvider = !process.env.EMAIL_PROVIDER || process.env.EMAIL_PROVIDER === 'dev' || process.env.EMAIL_PROVIDER === 'log'
-      ? new (await import('@sse/notifications')).DevEmailProvider()
-      : (await import('@sse/notifications')).createEmailProvider();
-
-    const notificationService = new NotificationService(smsProvider, emailProvider);
+    const { PgApprovalRecordRepo, PgUserRepo, PgExpenseRepo } = await import('@sse/db');
+    const { ApprovalReminderScheduler, createNotificationEngine } = await import('@sse/notifications');
 
     schedulerInstance = new ApprovalReminderScheduler(
       new PgApprovalRecordRepo(),
-      new PgNotificationLogRepo(),
       new PgUserRepo(),
       new PgExpenseRepo(),
-      notificationService,
+      createNotificationEngine(),
     );
 
     schedulerInstance.start();
