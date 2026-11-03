@@ -2,6 +2,12 @@ import type { INotificationRepo, IUserRepo } from '@sse/core';
 import type { NotificationLog, NotifyPrefs } from '@sse/shared';
 import type { NotificationService } from './notification-service';
 
+export interface SendOptions {
+  notifyPrefs?: NotifyPrefs;
+  systemMessageId?: string;
+  emailBody?: string;
+}
+
 export class NotificationEngine {
   constructor(
     private notificationRepo: INotificationRepo,
@@ -15,13 +21,14 @@ export class NotificationEngine {
     title: string,
     body: string,
     channels: ('sms' | 'email')[],
-    notifyPrefs?: NotifyPrefs,
+    options: SendOptions = {},
   ): Promise<NotificationLog> {
     const notification = await this.notificationRepo.create({
       user_id: userId,
       type,
       title,
       body,
+      system_message_id: options.systemMessageId,
     });
 
     await this.notificationRepo.createDelivery({
@@ -30,10 +37,19 @@ export class NotificationEngine {
       status: 'sent',
     });
 
-    const prefs = notifyPrefs || await this.getDefaultPrefs(userId);
+    const prefs = options.notifyPrefs || await this.getDefaultPrefs(userId);
 
     for (const channel of channels) {
-      await this.tryDeliverChannel(notification.id, userId, channel, title, body, type, prefs);
+      await this.tryDeliverChannel(
+        notification.id,
+        userId,
+        channel,
+        title,
+        body,
+        type,
+        prefs,
+        options.emailBody,
+      );
     }
 
     return notification;
@@ -45,10 +61,14 @@ export class NotificationEngine {
     title: string,
     body: string,
     channels: ('sms' | 'email')[],
+    systemMessageId?: string,
   ): Promise<void> {
     for (const userId of userIds) {
       const prefs = await this.getUserNotifyPrefs(userId);
-      await this.send(userId, type, title, body, channels, prefs || undefined);
+      await this.send(userId, type, title, body, channels, {
+        notifyPrefs: prefs,
+        systemMessageId,
+      });
     }
   }
 
@@ -60,6 +80,7 @@ export class NotificationEngine {
     body: string,
     type: string,
     prefs: NotifyPrefs,
+    emailBody?: string,
   ) {
     const enabled = this.isChannelEnabled(channel, type, prefs);
     if (!enabled) {
@@ -80,7 +101,7 @@ export class NotificationEngine {
         success = await this.notificationService.sendSms(user.phone, `${title}: ${body}`);
       } else if (channel === 'email' && user.email) {
         attempted = true;
-        success = await this.notificationService.sendEmail(user.email, title, body);
+        success = await this.notificationService.sendEmail(user.email, title, emailBody ?? body);
       }
     } catch (err: any) {
       errorMessage = err.message;
@@ -108,10 +129,10 @@ export class NotificationEngine {
   }
 
   private isChannelEnabled(channel: 'sms' | 'email', type: string, prefs: NotifyPrefs): boolean {
-    if (type === 'broadcast' || type === 'welcome') return prefs.broadcast;
-    if (channel === 'sms') return !!(prefs.sms as any)[type];
-    if (channel === 'email') return !!(prefs.email as any)[type];
-    return false;
+    if (type === 'broadcast') return prefs.broadcast;
+    if (type === 'welcome') return channel === 'email';
+    const bucket = channel === 'sms' ? prefs.sms : prefs.email;
+    return Boolean((bucket as Record<string, boolean>)[type]);
   }
 
   private async sendBounceAlert(user: any, channel: string, title: string, errorMessage?: string) {
