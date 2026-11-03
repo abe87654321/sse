@@ -283,3 +283,39 @@ pnpm build
 - @sse/core 测试通过（33 tests）。
 - ai/ontology/db/api/mcp/web 构建通过。
 - 运行时冒烟（真实 Ollama、管理员登录、+/− 选择、OCR 样例上传）需在具备服务和测试库的环境手动执行。
+
+---
+
+## 阶段二十二：会话收尾与合并
+
+### 最终评审修复
+- 管理端 AI 接口限流从 5 次/分钟提高到 30 次/分钟，避免首次配置流程误触发 429。
+- `mineruTokenSet` 改为只反映规范化配置，避免 UI 显示「已配置」但运行时不再使用 env token。
+- 模型对话框确认时只合并 `fillEngine`，保留尚未保存的 OCR 表单编辑。
+- 新增 `@sse/api` Jest 配置与 17 个测试，覆盖模型探测/连接检测/上传签名校验。
+- `ai-config.json` 写入权限改为 0600；模型清单归一化使用 `Object.create(null)` 防止原型污染。
+- 最终全量评审通过，无 Critical/Important 阻塞项。
+
+### 合并与推送
+- `feat/admin-engine-usability` 已合并到本地 `master`（fast-forward）。
+- 合并后测试：`@sse/ai` 60、`@sse/api` 17、`@sse/core` 33，全部通过。
+- 已推送 `origin/master`：`e346468..232144f`。
+- 功能分支已删除。
+
+### 待手动验证
+- 在具备 PostgreSQL/MinIO/真实 Ollama 的环境启动 API/Web，用管理员登录验证：
+  - 根地址检测（模型列表 + 最小对话）
+  - 模型列表搜索/分类/刷新/`+`/`−`
+  - 保存后刷新仍保留模型清单
+  - OCR 内置样例与上传样例、失败建议、历史记录
+- 工作区仍有未跟踪文件 `packages/web/public/architecture.html`、`packages/web/public/documents/`，本次未处理。
+
+### 本阶段主要提交
+| Commit | 说明 |
+|---|---|
+| `71c741e` | AI 配置与模型清单纯逻辑 |
+| `e202aae` | 配置接入与 apiKey 透传 |
+| `8c5f455` | 管理端引擎检测/模型/OCR 测试接口 |
+| `cf486a5` | Admin 页面接入 |
+| `f4584de` | 稳定 Admin 配置状态与错误处理 |
+| `232144f` | 最终评审修复与 API 测试 |
