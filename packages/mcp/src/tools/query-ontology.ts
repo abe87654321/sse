@@ -2,6 +2,7 @@ import type { ToolDefinition, ToolResult } from "./types.js";
 import { errorResult, successResult } from "./types.js";
 import { resolveAuthContext } from "../auth.js";
 import { getEngine } from "./get-engine.js";
+import { scopeGraphForUser } from "@sse/ontology";
 
 export const definition: ToolDefinition = {
   name: "query_ontology",
@@ -19,11 +20,17 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
   if (!auth) return errorResult("UNAUTHORIZED", "无效或缺失 API key");
   try {
     const engine = getEngine();
+    const graph = scopeGraphForUser(engine.store.getGraph(), {
+      role: auth.role,
+      userId: auth.userId,
+      department: auth.department,
+    });
     if (args.type) {
-      const entities = engine.store.queryByType(args.type as string);
+      const entities = graph.nodes
+        .filter(node => node.type === args.type)
+        .map(node => ({ uri: node.id, properties: node.properties }));
       return successResult({ type: args.type, count: entities.length, entities });
     }
-    const graph = engine.store.getGraph();
     const typeCounts: Record<string, number> = {};
     for (const node of graph.nodes) { typeCounts[node.type] = (typeCounts[node.type] || 0) + 1; }
     return successResult({ summary: { total_nodes: graph.nodes.length, total_edges: graph.edges.length, type_counts: typeCounts }, graph });

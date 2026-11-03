@@ -3,6 +3,7 @@ import { errorResult, successResult } from "./types.js";
 import { resolveAuthContext } from "../auth.js";
 import { getEngine } from "./get-engine.js";
 import { executeSparql } from "@sse/ontology";
+import { UserRole } from "@sse/shared";
 
 export const definition: ToolDefinition = {
   name: "query_sparql",
@@ -19,6 +20,9 @@ export const definition: ToolDefinition = {
 export async function handler(args: Record<string, unknown>): Promise<ToolResult> {
   const auth = resolveAuthContext(args);
   if (!auth) return errorResult("UNAUTHORIZED", "无效或缺失 API key");
+  if (auth.role !== UserRole.ADMIN && auth.role !== UserRole.FINANCE) {
+    return errorResult("FORBIDDEN", "仅管理员和财务可执行 SPARQL 查询");
+  }
   try {
     const engine = getEngine();
     const store = engine.store.getStore();

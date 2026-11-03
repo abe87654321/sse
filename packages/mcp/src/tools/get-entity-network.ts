@@ -2,7 +2,7 @@ import type { ToolDefinition, ToolResult } from "./types.js";
 import { errorResult, successResult } from "./types.js";
 import { resolveAuthContext } from "../auth.js";
 import { getEngine } from "./get-engine.js";
-import type { GraphNode, GraphEdge } from "@sse/ontology";
+import { scopeGraphForUser } from "@sse/ontology";
 
 export const definition: ToolDefinition = {
   name: "get_entity_network",
@@ -25,8 +25,15 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
   if (!entityId) return errorResult("INVALID_PARAMS", "请提供 entity_id");
   try {
     const engine = getEngine();
-    const graph = engine.store.getGraph();
+    const graph = scopeGraphForUser(engine.store.getGraph(), {
+      role: auth.role,
+      userId: auth.userId,
+      department: auth.department,
+    });
     const targetUri = entityId.includes("://") ? entityId : `https://sse.local/${entityId}`;
+    if (!graph.nodes.some(node => node.id === targetUri)) {
+      return errorResult("FORBIDDEN", "无权访问该实体");
+    }
     const visited = new Set<string>();
     const neighborhoodNodes: typeof graph.nodes = [];
     const neighborhoodEdges: typeof graph.edges = [];

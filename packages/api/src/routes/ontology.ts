@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { OntologyEngine } from '@sse/ontology';
+import { OntologyEngine, scopeGraphForUser } from '@sse/ontology';
 import { authMiddleware } from '@sse/auth';
 import { UserRole } from '@sse/shared';
 import { AppError } from '../middleware/error';
@@ -16,51 +16,24 @@ function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Prom
 
 router.use(authMiddleware);
 
-function filterGraph(graph: { nodes: any[]; edges: any[] }, role: string, userId: string, department: string) {
-  if (role === UserRole.ADMIN || role === UserRole.FINANCE) return graph;
+function scopedGraph(req: Request) {
+  return scopeGraphForUser(getEngine().store.getGraph(), {
+    role: req.user!.role,
+    userId: req.user!.userId,
+    department: req.user!.department,
+  });
+}
 
-  const keepNodes = new Set<string>();
-
-  if (role === UserRole.DEPT_APPROVER && department) {
-    for (const node of graph.nodes) {
-      const label = (node.label || '').toLowerCase();
-      const nodeDept = (node.properties?.department || '').toLowerCase();
-      if (label === department.toLowerCase() || nodeDept === department.toLowerCase()) {
-        keepNodes.add(node.id);
-      }
-    }
-    // BFS one hop from department nodes
-    for (const edge of graph.edges) {
-      if (keepNodes.has(edge.from)) keepNodes.add(edge.to);
-      if (keepNodes.has(edge.to)) keepNodes.add(edge.from);
-    }
-  } else {
-    // Employee: find own person node
-    for (const node of graph.nodes) {
-      if (node.id.includes(userId)) {
-        keepNodes.add(node.id);
-        break;
-      }
-    }
-    if (keepNodes.size === 0) {
-      // fallback: try matching by label containing user's name pattern
-      for (const node of graph.nodes) {
-        if (node.type === 'Person') keepNodes.add(node.id);
-      }
-    }
-    // BFS two hops from owned nodes
-    for (let hop = 0; hop < 2; hop++) {
-      for (const edge of graph.edges) {
-        if (keepNodes.has(edge.from)) keepNodes.add(edge.to);
-        if (keepNodes.has(edge.to)) keepNodes.add(edge.from);
-      }
-    }
+function assertOntologyAdmin(role: string) {
+  if (role !== UserRole.ADMIN) {
+    throw new AppError(403, 'UNAUTHORIZED', '仅管理员可修改本体数据');
   }
+}
 
-  return {
-    nodes: graph.nodes.filter((n: any) => keepNodes.has(n.id)),
-    edges: graph.edges.filter((e: any) => keepNodes.has(e.from) && keepNodes.has(e.to)),
-  };
+function assertOntologyManager(role: string) {
+  if (role !== UserRole.ADMIN && role !== UserRole.FINANCE) {
+    throw new AppError(403, 'UNAUTHORIZED', '仅管理员和财务可执行该操作');
+  }
 }
 
 async function attachAvatars(graph: { nodes: any[]; edges: any[] }): Promise<void> {
@@ -87,10 +60,11 @@ router.post('/submit-from-text', asyncWrap(async (req, res) => {
 }));
 
 router.get('/sync', asyncWrap(async (req, res) => {
+  assertOntologyAdmin(req.user!.role);
   const store = getEngine().store;
   await getEngine().mapper.syncAll();
   const warnings = store.validateGraph();
-  const graph = filterGraph(store.getGraph(), req.user!.role, req.user!.userId, req.user!.department);
+  const graph = scopedGraph(req);
   try { await store.saveToDb(); } catch { /* best effort */ }
   try {
     const dir = join(process.cwd(), 'data', 'ontology');
@@ -105,13 +79,14 @@ router.get('/sync', asyncWrap(async (req, res) => {
 router.get('/query', asyncWrap(async (req, res) => {
   const type = req.query.type as string;
   if (!type) throw new AppError(400, 'INVALID_PARAMS', '请提供 type 参数');
-  const result = getEngine().store.queryByType(type);
-  const g = { nodes: result, edges: [] as any[] };
-  await attachAvatars(g);
-  res.json(g.nodes);
+  const nodes = scopedGraph(req).nodes
+    .filter(node => node.type === type)
+    .map(node => ({ uri: node.id, properties: node.properties }));
+  res.json(nodes);
 }));
 
 router.post('/from-text', asyncWrap(async (req, res) => {
+  assertOntologyAdmin(req.user!.role);
   const { text } = req.body;
   if (!text) throw new AppError(400, 'INVALID_PARAMS', '请提供 text 描述');
 
@@ -138,7 +113,7 @@ router.post('/from-text', asyncWrap(async (req, res) => {
   }
 
   const warnings = store.validateGraph();
-  const graph = filterGraph(store.getGraph(), req.user!.role, req.user!.userId, req.user!.department);
+  const graph = scopedGraph(req);
   try { await store.saveToDb(); } catch { /* best effort */ }
   try {
     const dir = join(process.cwd(), 'data', 'ontology');
@@ -152,12 +127,13 @@ router.post('/from-text', asyncWrap(async (req, res) => {
 }));
 
 router.get('/graph', asyncWrap(async (req, res) => {
-  const graph = filterGraph(getEngine().store.getGraph(), req.user!.role, req.user!.userId, req.user!.department);
+  const graph = scopedGraph(req);
   await attachAvatars(graph);
   res.json(graph);
 }));
 
 router.put('/entity', asyncWrap(async (req, res) => {
+  assertOntologyAdmin(req.user!.role);
   const { uri, type, properties } = req.body;
   if (!uri || !type) throw new AppError(400, 'INVALID_PARAMS', '请提供 uri 和 type');
   const store = getEngine().store;
@@ -174,6 +150,7 @@ router.put('/entity', asyncWrap(async (req, res) => {
 }));
 
 router.delete('/entity', asyncWrap(async (req, res) => {
+  assertOntologyAdmin(req.user!.role);
   const uri = req.query.uri as string;
   if (!uri) throw new AppError(400, 'INVALID_PARAMS', '请提供 uri 参数');
   const store = getEngine().store;
@@ -189,6 +166,7 @@ router.delete('/entity', asyncWrap(async (req, res) => {
 }));
 
 router.post('/relation', asyncWrap(async (req, res) => {
+  assertOntologyAdmin(req.user!.role);
   const { from, to, predicate } = req.body;
   if (!from || !to || !predicate) throw new AppError(400, 'INVALID_PARAMS', '请提供 from、to 和 predicate');
   const store = getEngine().store;
@@ -204,6 +182,7 @@ router.post('/relation', asyncWrap(async (req, res) => {
 }));
 
 router.delete('/relation', asyncWrap(async (req, res) => {
+  assertOntologyAdmin(req.user!.role);
   const { from, to, predicate } = req.body;
   if (!from || !to || !predicate) throw new AppError(400, 'INVALID_PARAMS', '请提供 from、to 和 predicate');
   const store = getEngine().store;
@@ -218,7 +197,8 @@ router.delete('/relation', asyncWrap(async (req, res) => {
   res.json({ message: '关系已删除' });
 }));
 
-router.post('/reason', asyncWrap(async (_req, res) => {
+router.post('/reason', asyncWrap(async (req, res) => {
+  assertOntologyManager(req.user!.role);
   const store = getEngine().store;
   const { Reasoner } = await import('@sse/ontology');
   const { PgReasoningRuleRepo } = await import('@sse/db');
@@ -231,10 +211,7 @@ router.post('/reason', asyncWrap(async (_req, res) => {
 }));
 
 router.post('/sparql', asyncWrap(async (req, res) => {
-  const { role } = req.user!;
-  if (role !== 'admin' && role !== 'finance') {
-    throw new AppError(403, 'UNAUTHORIZED', '仅管理员和财务可执行 SPARQL 查询');
-  }
+  assertOntologyManager(req.user!.role);
   const { query } = req.body;
   if (!query) throw new AppError(400, 'INVALID_PARAMS', '请提供 query');
   const store = getEngine().store;

@@ -304,6 +304,7 @@ External Systems (HR / LDAP / 企业微信)
 | [打款回单核对设计](docs/superpowers/specs/2026-11-02-payment-receipt-verification-design.md) | Payment reference / receipt, OCR suspicion, correction / revert audit |
 | [管理端引擎设置设计](docs/superpowers/specs/2026-11-02-admin-engine-usability-design.md) | Root URL, API key, model picker, OCR test observability |
 | [报销列表与分页设计](docs/superpowers/specs/2026-11-02-expense-list-category-applicant-design.md) | Applicant / category columns + server-side pagination |
+| [本体访问控制修复 (2026-11-03)](docs/2026-11-03-ontology-access-control.md) | Role-scoped graph, REST/MCP query hardening, admin-only writes |
 
 ---
 
@@ -312,6 +313,8 @@ External Systems (HR / LDAP / 企业微信)
 - **2026-11-02** — Invoice AI verification, payment receipt OCR + audit, admin engine setup,
   expense list applicant/category + server-side pagination, MCP consistency fixes,
   full migration runner.
+- **2026-11-03** — Ontology access control: role-scoped graph for REST and MCP, admin-only
+  ontology writes.
 
 ---
 
