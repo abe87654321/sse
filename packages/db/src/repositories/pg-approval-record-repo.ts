@@ -29,7 +29,6 @@ export class PgApprovalRecordRepo implements IApprovalRecordRepo {
   async findPendingOverdue(): Promise<ApprovalRecord[]> {
     const { rows } = await pool.query(
       `SELECT ar.* FROM approval_records ar
-       JOIN approval_rules arule ON arule.is_active = true
        WHERE ar.result = 'pending'
          AND ar.step_started_at < NOW() - INTERVAL '24 hours'`
     );

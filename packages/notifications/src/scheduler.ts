@@ -1,6 +1,6 @@
-import type { IApprovalRecordRepo, INotificationLogRepo, IUserRepo, IExpenseRepo } from '@sse/core';
+import type { IApprovalRecordRepo, IUserRepo, IExpenseRepo } from '@sse/core';
 import { NotificationTriggerType } from '@sse/shared';
-import type { NotificationService } from './notification-service';
+import type { NotificationEngine } from './notification-engine';
 import { reminderMessage } from './templates/reminder';
 import { escalationMessage } from './templates/escalation';
 
@@ -9,10 +9,9 @@ export class ApprovalReminderScheduler {
 
   constructor(
     private approvalRecordRepo: IApprovalRecordRepo,
-    private notificationLogRepo: INotificationLogRepo,
     private userRepo: IUserRepo,
     private expenseRepo: IExpenseRepo,
-    private notificationService: NotificationService,
+    private notificationEngine: NotificationEngine,
   ) {}
 
   start(): void {
@@ -48,18 +47,14 @@ export class ApprovalReminderScheduler {
             ? escalationMessage(report.title, approver.name)
             : reminderMessage(report.title, approver.name);
 
-          await this.sendSmsAndLog(record.id, record.reportId, approver.phone, messages.sms, triggerType);
-
-          if (approver.email) {
-            await this.sendEmailAndLog(
-              record.id,
-              record.reportId,
-              approver.email,
-              messages.email.subject,
-              messages.email.body,
-              triggerType,
-            );
-          }
+          await this.notificationEngine.send(
+            approver.id,
+            triggerType,
+            messages.email.subject,
+            messages.sms,
+            ['sms', 'email'],
+            { emailBody: messages.email.body },
+          );
         }
 
         if (isEscalation) {
@@ -84,48 +79,5 @@ export class ApprovalReminderScheduler {
     const department = reporter?.department;
 
     return this.userRepo.findByRole(record.approverId, department);
-  }
-
-  private async sendSmsAndLog(
-    recipientId: string,
-    reportId: string,
-    phone: string,
-    content: string,
-    triggerType: NotificationTriggerType,
-  ): Promise<void> {
-    try {
-      await this.notificationService.sendSms(phone, content);
-    } catch {
-      // SMS_FAILED silently for now
-    }
-
-    await this.notificationLogRepo.create({
-      user_id: recipientId,
-      type: triggerType,
-      title: '审批提醒',
-      body: content,
-    });
-  }
-
-  private async sendEmailAndLog(
-    recipientId: string,
-    reportId: string,
-    email: string,
-    subject: string,
-    body: string,
-    triggerType: NotificationTriggerType,
-  ): Promise<void> {
-    try {
-      await this.notificationService.sendEmail(email, subject, body);
-    } catch {
-      // EMAIL_FAILED silently for now
-    }
-
-    await this.notificationLogRepo.create({
-      user_id: recipientId,
-      type: triggerType,
-      title: subject,
-      body,
-    });
   }
 }
