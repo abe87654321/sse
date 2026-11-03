@@ -96,11 +96,14 @@
           <div class="notify-group">
             <h4>SMS 通知</h4>
             <label><input type="checkbox" v-model="notifyPrefs.sms.reminder" /> 审批提醒</label>
+            <label><input type="checkbox" v-model="notifyPrefs.sms.escalation" /> 超时升级催办</label>
             <label><input type="checkbox" v-model="notifyPrefs.sms.rejected" /> 驳回通知</label>
             <label><input type="checkbox" v-model="notifyPrefs.sms.paid" /> 付款通知</label>
           </div>
           <div class="notify-group">
             <h4>邮件通知</h4>
+            <label><input type="checkbox" v-model="notifyPrefs.email.reminder" /> 审批提醒</label>
+            <label><input type="checkbox" v-model="notifyPrefs.email.escalation" /> 超时升级催办</label>
             <label><input type="checkbox" v-model="notifyPrefs.email.rejected" /> 驳回通知</label>
             <label><input type="checkbox" v-model="notifyPrefs.email.paid" /> 付款通知</label>
           </div>
@@ -177,8 +180,8 @@ const passwordError = ref('')
 const passwordSuccess = ref('')
 
 const notifyPrefs = reactive({
-  sms: { reminder: true, rejected: true, paid: false },
-  email: { rejected: true, paid: false },
+  sms: { reminder: true, escalation: true, rejected: true, paid: false },
+  email: { reminder: true, escalation: true, rejected: true, paid: false },
   broadcast: true,
 })
 
