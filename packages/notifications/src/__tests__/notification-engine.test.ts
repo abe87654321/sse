@@ -230,7 +230,7 @@ describe('NotificationEngine', () => {
     expect(notifications).toHaveLength(1);
     expect(deliveries).toEqual([
       expect.objectContaining({ channel: 'in_app', status: 'sent' }),
-      expect.objectContaining({ channel: 'sms', status: 'sent' }),
+      expect.objectContaining({ channel: 'sms', status: 'skipped' }),
     ]);
   });
 });

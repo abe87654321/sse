@@ -31,6 +31,7 @@ export class PgApprovalRecordRepo implements IApprovalRecordRepo {
       `SELECT ar.* FROM approval_records ar
        WHERE ar.result = 'pending'
          AND ar.step_started_at < NOW() - INTERVAL '24 hours'
+         AND (ar.reminder_sent_at IS NULL OR ar.reminder_sent_at < NOW() - INTERVAL '24 hours')
          AND ar.escalated_at IS NULL`
     );
     return rows.map(mapRecord);

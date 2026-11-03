@@ -2,7 +2,7 @@
 
 > 日期：2026-11-03 | 会话记录
 > 本次会话覆盖：业务事件通知、调度器统一走引擎、广播送达追踪、通知偏好补全。
-> 迁移：`012_notification_system_message_link.sql`
+> 迁移：`012_notification_system_message_link.sql`、`013_notification_pref_defaults.sql`
 
 ---
 
@@ -36,8 +36,9 @@
 - 新增 `createNotificationEngine()`（`factory.ts`），统一选择 SMS/Email provider，并按需懒加载 `@sse/db`。
 - 新增事件构造器（`events.ts`）：
   - `expenseApprovedMessage`：审批通过（站内）。
-  - `expenseRejectedMessage`：驳回（站内 + 邮件，带驳回原因，HTML 转义）。
-  - `paymentPaidMessage`：打款完成（站内 + 短信）。
+  - `expenseRejectedMessage`：驳回（请求 SMS + 邮件，带驳回原因，HTML 转义）。默认偏好下实际只发邮件。
+  - `paymentPaidMessage`：打款完成（请求 SMS + 邮件）。默认偏好下实际只发短信。
+  - 两个事件都同时请求短信和邮件，具体发哪个渠道由用户偏好决定，因此 Profile 里的两个渠道开关都能真正生效。
   - `welcomeMessage`：新用户欢迎（邮件）。
 
 ### 3. 调度器
@@ -46,7 +47,8 @@
 - 修正收件人：使用审批人用户 ID，不再误用审批记录 ID。
 - 审批记录带 `escalated_at` 后停止重复处理。
 - 增加 `running` 重入保护，避免上一轮未结束时并发扫描。
-- 只有至少一次发送返回日志时才标记 `reminder_sent_at` / `escalated_at`，避免发送全失败却被认为已通知。
+- 升级前有 24 小时缓冲：`findPendingOverdue` 要求 `reminder_sent_at` 为空或早于 24 小时前，即 24 小时发首次提醒，提醒后再过 24 小时才升级，不会在下一轮扫描立即升级。
+- 标记时机：用户不存在时 `send` 返回 `null`，不标记，下一轮会重试；外部渠道（短信/邮件）发送失败会为管理员生成 `bounce_alert`，但该审批记录仍会标记 `reminder_sent_at` / `escalated_at`，避免每 15 分钟重复通知、造成通知风暴。
 - 清理 `findPendingOverdue` 中无意义的 JOIN。
 
 ### 4. 业务事件接线
@@ -69,6 +71,8 @@
 ### 6. 通知偏好
 
 - `Profile.vue` 补齐 SMS/邮件两个渠道的「超时提醒」「超时升级催办」「驳回通知」「打款通知」开关，以及广播开关。
+- 默认值对齐设计：短信默认 `reminder/escalation/paid` 开、`rejected` 关；邮件默认 `reminder/escalation/rejected` 开、`paid` 关。即驳回默认走邮件、打款默认走短信。
+- 前端、引擎 `DEFAULT_PREFS` 与迁移 013 三处默认值保持一致。
 - 读取偏好时在默认值上做深合并，接口只返回部分字段也不会把缺失项清空。
 - 保留 `in_app` 偏好，保存时一并回传。
 
@@ -104,11 +108,14 @@
 
 ## 部署
 
-### 迁移 012
+### 迁移 012 与 013
 
-新 API 代码会写入/查询 `notification_logs.system_message_id`，必须在重启 API 前应用：
+两组迁移都必须在重启 API 前应用：
 
-`packages/db/src/migrations/012_notification_system_message_link.sql`
+- `packages/db/src/migrations/012_notification_system_message_link.sql`：新 API 代码会写入/查询 `notification_logs.system_message_id`。
+- `packages/db/src/migrations/013_notification_pref_defaults.sql`：更新 `users.notify_prefs` 的列默认值，使新用户的默认渠道与设计一致（驳回默认邮件、打款默认短信）；已有用户的偏好不被改写。
+
+012：
 
 ```sql
 ALTER TABLE notification_logs
@@ -118,7 +125,18 @@ CREATE INDEX IF NOT EXISTS idx_notification_logs_system_message
   ON notification_logs(system_message_id);
 ```
 
-脚本使用 `IF NOT EXISTS`，可重复执行。推荐用迁移执行器：
+013：
+
+```sql
+ALTER TABLE users ALTER COLUMN notify_prefs SET DEFAULT '{
+  "sms": {"reminder": true, "escalation": true, "rejected": false, "paid": true},
+  "email": {"reminder": true, "escalation": true, "rejected": true, "paid": false},
+  "broadcast": true,
+  "in_app": {"rejected": true, "paid": true, "broadcast": true}
+}'::jsonb;
+```
+
+012 使用 `IF NOT EXISTS`，013 只改默认值，均可重复执行。推荐用迁移执行器：
 
 ```bash
 DB_PORT=5433 pnpm migrate
@@ -136,13 +154,13 @@ sudo docker exec -i -e PGPASSWORD=sse_dev sse-postgres-1 \
 ```bash
 git pull
 pnpm install
-# 先迁移，再重启 API
+# 先应用 012 与 013，再重启 API
 DB_PORT=5433 pnpm migrate
 pnpm build
 # 重启 API / 前端服务
 ```
 
-关键：迁移必须先于 API 重启完成，否则新代码读写新列会报错。
+关键：迁移 012 必须先于 API 重启完成，否则新代码读写 `system_message_id` 会报错；迁移 013 保证新建用户的默认通知偏好正确。`pnpm migrate` 会按编号顺序应用两者。
 
 ---
 
@@ -152,7 +170,7 @@ pnpm build
 
 - 真实 SMTP 发送欢迎/驳回邮件，确认标题、正文、HTML 转义、失败告警。
 - 真实阿里云短信发送打款/催办短信，确认模板与签名。
-- 在真实库执行迁移 012，确认列、外键与索引创建成功。
+- 在真实库执行迁移 012 与 013，确认 `system_message_id` 列/外键/索引创建成功，且 `users.notify_prefs` 默认值已更新。
 - 端到端验证：
   - 提交报销 → 审批通过 → 申请人收到通知。
   - 驳回并填写原因 → 申请人收到驳回邮件。

@@ -26,7 +26,7 @@ export function expenseRejectedMessage(
     type: NotificationTriggerType.REJECTED,
     title: '报销单被驳回',
     body: `你的报销单 ${report.serialNo}「${report.title}」被驳回：${comment}`,
-    channels: ['email'],
+    channels: ['sms', 'email'],
     emailBody: `<p>你的报销单 ${escapeHtml(report.serialNo)}「${escapeHtml(report.title)}」被驳回：${escapeHtml(comment)}</p>`,
   };
 }
@@ -36,7 +36,7 @@ export function paymentPaidMessage(report: { serialNo: string; title: string }):
     type: NotificationTriggerType.PAID,
     title: '报销款已支付',
     body: `你的报销单 ${report.serialNo}「${report.title}」已完成打款。`,
-    channels: ['sms'],
+    channels: ['sms', 'email'],
   };
 }
 

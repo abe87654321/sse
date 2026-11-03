@@ -19,12 +19,12 @@ describe('notification events', () => {
     });
   });
 
-  it('builds a rejection message with comment and email', () => {
+  it('builds a rejection message with comment, sms and email', () => {
     expect(expenseRejectedMessage(report, '发票不符')).toEqual({
       type: NotificationTriggerType.REJECTED,
       title: '报销单被驳回',
       body: '你的报销单 RE-2026-001「差旅报销」被驳回：发票不符',
-      channels: ['email'],
+      channels: ['sms', 'email'],
       emailBody: '<p>你的报销单 RE-2026-001「差旅报销」被驳回：发票不符</p>',
     });
   });
@@ -51,12 +51,12 @@ describe('notification events', () => {
     expect(message.emailBody).toContain('被驳回：</p>');
   });
 
-  it('builds a paid message with sms', () => {
+  it('builds a paid message with sms and email', () => {
     expect(paymentPaidMessage(report)).toEqual({
       type: NotificationTriggerType.PAID,
       title: '报销款已支付',
       body: '你的报销单 RE-2026-001「差旅报销」已完成打款。',
-      channels: ['sms'],
+      channels: ['sms', 'email'],
     });
   });
 

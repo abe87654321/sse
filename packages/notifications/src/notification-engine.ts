@@ -9,8 +9,8 @@ export interface SendOptions {
 }
 
 const DEFAULT_PREFS: NotifyPrefs = {
-  sms: { reminder: true, escalation: true, rejected: true, paid: false },
-  email: { rejected: true, paid: false, reminder: true, escalation: true },
+  sms: { reminder: true, escalation: true, rejected: false, paid: true },
+  email: { reminder: true, escalation: true, rejected: true, paid: false },
   broadcast: true,
   in_app: { rejected: true, paid: true, broadcast: true },
 };
