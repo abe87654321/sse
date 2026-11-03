@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { PgNotificationRepo, PgUserRepo, pool } from '@sse/db';
+import { PgNotificationRepo, pool } from '@sse/db';
 import { authMiddleware } from '@sse/auth';
 import { requireRole } from '../middleware/rbac';
 import { UserRole } from '@sse/shared';
@@ -7,7 +7,6 @@ import { AppError } from '../middleware/error';
 
 const router = Router();
 const repo = new PgNotificationRepo();
-const userRepo = new PgUserRepo();
 
 function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => { Promise.resolve(fn(req, res, next)).catch(next); };
@@ -26,6 +25,21 @@ router.get('/:id', asyncWrap(async (req, res) => {
   const msg = await repo.findSystemMessageById(req.params.id);
   if (!msg) throw new AppError(404, 'NOT_FOUND', '消息不存在');
   res.json(msg);
+}));
+
+router.get('/:id/deliveries', asyncWrap(async (req, res) => {
+  const msg = await repo.findSystemMessageById(req.params.id);
+  if (!msg) throw new AppError(404, 'NOT_FOUND', '消息不存在');
+  const deliveries = await repo.findDeliveriesBySystemMessage(req.params.id);
+  const summary = deliveries.reduce(
+    (acc, row) => {
+      acc.total += 1;
+      acc[row.status] = (acc[row.status] || 0) + 1;
+      return acc;
+    },
+    { total: 0 } as Record<string, number>,
+  );
+  res.json({ summary, deliveries });
 }));
 
 router.post('/', asyncWrap(async (req, res) => {
@@ -51,13 +65,10 @@ router.post('/', asyncWrap(async (req, res) => {
 
   if (send_now) {
     const targetUsers = await resolveTargetUsers(roles, userIds);
-    const { NotificationEngine } = await import('@sse/notifications');
-    const { NotificationService, DevSmsProvider, DevEmailProvider, createSmsProvider, createEmailProvider } = await import('@sse/notifications');
-    const smsProvider = process.env.SMS_PROVIDER === 'dev' || process.env.SMS_PROVIDER === 'log' || !process.env.SMS_PROVIDER ? new DevSmsProvider() : createSmsProvider();
-    const emailProvider = process.env.EMAIL_PROVIDER === 'dev' || process.env.EMAIL_PROVIDER === 'log' || !process.env.EMAIL_PROVIDER ? new DevEmailProvider() : createEmailProvider();
-    const engine = new NotificationEngine(repo, userRepo, new NotificationService(smsProvider, emailProvider));
+    const { createNotificationEngine } = await import('@sse/notifications');
+    const engine = createNotificationEngine();
     const finalBody = body_ai || body;
-    await engine.sendBatch(targetUsers, 'broadcast', title, finalBody, (delivery_channels || []).filter((c: string) => c === 'sms' || c === 'email') as ('sms' | 'email')[]);
+    await engine.sendBatch(targetUsers, 'broadcast', title, finalBody, (delivery_channels || []).filter((c: string) => c === 'sms' || c === 'email') as ('sms' | 'email')[], msg.id);
     res.status(201).json({ ...msg, sent_to: targetUsers.length });
     return;
   }
@@ -79,13 +90,10 @@ router.post('/:id/send', asyncWrap(async (req, res) => {
   if (msg.status === 'sent') throw new AppError(400, 'INVALID_PARAMS', '消息已发送');
 
   const targetUsers = await resolveTargetUsers(msg.target_roles || [], msg.target_user_ids || []);
-  const { NotificationEngine } = await import('@sse/notifications');
-  const { NotificationService, DevSmsProvider, DevEmailProvider, createSmsProvider, createEmailProvider } = await import('@sse/notifications');
-  const smsProvider = process.env.SMS_PROVIDER === 'dev' || process.env.SMS_PROVIDER === 'log' || !process.env.SMS_PROVIDER ? new DevSmsProvider() : createSmsProvider();
-  const emailProvider = process.env.EMAIL_PROVIDER === 'dev' || process.env.EMAIL_PROVIDER === 'log' || !process.env.EMAIL_PROVIDER ? new DevEmailProvider() : createEmailProvider();
-  const engine = new NotificationEngine(repo, userRepo, new NotificationService(smsProvider, emailProvider));
+  const { createNotificationEngine } = await import('@sse/notifications');
+  const engine = createNotificationEngine();
   const finalBody = msg.body_ai || msg.body;
-  await engine.sendBatch(targetUsers, 'broadcast', msg.title, finalBody, (msg.delivery_channels || []).filter((c: string) => c === 'sms' || c === 'email') as ('sms' | 'email')[]);
+  await engine.sendBatch(targetUsers, 'broadcast', msg.title, finalBody, (msg.delivery_channels || []).filter((c: string) => c === 'sms' || c === 'email') as ('sms' | 'email')[], msg.id);
 
   await repo.updateSystemMessage(msg.id, { status: 'sent' });
   res.json({ message: '发送成功', sent_to: targetUsers.length });

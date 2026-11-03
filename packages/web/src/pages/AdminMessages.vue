@@ -27,6 +27,7 @@
           </template>
           <template v-else>
             <span class="text-muted" style="font-size:0.82rem;">{{ formatDate(m.sent_at) }} 已发送</span>
+            <button class="btn-secondary btn-sm" @click="openDeliveries(m.id)">查看送达</button>
           </template>
         </div>
       </div>
@@ -86,6 +87,27 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showDeliveries" class="modal-overlay" @click.self="showDeliveries = false">
+      <div class="modal-card composer-modal">
+        <h3 class="form-section-title font-heading">送达统计</h3>
+        <p class="text-muted" style="font-size:0.82rem;">
+          共 {{ deliverySummary.total || 0 }} 条 · 成功 {{ deliverySummary.sent || 0 }} ·
+          失败 {{ deliverySummary.failed || 0 }} · 跳过 {{ deliverySummary.skipped || 0 }}
+        </p>
+        <div class="delivery-list">
+          <div v-for="row in deliveryRows" :key="`${row.notificationId}-${row.channel}`" class="delivery-row">
+            <span>{{ row.userName || row.userId }}</span>
+            <span>{{ row.channel }}</span>
+            <span :class="`delivery-status status-${row.status}`">{{ row.status }}</span>
+            <span v-if="row.errorMessage" class="text-muted">{{ row.errorMessage }}</span>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-text btn-sm" @click="showDeliveries = false">关闭</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -98,6 +120,9 @@ const tab = ref<'draft' | 'sent'>('draft')
 const messages = ref<any[]>([])
 const showComposer = ref(false)
 const showPolishDialog = ref(false)
+const showDeliveries = ref(false)
+const deliveryRows = ref<any[]>([])
+const deliverySummary = ref<Record<string, number>>({})
 const editingId = ref('')
 const polishedBody = ref('')
 const polishInstruction = ref('')
@@ -244,6 +269,17 @@ async function aiPolish() {
 
 function acceptPolish() { form.body = polishedBody.value; form.body_ai = polishedBody.value; polishInstruction.value = ''; showPolishDialog.value = false }
 
+async function openDeliveries(id: string) {
+  try {
+    const res = await api.get(`/admin/messages/${id}/deliveries`)
+    deliveryRows.value = res.data.deliveries || []
+    deliverySummary.value = res.data.summary || {}
+    showDeliveries.value = true
+  } catch (err: any) {
+    alert(err.response?.data?.error?.message || '加载送达统计失败')
+  }
+}
+
 onMounted(fetchMessages)
 </script>
 
@@ -275,4 +311,9 @@ onMounted(fetchMessages)
 .polish-refine { display: flex; gap: 8px; }
 .polish-refine input { flex: 1; }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.delivery-list { margin-top: 12px; max-height: 320px; overflow-y: auto; }
+.delivery-row { display: grid; grid-template-columns: 1fr 80px 70px 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--border-light); font-size: 0.82rem; }
+.delivery-status.status-sent { color: #2f9e44; }
+.delivery-status.status-failed { color: #c92a2a; }
+.delivery-status.status-skipped { color: var(--text-muted); }
 </style>
