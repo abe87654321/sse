@@ -19,8 +19,15 @@ function harness() {
     },
   };
   const users: Record<string, any> = {
-    u1: { id: 'u1', name: '张三', phone: '13800000001', email: 'a@example.com' },
-    admin: { id: 'admin', name: '管理员', phone: '13800000000', email: 'admin@example.com' },
+    u1: { id: 'u1', name: '张三', phone: '13800000001', email: 'a@example.com', notify_prefs: prefs },
+    u2: {
+      id: 'u2',
+      name: '李四',
+      phone: '13800000002',
+      email: 'b@example.com',
+      notify_prefs: { ...prefs, broadcast: false },
+    },
+    admin: { id: 'admin', name: '管理员', phone: '13800000000', email: 'admin@example.com', notify_prefs: prefs },
   };
   const userRepo = {
     async findById(id: string) {
@@ -124,5 +131,71 @@ describe('NotificationEngine', () => {
 
     expect(sentEmail).toHaveLength(1);
     expect(notifications[0].type).toBe('welcome');
+  });
+
+  it('maps approval_reminder to the reminder preference key', async () => {
+    const enabled = harness();
+
+    await enabled.engine.send(
+      'u1',
+      NotificationTriggerType.APPROVAL_REMINDER,
+      '提醒',
+      '正文',
+      ['sms'],
+      { notifyPrefs: { ...prefs, sms: { ...prefs.sms, reminder: true } } as any },
+    );
+
+    expect(enabled.sentSms).toEqual([{ phone: '13800000001', content: '提醒: 正文' }]);
+
+    const disabled = harness();
+
+    await disabled.engine.send(
+      'u1',
+      NotificationTriggerType.APPROVAL_REMINDER,
+      '提醒',
+      '正文',
+      ['sms'],
+      { notifyPrefs: { ...prefs, sms: { ...prefs.sms, reminder: false } } as any },
+    );
+
+    expect(disabled.sentSms).toHaveLength(0);
+    expect(disabled.deliveries.at(-1)).toEqual(
+      expect.objectContaining({ channel: 'sms', status: 'skipped' })
+    );
+  });
+
+  it('returns null and creates nothing for an unknown user', async () => {
+    const { engine, notifications, deliveries } = harness();
+
+    const result = await engine.send('missing', NotificationTriggerType.REJECTED, '驳回', '正文', ['sms']);
+
+    expect(result).toBeNull();
+    expect(notifications).toHaveLength(0);
+    expect(deliveries).toHaveLength(0);
+  });
+
+  it('skips broadcast for a user who disabled broadcasts', async () => {
+    const { engine, notifications, deliveries } = harness();
+
+    await engine.sendBatch(['u2'], NotificationTriggerType.BROADCAST, '公告', '正文', []);
+
+    expect(notifications).toHaveLength(0);
+    expect(deliveries).toHaveLength(0);
+  });
+
+  it('skips sms without throwing when preferences are malformed', async () => {
+    const { engine, notifications, deliveries } = harness();
+
+    await expect(
+      engine.send('u1', NotificationTriggerType.REJECTED, '驳回', '正文', ['sms'], {
+        notifyPrefs: {} as any,
+      })
+    ).resolves.toBeTruthy();
+
+    expect(notifications).toHaveLength(1);
+    expect(deliveries).toEqual([
+      expect.objectContaining({ channel: 'in_app', status: 'sent' }),
+      expect.objectContaining({ channel: 'sms', status: 'skipped' }),
+    ]);
   });
 });

@@ -1,5 +1,5 @@
 import type { INotificationRepo, IUserRepo } from '@sse/core';
-import type { NotificationLog, NotifyPrefs } from '@sse/shared';
+import type { NotificationLog, NotifyPrefs, User } from '@sse/shared';
 import type { NotificationService } from './notification-service';
 
 export interface SendOptions {
@@ -7,6 +7,13 @@ export interface SendOptions {
   systemMessageId?: string;
   emailBody?: string;
 }
+
+const DEFAULT_PREFS: NotifyPrefs = {
+  sms: { reminder: true, escalation: true, rejected: true, paid: false },
+  email: { rejected: true, paid: false },
+  broadcast: true,
+  in_app: { rejected: true, paid: true, broadcast: true },
+};
 
 export class NotificationEngine {
   constructor(
@@ -22,7 +29,14 @@ export class NotificationEngine {
     body: string,
     channels: ('sms' | 'email')[],
     options: SendOptions = {},
-  ): Promise<NotificationLog> {
+  ): Promise<NotificationLog | null> {
+    const user = await this.userRepo.findById(userId);
+    if (!user) return null;
+
+    const prefs = options.notifyPrefs ?? user.notify_prefs ?? DEFAULT_PREFS;
+
+    if (type === 'broadcast' && !prefs.broadcast) return null;
+
     const notification = await this.notificationRepo.create({
       user_id: userId,
       type,
@@ -37,12 +51,10 @@ export class NotificationEngine {
       status: 'sent',
     });
 
-    const prefs = options.notifyPrefs || await this.getDefaultPrefs(userId);
-
     for (const channel of channels) {
       await this.tryDeliverChannel(
         notification.id,
-        userId,
+        user,
         channel,
         title,
         body,
@@ -64,17 +76,17 @@ export class NotificationEngine {
     systemMessageId?: string,
   ): Promise<void> {
     for (const userId of userIds) {
-      const prefs = await this.getUserNotifyPrefs(userId);
-      await this.send(userId, type, title, body, channels, {
-        notifyPrefs: prefs,
-        systemMessageId,
-      });
+      try {
+        await this.send(userId, type, title, body, channels, { systemMessageId });
+      } catch (err) {
+        console.error('[Notification] send failed:', err);
+      }
     }
   }
 
   private async tryDeliverChannel(
     notificationId: string,
-    userId: string,
+    user: User,
     channel: 'sms' | 'email',
     title: string,
     body: string,
@@ -87,9 +99,6 @@ export class NotificationEngine {
       await this.notificationRepo.createDelivery({ notification_id: notificationId, channel, status: 'skipped' });
       return;
     }
-
-    const user = await this.userRepo.findById(userId);
-    if (!user) return;
 
     let success = false;
     let errorMessage: string | undefined;
@@ -123,46 +132,37 @@ export class NotificationEngine {
       error_message: errorMessage,
     });
 
-    if (!success) {
+    if (!success && type !== 'bounce_alert') {
       await this.sendBounceAlert(user, channel, title, errorMessage);
     }
   }
 
   private isChannelEnabled(channel: 'sms' | 'email', type: string, prefs: NotifyPrefs): boolean {
-    if (type === 'broadcast') return prefs.broadcast;
+    if (type === 'broadcast') return Boolean(prefs?.broadcast);
     if (type === 'welcome') return channel === 'email';
-    const bucket = channel === 'sms' ? prefs.sms : prefs.email;
-    return Boolean((bucket as Record<string, boolean>)[type]);
+    const prefKey = type === 'approval_reminder' ? 'reminder' : type;
+    const bucket = channel === 'sms' ? prefs?.sms : prefs?.email;
+    return Boolean(bucket && (bucket as Record<string, boolean>)[prefKey]);
   }
 
   private async sendBounceAlert(user: any, channel: string, title: string, errorMessage?: string) {
-    const admins = await this.userRepo.findByRole('admin');
-    for (const admin of admins) {
-      const bounceNotif = await this.notificationRepo.create({
-        user_id: admin.id,
-        type: 'bounce_alert',
-        title: '消息送达失败',
-        body: `向 ${user.name}(${channel === 'sms' ? user.phone : user.email}) 发送的"${title}"失败: ${errorMessage || '未知错误'}`,
-      });
-      await this.notificationRepo.createDelivery({
-        notification_id: bounceNotif.id,
-        channel: 'in_app',
-        status: 'sent',
-      });
+    try {
+      const admins = await this.userRepo.findByRole('admin');
+      for (const admin of admins) {
+        const bounceNotif = await this.notificationRepo.create({
+          user_id: admin.id,
+          type: 'bounce_alert',
+          title: '消息送达失败',
+          body: `向 ${user.name}(${channel === 'sms' ? user.phone : user.email}) 发送的"${title}"失败: ${errorMessage || '未知错误'}`,
+        });
+        await this.notificationRepo.createDelivery({
+          notification_id: bounceNotif.id,
+          channel: 'in_app',
+          status: 'sent',
+        });
+      }
+    } catch (err) {
+      console.error('[Notification] bounce alert failed:', err);
     }
-  }
-
-  private async getUserNotifyPrefs(userId: string): Promise<NotifyPrefs> {
-    const user = await this.userRepo.findById(userId);
-    return user?.notify_prefs || {
-      sms: { reminder: true, escalation: true, rejected: true, paid: false },
-      email: { rejected: true, paid: false },
-      broadcast: true,
-      in_app: { rejected: true, paid: true, broadcast: true },
-    };
-  }
-
-  private async getDefaultPrefs(userId: string): Promise<NotifyPrefs> {
-    return this.getUserNotifyPrefs(userId);
   }
 }
