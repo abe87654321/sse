@@ -1,5 +1,6 @@
 import type { PaymentAuditAction, PaymentAuditLog } from '@sse/shared';
 import { pool } from '../connection';
+import type { Queryable } from '../transaction';
 
 export type CreatePaymentAuditInput = {
   reportId: string;
@@ -25,8 +26,8 @@ function mapAudit(row: any): PaymentAuditLog {
 }
 
 export class PgPaymentAuditRepo {
-  async create(input: CreatePaymentAuditInput): Promise<PaymentAuditLog> {
-    const { rows } = await pool.query(
+  async create(input: CreatePaymentAuditInput, db: Queryable = pool): Promise<PaymentAuditLog> {
+    const { rows } = await db.query(
       `INSERT INTO payment_audit_logs (report_id, action, operator_id, reason, before, after)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,

@@ -8,6 +8,7 @@ import {
   PgPaymentReceiptRepo,
   PgPaymentAuditRepo,
   pool,
+  withTransaction,
 } from '@sse/db';
 import { ReportService, aggregateVerificationStatus, planItemSync, verifyInvoices } from '@sse/core';
 import { ReportStatus, InvoiceFormat, UserRole, ApprovalResult } from '@sse/shared';
@@ -484,24 +485,36 @@ router.post(
       throw new AppError(400, 'INVALID_PARAMS', '请填写打款凭证号或上传打款回单');
     }
 
-    const ok = await expenseRepo.markPaid(id, userId, paymentRef, paymentComment ?? undefined);
-    if (!ok) {
-      throw new AppError(409, 'PAY_STATE_CONFLICT', '报销单状态已变化，请刷新后重试');
-    }
+    await withTransaction(pool, async client => {
+      const ok = await expenseRepo.markPaid(
+        id,
+        userId,
+        paymentRef,
+        paymentComment ?? undefined,
+        client
+      );
+      if (!ok) {
+        throw new AppError(409, 'PAY_STATE_CONFLICT', '报销单状态已变化，请刷新后重试');
+      }
+
+      await paymentAuditRepo.create(
+        {
+          reportId: id,
+          action: 'mark_paid',
+          operatorId: userId,
+          before: { status: report.status },
+          after: {
+            status: ReportStatus.PAID,
+            paymentRef: paymentRef ?? null,
+            paymentComment: paymentComment ?? null,
+            receiptId: receipt?.id ?? null,
+          },
+        },
+        client
+      );
+    });
 
     const updated = await expenseRepo.findById(id);
-    await paymentAuditRepo.create({
-      reportId: id,
-      action: 'mark_paid',
-      operatorId: userId,
-      before: { status: report.status },
-      after: {
-        status: ReportStatus.PAID,
-        paymentRef: updated?.paymentRef ?? null,
-        paymentComment: updated?.paymentComment ?? null,
-        receiptId: receipt?.id ?? null,
-      },
-    });
 
     if (receipt) queuePaymentReceiptVerification(receipt.id);
 
@@ -548,26 +561,35 @@ router.put(
       receiptId: receipt?.id ?? null,
     };
 
-    const ok = await expenseRepo.updatePayment(id, {
-      paymentRef: nextRef ?? null,
-      paymentComment: nextComment ?? null,
-      updatedBy: userId,
-    });
-    if (!ok) {
-      throw new AppError(409, 'PAY_STATE_CONFLICT', '报销单状态已变化，请刷新后重试');
-    }
+    await withTransaction(pool, async client => {
+      const ok = await expenseRepo.updatePayment(
+        id,
+        {
+          paymentRef: nextRef ?? null,
+          paymentComment: nextComment ?? null,
+          updatedBy: userId,
+        },
+        client
+      );
+      if (!ok) {
+        throw new AppError(409, 'PAY_STATE_CONFLICT', '报销单状态已变化，请刷新后重试');
+      }
 
-    await paymentAuditRepo.create({
-      reportId: id,
-      action: 'update_payment',
-      operatorId: userId,
-      reason,
-      before,
-      after: {
-        paymentRef: nextRef ?? null,
-        paymentComment: nextComment ?? null,
-        receiptId: receipt?.id ?? null,
-      },
+      await paymentAuditRepo.create(
+        {
+          reportId: id,
+          action: 'update_payment',
+          operatorId: userId,
+          reason,
+          before,
+          after: {
+            paymentRef: nextRef ?? null,
+            paymentComment: nextComment ?? null,
+            receiptId: receipt?.id ?? null,
+          },
+        },
+        client
+      );
     });
 
     const updated = await expenseRepo.findById(id);
@@ -599,18 +621,23 @@ router.post(
       receiptId: receipt?.id ?? null,
     };
 
-    const ok = await expenseRepo.revertPayment(id, userId);
-    if (!ok) {
-      throw new AppError(409, 'PAY_STATE_CONFLICT', '报销单状态已变化，请刷新后重试');
-    }
+    await withTransaction(pool, async client => {
+      const ok = await expenseRepo.revertPayment(id, userId, client);
+      if (!ok) {
+        throw new AppError(409, 'PAY_STATE_CONFLICT', '报销单状态已变化，请刷新后重试');
+      }
 
-    await paymentAuditRepo.create({
-      reportId: id,
-      action: 'revert_payment',
-      operatorId: userId,
-      reason,
-      before,
-      after: { status: ReportStatus.APPROVED },
+      await paymentAuditRepo.create(
+        {
+          reportId: id,
+          action: 'revert_payment',
+          operatorId: userId,
+          reason,
+          before,
+          after: { status: ReportStatus.APPROVED },
+        },
+        client
+      );
     });
 
     res.json({ message: '已撤销打款', status: ReportStatus.APPROVED });

@@ -1,6 +1,7 @@
 import type { ExpenseReport, ExpenseItem, CreateReportDto } from '@sse/shared';
 import type { IExpenseRepo, ExpenseQuery } from '@sse/core';
 import { pool } from '../connection';
+import type { Queryable } from '../transaction';
 
 const CATEGORY_NAMES_SQL = `COALESCE(
   (SELECT array_agg(DISTINCT ec.name ORDER BY ec.name)
@@ -240,8 +241,14 @@ export class PgExpenseRepo implements IExpenseRepo {
     return rows[0];
   }
 
-  async markPaid(id: string, paidBy: string, paymentRef?: string, paymentComment?: string): Promise<boolean> {
-    const { rows } = await pool.query(
+  async markPaid(
+    id: string,
+    paidBy: string,
+    paymentRef?: string,
+    paymentComment?: string,
+    db: Queryable = pool
+  ): Promise<boolean> {
+    const { rows } = await db.query(
       `UPDATE expense_reports
           SET status = $1,
               paid_at = NOW(),
@@ -258,9 +265,10 @@ export class PgExpenseRepo implements IExpenseRepo {
 
   async updatePayment(
     id: string,
-    input: { paymentRef?: string | null; paymentComment?: string | null; updatedBy: string }
+    input: { paymentRef?: string | null; paymentComment?: string | null; updatedBy: string },
+    db: Queryable = pool
   ): Promise<boolean> {
-    const { rows } = await pool.query(
+    const { rows } = await db.query(
       `UPDATE expense_reports
           SET payment_ref = $2,
               payment_comment = $3,
@@ -274,8 +282,8 @@ export class PgExpenseRepo implements IExpenseRepo {
     return rows.length > 0;
   }
 
-  async revertPayment(id: string, updatedBy: string): Promise<boolean> {
-    const { rows } = await pool.query(
+  async revertPayment(id: string, updatedBy: string, db: Queryable = pool): Promise<boolean> {
+    const { rows } = await db.query(
       `UPDATE expense_reports
           SET status = 'approved',
               paid_at = NULL,
