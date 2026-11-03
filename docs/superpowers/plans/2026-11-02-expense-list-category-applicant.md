@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:test-driven-development where test infrastructure exists, and superpowers:verification-before-completion before claiming completion. Tasks use checkbox syntax.
 
+> **Status:** Implemented and merged to `master` (PR #2, `6f7de13`; see `docs/2026-11-02-sse-process.md`, 阶段十八). Checkboxes below are retained as the original task breakdown.
+
 **Goal:** Return applicant names and aggregated category names to the expense list/detail, and replace the fake client-side pagination with server-side paging/filtering.
 
 **Architecture:** Extend the existing read queries (`PgExpenseRepo` + the department-approver inline query) with a `users` join and a correlated category aggregation. Keep the existing role-based data scoping untouched. Rewire `ExpenseList.vue` to send `status`, `keyword`, `page`, `pageSize` and render the API's `total`.

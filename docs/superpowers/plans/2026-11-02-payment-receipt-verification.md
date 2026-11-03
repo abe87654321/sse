@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:test-driven-development for the core verifier and superpowers:verification-before-completion before claiming completion. Tasks use checkbox syntax.
 
+> **Status:** Implemented and merged to `master` (`e819e8e`; see `docs/2026-11-02-sse-process.md`, 阶段二十). Checkboxes below are retained as the original task breakdown.
+
 **Goal:** Fix the empty-payment bug, enforce reference-or-receipt, add correction + audit, and add async OCR suspicion checks for payment receipts.
 
 **Architecture:** New `payment_receipts` and `payment_audit_logs` tables, a pure core verifier, an in-process async worker plus 5-minute retry sweep, and shared Vue dialog/panel components.

@@ -42,12 +42,15 @@
 |---------|-------------|
 | 📝 **Smart Reimbursement** | Natural-language expense submission ("张三出差住宿600元") |
 | 🖼️ **Invoice OCR** | Upload PDF/OFD invoices, auto-extract data via AI vision models |
+| 🧾 **AI Invoice Verification** | Manual AI check of invoice number / amount / date; duplicate invoice detection; approver acknowledgement required on mismatch |
 | 🔀 **Configurable Approval** | Multi-step approval chains based on amount & category |
+| 💳 **Payment Receipt Verification** | Payment reference or receipt required; async OCR suspicion checks; correction / revert with audit trail; paid reports cannot be deleted |
 | 🤖 **Ontology / Knowledge Graph** | Semantic reasoning engine — multi-system data fusion, configurable inference rules, SPARQL cross-domain queries |
 | 🧠 **AI Semantic Engine** | LLM-powered entity extraction, category matching, and NL explanation |
+| ⚙️ **Admin Engine Setup** | Root URL + API key, model catalog picker, connectivity test, observable OCR test panel with history |
 | 📊 **Statistics & Export** | Charts, monthly trends, Excel export |
 | 🔔 **Notifications** | In-app + SMS + Email with per-user preferences and delivery tracking |
-| 📡 **MCP Protocol** | 13 read/write tools for AI Agent integration |
+| 📡 **MCP Protocol** | 14 read/write tools for AI Agent integration |
 | 🔗 **SCIM 2.0 + MDM** | External identity sync via SCIM and MDM Webhook |
 | 🗂️ **Object Storage** | Invoice files in MinIO, DB holds references only |
 | 🔐 **RBAC** | 4 roles with data scope isolation |
@@ -96,7 +99,7 @@ Hexagonal Architecture (Ports & Adapters) — core business logic has zero frame
 | Backend | Node.js + Express + TypeScript |
 | Database | PostgreSQL 16 (UUID PKs, JSONB, full-text) |
 | File Storage | MinIO (S3-compatible) |
-| AI / OCR | Ollama (local LLM) + MinerU / PaddleOCR |
+| AI / OCR | OpenAI-compatible LLM (Ollama / Local, optional API key) + MinerU / PaddleOCR |
 | Ontology | N3.js + RDF/JS + Custom Reasoner |
 | Messaging | SMTP (nodemailer) + Aliyun SMS |
 | Protocol | MCP (@modelcontextprotocol/sdk) + SCIM 2.0 |
@@ -146,7 +149,11 @@ pnpm dev
 | MinIO API | `localhost:9002` | 9002 |
 | MinIO Console | `localhost:9003` | 9003 |
 
-> **Default login:** `13800000001` (admin) — change password after first login.
+> **Default login:** `13800000000` (admin, password `admin123`) — change password after first login.
+
+> **Migrations:** `pnpm migrate` applies every pending SQL migration in order and records
+> applied versions in `schema_migrations`; it is safe to re-run on an existing database.
+> `pnpm migrate:rollback` requires a matching `*.down.sql`.
 
 ---
 
@@ -160,10 +167,10 @@ sse/
 │   ├── db/              # PostgreSQL repositories & migrations
 │   ├── auth/            # JWT + RBAC
 │   ├── api/             # Express REST API
-│   ├── mcp/             # MCP Server (13 tools)
+│   ├── mcp/             # MCP Server (14 tools)
 │   ├── ontology/        # OWL ontology + semantic orchestration engine
 │   ├── ocr/             # Invoice OCR (PDF/OFD)
-│   ├── ai/              # LLM provider (Ollama)
+│   ├── ai/              # LLM provider (OpenAI-compatible)
 │   ├── notifications/   # SMS/Email + scheduler
 │   └── web/             # Vue 3 SPA
 ├── docs/                # Design, deployment, process docs
@@ -176,13 +183,17 @@ sse/
 ## 🔁 Approval Workflow / 审批流程
 
 ```
-Draft ──submit──→ Pending ──all approved──→ Approved ──paid──→ Paid
+Draft ──submit──→ Pending ──all approved──→ Approved ──pay──→ Paid
   ↑                  │
   └──save draft───────┼──rejected──→ Rejected ──resubmit──→ Draft
                      │
            48h no approval → reminder
            96h no approval → escalation
 ```
+
+> Payment requires a payment reference or a receipt (at least one). Receipts are stored in
+> MinIO and OCR-checked asynchronously (`pass` / `warning` / `unverified`). Paid reports
+> cannot be deleted; finance/admin can correct or revert a payment with an audit trail.
 
 ---
 
@@ -209,7 +220,7 @@ Natural Language / 自然语言
   → NL Generator: explainable output
 ```
 
-### API Endpoints / 端点 (9 + 2)
+### API Endpoints / 端点 (12)
 
 | Endpoint | Description |
 |----------|-------------|
@@ -224,6 +235,7 @@ Natural Language / 自然语言
 | `DELETE /ontology/relation` | Delete relation |
 | `POST /ontology/reason` | Trigger reasoning engine |
 | `POST /ontology/sparql` | SPARQL cross-domain query |
+| `POST /ontology/query-expense-status` | Natural-language filters → expense status query |
 
 ### Visualization / 可视化
 
@@ -265,6 +277,7 @@ External Systems (HR / LDAP / 企业微信)
 | `validate_expense` | Compliance check + suggestions |
 | `get_entity_network` | N-hop semantic relationship network |
 | `query_ontology` | Query ontology graph by type or full graph |
+| `query_sparql` | SPARQL cross-domain query on the ontology graph |
 
 ### 🖥️ Pi Agent Calling MCP Tools / Pi 调用 MCP 工具
 
@@ -286,7 +299,19 @@ External Systems (HR / LDAP / 企业微信)
 | [UserPicker 设计](docs/2026-07-26-userpicker-design.md) | Reusable user search/select component |
 | [审批流设计器](docs/2026-07-07-workflow-organisation-design.md) | Visual drag-drop approval flow designer |
 | [实体关系与权限矩阵](docs/2026-07-07-er-permission-matrix.md) | ER diagram, RBAC data scope, permission matrix |
-| [开发过程记录 (2026-07-26)](docs/2026-07-26-sse-process.md) | Latest session progress, bug fixes, next steps |
+| [开发过程记录 (v2.6, 2026-11-02)](docs/2026-11-02-sse-process.md) | Latest session progress, payment receipt verification, migration runner, next steps |
+| [AI 发票核对设计](docs/superpowers/specs/2026-11-02-ai-invoice-verification-design.md) | Invoice field / duplicate verification + approval gating |
+| [打款回单核对设计](docs/superpowers/specs/2026-11-02-payment-receipt-verification-design.md) | Payment reference / receipt, OCR suspicion, correction / revert audit |
+| [管理端引擎设置设计](docs/superpowers/specs/2026-11-02-admin-engine-usability-design.md) | Root URL, API key, model picker, OCR test observability |
+| [报销列表与分页设计](docs/superpowers/specs/2026-11-02-expense-list-category-applicant-design.md) | Applicant / category columns + server-side pagination |
+
+---
+
+## 🆕 Recent Updates / 最近更新
+
+- **2026-11-02** — Invoice AI verification, payment receipt OCR + audit, admin engine setup,
+  expense list applicant/category + server-side pagination, MCP consistency fixes,
+  full migration runner.
 
 ---
 

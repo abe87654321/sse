@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status:** Implemented and merged to `master` (see `docs/2026-11-02-sse-process.md`, 阶段二十一/二十二). Checkboxes below are retained as the original task breakdown; some were not ticked during execution.
+
 **Goal:** 把智能填单/发票 OCR 的配置从「手写完整接口路径」改为「根地址 + 密钥 + 一键检测 + 模型清单选择」，并让 OCR 测试结果可观测、可复现。
 
 **Architecture:** 地址归一化、模型分类、配置合并、错误分类、历史截断等纯逻辑放进 `@sse/ai` 并做单元测试；API 层只负责 HTTP、文件读取和路由编排；前端抽出 `ModelPickerDialog.vue` 与 `EngineTestPanel.vue`，`Admin.vue` 只做状态编排。

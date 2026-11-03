@@ -237,7 +237,7 @@ pnpm build
 
 关键：新 API 代码会查询 payment 表，迁移必须在 API 重启前完成。
 
-已知基础设施限制：仓库的 `pnpm migrate` 目前只执行 `001_initial.sql`，不会自动应用 002–011。后续可单独改进迁移执行器。
+`pnpm migrate` 已升级为完整迁移执行器（见阶段二十三），会按编号顺序应用所有未执行的迁移，并通过 `schema_migrations` 记录版本。001/005/006 已改为幂等，可在已有库上安全重跑。
 
 ---
 
@@ -245,7 +245,7 @@ pnpm build
 
 - 回单 OCR 依赖「系统管理」中配置的 OCR 引擎；引擎不可用时状态为 `unverified`，需要在页面提示人工复核。
 - 替换回单时旧文件保留在 MinIO 中供审计，不会自动删除。
-- 审计日志目前是“先改状态、后写日志”；若要严格原子性，可把状态更新和审计写入同一事务。
+- 打款状态更新与审计日志现已写入同一事务（见阶段二十三），审计失败会回滚状态变更。
 - 替换回单/修正打款信息只允许 finance/admin；详细核对结果和审计不对普通员工展示。
 - 之前已误标 `paid` 且无凭证号的历史单据，部署后可由 finance/admin 通过「修改打款信息」补录。
 - 分页/筛选现在由服务端处理；如果后续增加按申请人姓名搜索，可复用 `applicantName` 查询参数。
@@ -319,3 +319,51 @@ pnpm build
 | `cf486a5` | Admin 页面接入 |
 | `f4584de` | 稳定 Admin 配置状态与错误处理 |
 | `232144f` | 最终评审修复与 API 测试 |
+
+---
+
+## 阶段二十三：历史遗留项清理
+
+### 迁移执行器
+
+**问题**：`pnpm migrate` 只执行 `001_initial.sql`，002–011 需要手工 `psql` 执行。
+
+**实现**：
+- 新增 `packages/db/src/migration-planner.ts`（纯逻辑）：
+  - 过滤 `.sql` 上行迁移，按编号数值排序；
+  - 对比 `schema_migrations` 计算待执行列表；
+  - 计算回滚目标与对应 `.down.sql`。
+- 重写 `packages/db/src/migrate.ts`：
+  - 启动时创建 `schema_migrations(version, applied_at)`；
+  - 使用 `pg_advisory_lock` 防止并发迁移；
+  - 每个迁移在独立事务中执行，成功后记录版本；失败回滚并停止；
+  - `up` / `down` 命令；`down` 需要存在 `<版本>.down.sql`。
+- 001/005/006 改为幂等（`IF NOT EXISTS`、触发器先 `DROP` 再建），使已有数据库首次接入新执行器时能安全重跑。
+- 新增 `@sse/db` Jest 配置与测试。
+
+### 打款审计原子性
+
+**问题**：先更新报销单状态、再写审计日志；审计写入失败会留下“已付款但无审计”的状态。
+
+**实现**：
+- 新增 `packages/db/src/transaction.ts`：`withTransaction(pool, fn)`，成功 `COMMIT`、失败 `ROLLBACK`、始终 `release`，回滚失败不掩盖原始异常。
+- `PgExpenseRepo.markPaid/updatePayment/revertPayment` 与 `PgPaymentAuditRepo.create` 支持传入事务客户端（默认仍用连接池）。
+- `POST /expenses/:id/pay`、`PUT /expenses/:id/payment`、`POST /expenses/:id/payment/revert` 的状态变更与审计写入合并到同一事务。
+
+### 其他清理
+
+- `.gitignore` 忽略生成的 `packages/web/public/architecture.html` 与 `packages/web/public/documents/`，工作区恢复干净。
+- 删除已完全合并的本地与远程分支 `fix/ai-engine-test-timeout-mineru-token`。
+- 回单 OCR 为 `unverified` 时，`PaymentReceiptPanel.vue` 已有“未识别，请人工复核”提示，无需改动。
+
+### 验证
+
+| 项 | 结果 |
+|---|---|
+| `pnpm build` | 全部包通过 |
+| `pnpm test` | core 33、auth 5、ai 60、api 17、db 13，共 128 passed |
+| `@sse/db` 新增测试 | 迁移计划 10 + 事务 3 |
+
+另外修复了 `pnpm test` 无法整体运行的问题：`@sse/shared` 与 `@sse/ocr` 有 `jest` 脚本但没有测试文件和可执行的 Jest 配置，已移除这两个无效的 `test` 脚本。
+
+> 说明：本环境无 Docker/PostgreSQL，未执行真实迁移与打款 API 冒烟；相关验证需在具备数据库的环境补做。

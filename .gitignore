@@ -7,3 +7,5 @@ uploads/
 ai-config.json
 ai-test-history.json
 ai-test-history.json.tmp
+packages/web/public/architecture.html
+packages/web/public/documents/
