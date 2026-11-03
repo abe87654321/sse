@@ -1,4 +1,4 @@
-import type { NotificationLog, NotificationDelivery, SystemMessage } from '@sse/shared';
+import type { NotificationLog, NotificationDelivery, SystemMessage, SystemMessageDelivery } from '@sse/shared';
 
 export interface INotificationRepo {
   findByUserId(userId: string, page: number, pageSize: number): Promise<{ results: NotificationLog[]; total: number }>;
@@ -9,6 +9,7 @@ export interface INotificationRepo {
   create(notification: Omit<NotificationLog, 'id'>): Promise<NotificationLog>;
   createDelivery(delivery: Omit<NotificationDelivery, 'id'>): Promise<NotificationDelivery>;
   findDeliveriesByNotification(notificationId: string): Promise<NotificationDelivery[]>;
+  findDeliveriesBySystemMessage(systemMessageId: string): Promise<SystemMessageDelivery[]>;
   findSystemMessages(status?: string): Promise<SystemMessage[]>;
   findSystemMessageById(id: string): Promise<SystemMessage | null>;
   createSystemMessage(msg: Omit<SystemMessage, 'id'>): Promise<SystemMessage>;

@@ -90,7 +90,9 @@ export class PgNotificationRepo implements INotificationRepo {
 
   async createDelivery(delivery: Omit<NotificationDelivery, 'id'>) {
     const { rows } = await pool.query(
-      `INSERT INTO notification_deliveries (notification_id, channel, status, error_message) VALUES ($1, $2, $3, $4) RETURNING *`,
+      `INSERT INTO notification_deliveries (notification_id, channel, status, error_message, sent_at)
+       VALUES ($1, $2, $3, $4, CASE WHEN $3 = 'sent' THEN NOW() ELSE NULL END)
+       RETURNING *`,
       [delivery.notification_id, delivery.channel, delivery.status, delivery.error_message ?? null]
     );
     return mapDelivery(rows[0]);
