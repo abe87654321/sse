@@ -22,7 +22,7 @@ export async function sendNotificationSafe(
       message.title,
       message.body,
       message.channels,
-      { emailBody: message.emailBody },
+      { emailBody: message.emailBody, sms: message.sms },
     );
   } catch (err: any) {
     console.warn('[Notification] 发送失败:', err?.message || err);

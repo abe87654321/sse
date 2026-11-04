@@ -1,11 +1,13 @@
 import type { INotificationRepo, IUserRepo } from '@sse/core';
 import type { NotificationLog, NotifyPrefs, User } from '@sse/shared';
 import type { NotificationService } from './notification-service';
+import type { SmsMessage } from './channels/sms-template';
 
 export interface SendOptions {
   notifyPrefs?: NotifyPrefs;
   systemMessageId?: string;
   emailBody?: string;
+  sms?: SmsMessage;
 }
 
 const DEFAULT_PREFS: NotifyPrefs = {
@@ -61,6 +63,7 @@ export class NotificationEngine {
         type,
         prefs,
         options.emailBody,
+        options.sms,
       );
     }
 
@@ -74,10 +77,11 @@ export class NotificationEngine {
     body: string,
     channels: ('sms' | 'email')[],
     systemMessageId?: string,
+    sms?: SmsMessage,
   ): Promise<void> {
     for (const userId of userIds) {
       try {
-        await this.send(userId, type, title, body, channels, { systemMessageId });
+        await this.send(userId, type, title, body, channels, { systemMessageId, sms });
       } catch (err) {
         console.error('[Notification] send failed:', err);
       }
@@ -93,6 +97,7 @@ export class NotificationEngine {
     type: string,
     prefs: NotifyPrefs,
     emailBody?: string,
+    sms?: SmsMessage,
   ) {
     const enabled = this.isChannelEnabled(channel, type, prefs);
     if (!enabled) {
@@ -107,7 +112,7 @@ export class NotificationEngine {
     try {
       if (channel === 'sms' && user.phone) {
         attempted = true;
-        success = await this.notificationService.sendSms(user.phone, `${title}: ${body}`);
+        success = await this.notificationService.sendSms(user.phone, `${title}: ${body}`, sms);
       } else if (channel === 'email' && user.email) {
         attempted = true;
         success = await this.notificationService.sendEmail(user.email, title, emailBody ?? body);

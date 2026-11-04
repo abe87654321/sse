@@ -33,7 +33,9 @@ function harness() {
     },
   };
   const expenseRepo = {
-    async findById() { return { id: 'r1', title: '差旅', userId: 'u1' }; },
+    async findById() {
+      return { id: 'r1', serialNo: 'RE-1', title: '差旅', userId: 'u1' };
+    },
   };
   const send = jest.fn(async (...args: any[]): Promise<any> => ({ id: `n${args[0]}` }));
   const engine = { send };
@@ -59,7 +61,10 @@ describe('ApprovalReminderScheduler', () => {
       messages.email.subject,
       messages.sms,
       ['sms', 'email'],
-      { emailBody: messages.email.body },
+      {
+        emailBody: messages.email.body,
+        sms: { templateKey: 'reminder', params: { code: 'RE-1' } },
+      },
     );
     expect(marked).toEqual(['reminder:ar1']);
   });
@@ -77,7 +82,10 @@ describe('ApprovalReminderScheduler', () => {
       messages.email.subject,
       messages.sms,
       ['sms', 'email'],
-      { emailBody: messages.email.body },
+      {
+        emailBody: messages.email.body,
+        sms: { templateKey: 'escalation', params: { code: 'RE-1' } },
+      },
     );
     expect(marked).toEqual(['escalated:ar1']);
   });

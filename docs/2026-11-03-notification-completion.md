@@ -180,6 +180,17 @@ pnpm build
 
 ---
 
+## 按事件短信模板
+
+- 提醒 / 升级 / 驳回 / 打款 / 广播 可分别通过以下环境变量配置模板 CODE：
+  `ALIYUN_SMS_TEMPLATE_REMINDER`、`ALIYUN_SMS_TEMPLATE_ESCALATION`、
+  `ALIYUN_SMS_TEMPLATE_REJECTED`、`ALIYUN_SMS_TEMPLATE_PAID`、`ALIYUN_SMS_TEMPLATE_BROADCAST`。
+- 未配置时回退到 `ALIYUN_SMS_TEMPLATE_CODE`（兼容旧配置）。
+- 前四类模板变量统一为 `${code}`，值为报销单号；广播模板建议使用固定文案（不带变量）。
+- 验证码模板不能用于通知文本：阿里云限制验证码模板变量只能是 `[a-zA-Z0-9]`，必须申请通知类模板。
+
+---
+
 ## 已知遗留问题（本次未修复）
 
 `POST /admin/users` 接收了请求体中的 `password`，但插入数据库时写死 `password_hash=''`，即管理员设置的新用户密码被忽略；随后发送的欢迎邮件仍提示用户「登录系统」，会误导用户（新账号无法用所填密码登录）。
@@ -205,6 +216,7 @@ pnpm build
 | `fix(notifications): prevent repeated escalations and track delivery results` | 重入/重复升级/结果追踪 |
 | `feat(notifications): notify approval, payment and onboarding events` | 业务事件接线 |
 | `fix(notifications): guard reject comments and avoid blocking requests` | 驳回原因兜底与非阻塞发送 |
+| `feat(notifications): use per-event SMS templates` | 按事件短信模板与短参数 |
 | `feat(notifications): expose broadcast delivery tracking` | 送达接口与页面 |
 | `fix(notifications): bound delivery report and claim broadcasts atomically` | 送达上限与原子抢占 |
 | `feat(web): complete notification preference toggles` | 偏好 UI 补全 |

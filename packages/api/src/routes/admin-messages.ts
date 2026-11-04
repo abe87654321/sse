@@ -63,7 +63,15 @@ router.post('/', asyncWrap(async (req, res) => {
     const { createNotificationEngine } = await import('@sse/notifications');
     const engine = createNotificationEngine();
     const finalBody = body_ai || body;
-    await engine.sendBatch(targetUsers, 'broadcast', title, finalBody, (delivery_channels || []).filter((c: string) => c === 'sms' || c === 'email') as ('sms' | 'email')[], msg.id);
+    await engine.sendBatch(
+      targetUsers,
+      'broadcast',
+      title,
+      finalBody,
+      (delivery_channels || []).filter((c: string) => c === 'sms' || c === 'email') as ('sms' | 'email')[],
+      msg.id,
+      { templateKey: 'broadcast' },
+    );
     res.status(201).json({ ...msg, sent_to: targetUsers.length });
     return;
   }
@@ -92,7 +100,15 @@ router.post('/:id/send', asyncWrap(async (req, res) => {
   const claimed = await repo.claimSystemMessageForSend(msg.id);
   if (!claimed) throw new AppError(409, 'MESSAGE_ALREADY_SENT', '消息已发送');
   try {
-    await engine.sendBatch(targetUsers, 'broadcast', msg.title, finalBody, (msg.delivery_channels || []).filter((c: string) => c === 'sms' || c === 'email') as ('sms' | 'email')[], claimed.id);
+    await engine.sendBatch(
+      targetUsers,
+      'broadcast',
+      msg.title,
+      finalBody,
+      (msg.delivery_channels || []).filter((c: string) => c === 'sms' || c === 'email') as ('sms' | 'email')[],
+      claimed.id,
+      { templateKey: 'broadcast' },
+    );
   } catch (err) {
     await repo.updateSystemMessage(claimed.id, { status: 'draft' });
     throw err;

@@ -61,7 +61,13 @@ export class ApprovalReminderScheduler {
                 messages.email.subject,
                 messages.sms,
                 ['sms', 'email'],
-                { emailBody: messages.email.body },
+                {
+                  emailBody: messages.email.body,
+                  sms: {
+                    templateKey: isEscalation ? 'escalation' : 'reminder',
+                    params: { code: report.serialNo },
+                  },
+                },
               );
               if (log) sentAny = true;
             } catch (err) {

@@ -44,8 +44,8 @@ function harness() {
     },
   };
   const service = {
-    async sendSms(phone: string, content: string) {
-      sentSms.push({ phone, content });
+    async sendSms(phone: string, content: string, sms?: any) {
+      sentSms.push({ phone, content, sms });
       return true;
     },
     async sendEmail(email: string, subject: string, body: string) {
@@ -232,5 +232,32 @@ describe('NotificationEngine', () => {
       expect.objectContaining({ channel: 'in_app', status: 'sent' }),
       expect.objectContaining({ channel: 'sms', status: 'skipped' }),
     ]);
+  });
+
+  it('forwards SMS template metadata to the provider', async () => {
+    const { engine, sentSms } = harness();
+
+    await engine.send('u1', NotificationTriggerType.PAID, '打款', '正文', ['sms'], {
+      notifyPrefs: { ...prefs, sms: { ...prefs.sms, paid: true } } as any,
+      sms: { templateKey: 'paid', params: { code: 'RE-1' } },
+    });
+
+    expect(sentSms[0].sms).toEqual({ templateKey: 'paid', params: { code: 'RE-1' } });
+  });
+
+  it('forwards SMS metadata through sendBatch', async () => {
+    const { engine, sentSms } = harness();
+
+    await engine.sendBatch(
+      ['admin'],
+      NotificationTriggerType.BROADCAST,
+      '公告',
+      '正文',
+      ['sms'],
+      'm1',
+      { templateKey: 'broadcast' },
+    );
+
+    expect(sentSms[0].sms).toEqual({ templateKey: 'broadcast' });
   });
 });

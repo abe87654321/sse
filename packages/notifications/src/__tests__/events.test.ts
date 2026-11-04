@@ -26,6 +26,7 @@ describe('notification events', () => {
       body: '你的报销单 RE-2026-001「差旅报销」被驳回：发票不符',
       channels: ['sms', 'email'],
       emailBody: '<p>你的报销单 RE-2026-001「差旅报销」被驳回：发票不符</p>',
+      sms: { templateKey: 'rejected', params: { code: 'RE-2026-001' } },
     });
   });
 
@@ -57,6 +58,7 @@ describe('notification events', () => {
       title: '报销款已支付',
       body: '你的报销单 RE-2026-001「差旅报销」已完成打款。',
       channels: ['sms', 'email'],
+      sms: { templateKey: 'paid', params: { code: 'RE-2026-001' } },
     });
   });
 

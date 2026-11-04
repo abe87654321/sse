@@ -1,13 +1,15 @@
 import Dysmsapi, * as $Dysmsapi from '@alicloud/dysmsapi20170525';
 import { $OpenApiUtil } from '@alicloud/openapi-core';
+import type { SmsMessage } from './sms-template';
+import { buildSmsTemplateParams, resolveSmsTemplateCode } from './sms-template';
 
 export interface SmsProvider {
-  send(phone: string, content: string): Promise<{ success: boolean }>;
+  send(phone: string, content: string, message?: SmsMessage): Promise<{ success: boolean }>;
 }
 
 export class DevSmsProvider implements SmsProvider {
-  async send(phone: string, content: string): Promise<{ success: boolean }> {
-    console.log(`[SMS] To: ${phone} | Content: ${content}`);
+  async send(phone: string, content: string, message?: SmsMessage): Promise<{ success: boolean }> {
+    console.log(`[SMS] To: ${phone} | Template: ${message?.templateKey ?? 'none'} | Content: ${content}`);
     return { success: true };
   }
 }
@@ -20,8 +22,21 @@ export class AliyunSmsProvider implements SmsProvider {
     private templateCode: string,
   ) {}
 
-  async send(phone: string, content: string): Promise<{ success: boolean }> {
+  async send(phone: string, content: string, message?: SmsMessage): Promise<{ success: boolean }> {
     try {
+      const templateCode = message
+        ? resolveSmsTemplateCode(message.templateKey)
+        : this.templateCode;
+
+      if (!templateCode) {
+        console.error('[SMS] 未配置短信模板 CODE');
+        return { success: false };
+      }
+
+      const templateParam = message
+        ? buildSmsTemplateParams(message.params)
+        : JSON.stringify({ code: content });
+
       const config = new $OpenApiUtil.Config({
         accessKeyId: this.accessKeyId,
         accessKeySecret: this.accessKeySecret,
@@ -32,8 +47,8 @@ export class AliyunSmsProvider implements SmsProvider {
       const request = new $Dysmsapi.SendSmsRequest({
         phoneNumbers: phone,
         signName: this.signName,
-        templateCode: this.templateCode,
-        templateParam: JSON.stringify({ code: content }),
+        templateCode,
+        ...(templateParam ? { templateParam } : {}),
       });
 
       const response = await client.sendSms(request);

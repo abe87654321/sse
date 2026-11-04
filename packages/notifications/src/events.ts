@@ -1,5 +1,6 @@
 import { NotificationTriggerType } from '@sse/shared';
 import { escapeHtml } from './utils/html';
+import type { SmsMessage } from './channels/sms-template';
 
 export type NotificationMessage = {
   type: NotificationTriggerType;
@@ -7,6 +8,7 @@ export type NotificationMessage = {
   body: string;
   channels: ('sms' | 'email')[];
   emailBody?: string;
+  sms?: SmsMessage;
 };
 
 export function expenseApprovedMessage(report: { serialNo: string; title: string }): NotificationMessage {
@@ -28,6 +30,7 @@ export function expenseRejectedMessage(
     body: `你的报销单 ${report.serialNo}「${report.title}」被驳回：${comment}`,
     channels: ['sms', 'email'],
     emailBody: `<p>你的报销单 ${escapeHtml(report.serialNo)}「${escapeHtml(report.title)}」被驳回：${escapeHtml(comment)}</p>`,
+    sms: { templateKey: 'rejected', params: { code: report.serialNo } },
   };
 }
 
@@ -37,6 +40,7 @@ export function paymentPaidMessage(report: { serialNo: string; title: string }):
     title: '报销款已支付',
     body: `你的报销单 ${report.serialNo}「${report.title}」已完成打款。`,
     channels: ['sms', 'email'],
+    sms: { templateKey: 'paid', params: { code: report.serialNo } },
   };
 }
 

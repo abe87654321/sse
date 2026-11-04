@@ -1,5 +1,6 @@
 import type { INotificationService } from '@sse/core';
 import type { SmsProvider } from './channels/sms';
+import type { SmsMessage } from './channels/sms-template';
 import type { EmailProvider } from './channels/email';
 
 export class NotificationService implements INotificationService {
@@ -8,8 +9,8 @@ export class NotificationService implements INotificationService {
     private emailProvider: EmailProvider,
   ) {}
 
-  async sendSms(phone: string, content: string): Promise<boolean> {
-    const result = await this.smsProvider.send(phone, content);
+  async sendSms(phone: string, content: string, message?: SmsMessage): Promise<boolean> {
+    const result = await this.smsProvider.send(phone, content, message);
     return result.success;
   }
 
