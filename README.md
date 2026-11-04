@@ -305,6 +305,7 @@ External Systems (HR / LDAP / 企业微信)
 | [管理端引擎设置设计](docs/superpowers/specs/2026-11-02-admin-engine-usability-design.md) | Root URL, API key, model picker, OCR test observability |
 | [报销列表与分页设计](docs/superpowers/specs/2026-11-02-expense-list-category-applicant-design.md) | Applicant / category columns + server-side pagination |
 | [本体访问控制修复 (2026-11-03)](docs/2026-11-03-ontology-access-control.md) | Role-scoped graph, REST/MCP query hardening, admin-only writes |
+| [开发过程记录 (2026-11-04)](docs/2026-11-04-sse-process.md) | Notification completion, Aliyun SMS, next-session handoff |
 | [通知系统补齐 (2026-11-03)](docs/2026-11-03-notification-completion.md) | Event notifications, scheduler prefs, delivery tracking |
 
 ---
@@ -316,6 +317,8 @@ External Systems (HR / LDAP / 企业微信)
   full migration runner.
 - **2026-11-03** — Ontology access control: role-scoped graph for REST and MCP, admin-only
   ontology writes.
+- **2026-11-04** — Notification completion (events, preferences, delivery tracking) and real
+  Aliyun SMS with per-event templates; next session: password security.
 - **2026-11-03** — Notification completion: approval/payment/onboarding events, preference-aware scheduler, broadcast delivery tracking.
 
 ---

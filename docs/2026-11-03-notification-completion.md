@@ -193,14 +193,17 @@ pnpm build
 
 ## 已知遗留问题（本次未修复）
 
-`POST /admin/users` 接收了请求体中的 `password`，但插入数据库时写死 `password_hash=''`，即管理员设置的新用户密码被忽略；随后发送的欢迎邮件仍提示用户「登录系统」，会误导用户（新账号无法用所填密码登录）。
+本次排查发现两个相关的账号安全问题（均在通知补齐范围之外，未改动）：
 
-建议后续修复方向：
+1. `POST /admin/users` 接收了请求体中的 `password`，但插入数据库时写死 `password_hash=''`，管理员设置的新用户密码被忽略；欢迎邮件仍提示「登录系统」，会误导用户。
+2. `packages/api/src/routes/auth.ts` 登录时只校验手机号存在和账号状态，**没有校验密码**，任意密码都能登录。
 
-- 创建用户时用 `password` 做哈希写入 `password_hash`；
-- 或在未设置密码时生成一次性初始密码/邀请链接，并让欢迎邮件只提示设置密码，而不是直接登录。
+建议下一步优先修复：
 
-此为通知补齐之外的独立账号问题，本次未改动。
+- 在 `@sse/auth` 增加 `hashPassword` / `verifyPassword`（bcrypt）；
+- 登录时查询 `password_hash` 并 `bcrypt.compare`；
+- 创建用户时要求并哈希 `password`；
+- 为历史空密码账号生成临时密码哈希，并强制/提示首次登录后修改。
 
 ---
 
@@ -216,6 +219,8 @@ pnpm build
 | `fix(notifications): prevent repeated escalations and track delivery results` | 重入/重复升级/结果追踪 |
 | `feat(notifications): notify approval, payment and onboarding events` | 业务事件接线 |
 | `fix(notifications): guard reject comments and avoid blocking requests` | 驳回原因兜底与非阻塞发送 |
+| `feat(notifications): enable real Aliyun SMS provider` | 阿里云短信真实调用 |
+| `fix(notifications): use code variable for Aliyun SMS template` | 短信模板变量改为 code |
 | `feat(notifications): use per-event SMS templates` | 按事件短信模板与短参数 |
 | `feat(notifications): expose broadcast delivery tracking` | 送达接口与页面 |
 | `fix(notifications): bound delivery report and claim broadcasts atomically` | 送达上限与原子抢占 |
