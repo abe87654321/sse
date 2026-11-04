@@ -33,7 +33,7 @@ export class AliyunSmsProvider implements SmsProvider {
         phoneNumbers: phone,
         signName: this.signName,
         templateCode: this.templateCode,
-        templateParam: JSON.stringify({ content }),
+        templateParam: JSON.stringify({ code: content }),
       });
 
       const response = await client.sendSms(request);
