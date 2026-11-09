@@ -137,6 +137,9 @@ Hexagonal Architecture (Ports & Adapters) — core business logic has zero frame
 > ```bash
 > gunzip -c images/minio/sse-minio-local.tar.gz | docker load
 > ```
+>
+> **PostgreSQL image:** `postgres:16-alpine` is still pulled from Docker Hub. On air-gapped
+> hosts, preload it as described in the [deployment guide §1.4](docs/2026-11-09-sse-deployment.md).
 
 ### Setup / 一键启动
 
@@ -315,7 +318,7 @@ External Systems (HR / LDAP / 企业微信)
 | Doc | Content |
 |-----|---------|
 | [系统需求设计 (v2)](docs/2026-07-06-sse-design.md) | Full feature spec, data model, API, MCP schema |
-| [部署文档](docs/2026-11-09-sse-deployment.md) | Step-by-step install, Docker, AI/OCR, email/SMS setup |
+| [部署文档](docs/2026-11-09-sse-deployment.md) | Beginner-first install, offline MinIO, AI/OCR, notifications, MCP, production & troubleshooting |
 | [MinIO 本地镜像](images/minio/sse-minio-local.meta.txt) | Bundled image version, SHA-256, offline load & verification |
 | [本体层设计](docs/2026-07-26-ontology-design.md) | OWL ontology + semantic orchestration engine |
 | [MDM 整合设计](docs/2026-07-26-mdm-design.md) | SCIM 2.0 + MDM Webhook + Identity Bridge |
@@ -336,9 +339,11 @@ External Systems (HR / LDAP / 企业微信)
 
 ## 🆕 Recent Updates / 最近更新
 
-- **2026-11-09** — MinIO now runs from the bundled local image `sse-minio:local`
-  (`images/minio/`) instead of pulling `minio/minio`. `docker compose up -d` works offline
-  and survives image pruning after reloading the package.
+- **2026-11-09** — Deployment and developer workflow updates:
+  - MinIO runs from the bundled local image `sse-minio:local` (`images/minio/`) instead of
+    pulling `minio/minio`; `docker compose up -d` works offline and after image pruning.
+  - `pnpm dev` now starts API, Web (`--host`) and MCP concurrently via `concurrently`.
+  - Deployment guide reorganized and renamed to `docs/2026-11-09-sse-deployment.md`.
 - **2026-11-02** — Invoice AI verification, payment receipt OCR + audit, admin engine setup,
   expense list applicant/category + server-side pagination, MCP consistency fixes,
   full migration runner.
@@ -346,7 +351,6 @@ External Systems (HR / LDAP / 企业微信)
   ontology writes.
 - **2026-11-04** — Notification completion (events, preferences, delivery tracking) and real
   Aliyun SMS with per-event templates; next session: password security.
-- **2026-11-03** — Notification completion: approval/payment/onboarding events, preference-aware scheduler, broadcast delivery tracking.
 
 ---
 
