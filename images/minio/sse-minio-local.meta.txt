@@ -1,0 +1,74 @@
+MinIO 镜像包元信息 / MinIO Image Package Metadata
+=====================================================
+生成时间: 2026-11-09
+镜像标签: sse-minio:local  (docker.io/library/sse-minio:local)
+
+--- 包文件 ---
+sse-minio-local.tar.gz        压缩包（43 MB），docker load 可直接导入
+sse-minio-local.tar.gz.sha256 校验和文件
+
+sha256:
+ad39eef348551352be1c04699bca557bfba9455fa09e0e4d6c5f6196247eae7f  sse-minio-local.tar.gz
+
+--- 内容规格 ---
+MinIO 版本:    RELEASE.2025-09-07T16-13-09Z (commit-id=07c3a429bfed433e49018cb0f78a52145d4bedeb)
+Runtime:       go1.24.6 linux/amd64
+License:       GNU AGPLv3
+二进制 sha256: 7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f
+               (与 GitHub 官方 release 资产逐字符一致，零篡改)
+二进制大小:    110,989,496 字节
+
+基础镜像:      alpine:3.20 (linux/amd64)
+               layer digest sha256:25f1d6b1951ac8eb3740558fe94cb83d377bdadf95fd9f98b50d2e1b96130471
+镜像大小:      ~123 MB (未压缩 tar) / 43 MB (gzip)
+
+--- 镜像配置 ---
+Entrypoint:   ["/usr/bin/minio"]
+Cmd:          ["server", "/data", "--console-address", ":9001"]
+ExposedPorts: {"9000/tcp": {}}
+Volumes:      {"/data": {}}
+Env:          MINIO_ROOT_USER=minioadmin
+              MINIO_ROOT_PASSWORD=minioadmin
+Labels:
+  org.opencontainers.image.title       = MinIO
+  org.opencontainers.image.vendor       = MinIO Inc <dev@min.io>
+  org.opencontainers.image.version      = RELEASE.2025-09-07T16-13-09Z
+  org.opencontainers.image.description  = MinIO object storage (recovered binary, community edition)
+  org.opencontainers.image.licenses     = AGPL-3.0
+
+运行用户:      root
+  (命名卷 /data 的属主由 Docker 创建；非 root 运行会 Permission denied)
+
+--- 层结构 ---
+layer1  sha256:b58b32f97fac50abdb11821d07aa67b1a01af834e4e4d7fc94457ba6b75c8a58  14.5 MB
+        alpine 3.20 + ca-certificates(118 证书) + curl + tzdata(603 时区文件)
+layer2  sha256:233394d9c30b5cee2c875d6a81bd85b494565843326261ed5cd66f533197a610  107.7 MB
+        /usr/bin/minio (mode 0755) + /licenses/{LICENSE,CREDITS} + /data
+
+--- 导入方式 ---
+# 方式 1（推荐）:
+gunzip -c sse-minio-local.tar.gz | docker load
+
+# 方式 2:
+gunzip sse-minio-local.tar.gz
+docker load -i sse-minio-local.tar
+
+验证:
+  docker run --rm --entrypoint /usr/bin/minio sse-minio:local --version
+  # 期望: minio version RELEASE.2025-09-07T16-13-09Z (commit-id=07c3a429...)
+
+--- SSE compose 用法 ---
+services:
+  minio:
+    image: sse-minio:local
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ['9002:9000', '9003:9001']
+    volumes: ['miniodata:/data']
+
+--- 安全提示 ---
+本镜像版本早于 2025-10 的 CVE 修复（GHSA-jjjj-jwhf-8rgr 等）。
+本项目使用单一 root 账号、不启用 STS/服务账号/集群，不受影响；
+生产环境必须升级至自行编译的 RELEASE.2025-10-15T17-29-55Z 或更新版本。

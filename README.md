@@ -128,18 +128,37 @@ Hexagonal Architecture (Ports & Adapters) — core business logic has zero frame
 | Node.js | ≥ 18 |
 | pnpm | ≥ 9 |
 | Docker + Compose | Latest |
+| MinIO image | Bundled at `images/minio/` (`sse-minio:local`, `linux/amd64`) |
+
+> **Offline by default / 默认离线部署：** `docker-compose.yml` uses the bundled local image
+> `sse-minio:local` instead of pulling `minio/minio` from Docker Hub. Load it once before
+> startup — required on air-gapped or internal networks where Docker Hub is unreachable:
+>
+> ```bash
+> gunzip -c images/minio/sse-minio-local.tar.gz | docker load
+> ```
 
 ### Setup / 一键启动
 
 ```bash
 git clone <repo-url> && cd sse
 pnpm install
+
+# MinIO 使用随仓库提供的本地镜像（默认离线场景，无需访问 Docker Hub）
+gunzip -c images/minio/sse-minio-local.tar.gz | docker load
+
 docker compose up -d
 pnpm build
 cp .env.example .env
 DB_PORT=5433 pnpm migrate
 pnpm dev
 ```
+
+> If the image was removed by `docker image prune -a` or `docker system prune -a`, reload it
+> with the command above before running `docker compose up -d`.
+> **Windows PowerShell:** run `tar -xzf images\minio\sse-minio-local.tar.gz` then
+> `docker load -i images\minio\sse-minio-local.tar`. Full steps and checksum verification:
+> [部署文档 §2.3.1](docs/2026-07-06-sse-deployment.md).
 
 | Service | URL | Port |
 |---------|-----|------|
@@ -173,6 +192,7 @@ sse/
 │   ├── ai/              # LLM provider (OpenAI-compatible)
 │   ├── notifications/   # SMS/Email + scheduler
 │   └── web/             # Vue 3 SPA
+├── images/minio/        # Bundled MinIO image (sse-minio:local, offline)
 ├── docs/                # Design, deployment, process docs
 ├── docker-compose.yml
 └── package.json
@@ -293,6 +313,7 @@ External Systems (HR / LDAP / 企业微信)
 |-----|---------|
 | [系统需求设计 (v2)](docs/2026-07-06-sse-design.md) | Full feature spec, data model, API, MCP schema |
 | [部署文档](docs/2026-07-06-sse-deployment.md) | Step-by-step install, Docker, AI/OCR, email/SMS setup |
+| [MinIO 本地镜像](images/minio/sse-minio-local.meta.txt) | Bundled image version, SHA-256, offline load & verification |
 | [本体层设计](docs/2026-07-26-ontology-design.md) | OWL ontology + semantic orchestration engine |
 | [MDM 整合设计](docs/2026-07-26-mdm-design.md) | SCIM 2.0 + MDM Webhook + Identity Bridge |
 | [通知系统设计](docs/2026-07-26-notification-system-design.md) | In-app + SMS + Email notification system |
@@ -312,6 +333,9 @@ External Systems (HR / LDAP / 企业微信)
 
 ## 🆕 Recent Updates / 最近更新
 
+- **2026-11-09** — MinIO now runs from the bundled local image `sse-minio:local`
+  (`images/minio/`) instead of pulling `minio/minio`. `docker compose up -d` works offline
+  and survives image pruning after reloading the package.
 - **2026-11-02** — Invoice AI verification, payment receipt OCR + audit, admin engine setup,
   expense list applicant/category + server-side pagination, MCP consistency fixes,
   full migration runner.

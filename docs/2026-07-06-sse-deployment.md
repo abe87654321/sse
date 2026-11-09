@@ -1,6 +1,7 @@
 # SSE 报销系统 — 部署文档
 
 > 日期：2026-07-06 | 版本：v1.0
+> 更新：2026-11-09 — MinIO 改用随仓库提供的本地镜像 `sse-minio:local`，默认离线部署。
 
 ---
 
@@ -11,7 +12,13 @@
 | Node.js | ≥ 18 | 运行环境 |
 | pnpm | ≥ 9 | 包管理器 |
 | Docker + Docker Compose | 最新 | 运行 PostgreSQL + MinIO |
+| MinIO 镜像 | `sse-minio:local` | 随仓库提供（`images/minio/`），默认离线，无需访问 Docker Hub |
 | Git | 任意 | 版本管理 |
+
+> **默认离线部署**：`docker-compose.yml` 的 `minio.image` 是本地镜像 `sse-minio:local`，
+> 不再从 Docker Hub 拉取 `minio/minio`。首次启动、换机，或执行过
+> `docker image prune -a` / `docker system prune -a` 后，必须先导入镜像（见 §2.3.1）。
+> 镜像仅支持 `linux/amd64`。
 
 ## 2. 快速启动
 
@@ -59,7 +66,75 @@ pnpm --filter @sse/web build
 
 > **依赖关系**：`shared` → `core` → `db/auth/ocr/notifications` → `api/web/mcp`。上游包改动后，下游包必须重新编译。不确定时直接用 `pnpm build` 编译全部最省事。
 
-### 2.3 启动基础设施
+### 2.3 导入 MinIO 镜像并启动基础设施
+
+> **默认离线部署**：`docker-compose.yml` 的 `minio.image` 是 `sse-minio:local`，
+> 不会从 Docker Hub 拉取。镜像包随仓库放在 `images/minio/`，首次启动、换机、
+> 或执行过 `docker image prune -a` / `docker system prune -a` 后，必须先按 §2.3.1
+> 导入镜像；否则 `docker compose up -d` 会报
+> `pull access denied for sse-minio` 或 `No such image: sse-minio:local`。
+
+#### 2.3.1 导入本地 MinIO 镜像
+
+| 项 | 值 |
+|---|---|
+| 镜像标签 | `sse-minio:local` |
+| 镜像包 | `images/minio/sse-minio-local.tar.gz`（约 43 MB，解压后约 123 MB） |
+| 校验文件 | `images/minio/sse-minio-local.tar.gz.sha256` |
+| 镜像版本 | MinIO `RELEASE.2025-09-07T16-13-09Z` |
+| 平台 | `linux/amd64` |
+| 许可 | GNU AGPLv3 |
+
+**Linux / macOS：**
+
+```bash
+cd images/minio
+
+# ① 校验压缩包（必须通过；失败说明文件损坏，重新获取）
+sha256sum -c sse-minio-local.tar.gz.sha256
+# macOS 用：shasum -a 256 -c sse-minio-local.tar.gz.sha256
+
+# ② 导入镜像（无需先解压到磁盘）
+gunzip -c sse-minio-local.tar.gz | docker load
+
+cd ../..
+```
+
+**Windows PowerShell：**
+
+```powershell
+cd images\minio
+
+# ① 校验压缩包，输出应与 .sha256 文件中的值一致
+Get-FileHash .\sse-minio-local.tar.gz -Algorithm SHA256
+# 期望：AD39EEF348551352BE1C04699BCA557BFBA9455FA09E0E4D6C5F6196247EAE7F
+
+# ② 解压后导入（Windows 10/11 自带 tar）
+tar -xzf sse-minio-local.tar.gz
+docker load -i sse-minio-local.tar
+Remove-Item sse-minio-local.tar
+
+cd ..\..
+```
+
+**验证：**
+
+```bash
+docker image inspect sse-minio:local --format '{{.Id}}'
+docker run --rm --entrypoint /usr/bin/minio sse-minio:local --version
+# 期望：minio version RELEASE.2025-09-07T16-13-09Z (commit-id=07c3a429...)
+```
+
+> **平台限制**：镜像仅包含 `linux/amd64`。ARM 主机（如 Apple Silicon）需要
+> 在 Docker Desktop 开启 amd64 模拟，或在 compose 中声明 `platform: linux/amd64`；
+> 若报 `exec format error`，说明当前平台不匹配。
+>
+> **安全提示**：该版本早于 2025-10 的 MinIO CVE 修复。SSE 使用单一 root 账号、
+> 不启用 STS/服务账号/集群，当前用法不受影响；生产环境应升级到
+> `RELEASE.2025-10-15T17-29-55Z` 或更新版本（详见
+> `images/minio/sse-minio-local.meta.txt`）。
+
+#### 2.3.2 启动基础设施
 
 ```bash
 # 注意：用 "docker compose"（空格，v2版本），不是 "docker-compose"（横杠，v1版本）
@@ -67,6 +142,7 @@ sudo docker compose up -d
 ```
 
 启动 PostgreSQL（宿主机端口 5433 → 容器 5432）和 MinIO（API: 9002, Console: 9003）。
+镜像已导入后，此命令在离线/内网环境同样可用，不会尝试联网拉取。
 
 ### 2.4 初始化数据库
 
@@ -394,7 +470,8 @@ CMD ["node", "packages/api/dist/index.js"]
 
 ### 3.4 端口映射
 
-docker-compose 对外暴露端口已避开常见冲突：
+docker-compose 对外暴露端口已避开常见冲突。MinIO 使用本地镜像 `sse-minio:local`
+（导入方式见 §2.3.1），不再依赖 Docker Hub。
 
 | 服务 | 容器内端口 | 宿主机端口 |
 |------|-----------|-----------|
@@ -550,6 +627,55 @@ docker compose version            # ≥ 2.0 即可
 sudo docker rm -f sse-postgres-1 sse-minio-1
 sudo docker compose up -d
 ```
+
+**Q: `docker compose up -d` 报 `pull access denied for sse-minio` 或 `No such image: sse-minio:local`**
+
+镜像没有导入，或被执行过 `docker image prune -a` / `docker system prune -a` 清理掉了。
+先按 §2.3.1 导入本地镜像，再重试：
+
+```bash
+cd images/minio && gunzip -c sse-minio-local.tar.gz | docker load && cd ../..
+sudo docker compose up -d
+```
+
+**Q: `docker load` 报 `archive/tar: invalid tar header`**
+
+传给 `docker load -i` 的是 gzip 压缩包，不是未压缩的 tar。两种处理：
+
+```bash
+# 方式一：直接通过管道导入
+gunzip -c images/minio/sse-minio-local.tar.gz | docker load
+
+# 方式二：先解压再导入
+cd images/minio
+tar -xzf sse-minio-local.tar.gz
+docker load -i sse-minio-local.tar
+```
+
+**Q: 如何确认镜像已正确导入？**
+
+```bash
+docker image inspect sse-minio:local --format '{{.Id}}'
+docker run --rm --entrypoint /usr/bin/minio sse-minio:local --version
+# 期望：minio version RELEASE.2025-09-07T16-13-09Z (commit-id=07c3a429...)
+```
+
+**Q: 镜像包 SHA-256 校验不通过？**
+
+说明 `sse-minio-local.tar.gz` 在复制或下载过程中损坏，不要继续导入。
+重新从仓库/发布附件获取，并再次校验：
+
+```bash
+cd images/minio
+sha256sum -c sse-minio-local.tar.gz.sha256
+# Windows: Get-FileHash .\sse-minio-local.tar.gz -Algorithm SHA256
+```
+
+**Q: 内网/离线环境能否使用？**
+
+可以。`docker-compose.yml` 已改为使用本地镜像 `sse-minio:local`，不依赖 Docker Hub。
+唯一前提是先按 §2.3.1 导入镜像包。若仍报拉取错误，说明镜像未导入，或
+`docker-compose.yml` 不是最新版（应包含 `image: sse-minio:local`）。
 
 ### 数据库相关
 
