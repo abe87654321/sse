@@ -2,7 +2,7 @@
   "name": "sse",
   "private": true,
   "scripts": {
-    "dev": "pnpm --filter @sse/api dev & pnpm --filter @sse/web dev",
+    "dev": "concurrently -k -n api,web,mcp -c blue,green,magenta \"pnpm --filter @sse/api dev\" \"pnpm --filter @sse/web dev --host\" \"pnpm mcp\"",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "test:integration": "cd test && jest --verbose",
@@ -16,6 +16,7 @@
     "node": ">=18"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1"
+    "@types/node": "^26.1.1",
+    "concurrently": "^9.2.1"
   }
 }

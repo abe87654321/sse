@@ -154,6 +154,9 @@ DB_PORT=5433 pnpm migrate
 pnpm dev
 ```
 
+> **Dev processes:** `pnpm dev` runs `@sse/api`, `@sse/web --host` and `pnpm mcp`
+> concurrently. Press `Ctrl+C` once to stop all three.
+
 > If the image was removed by `docker image prune -a` or `docker system prune -a`, reload it
 > with the command above before running `docker compose up -d`.
 > **Windows PowerShell:** run `tar -xzf images\minio\sse-minio-local.tar.gz` then
