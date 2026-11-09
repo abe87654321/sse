@@ -141,7 +141,7 @@ Hexagonal Architecture (Ports & Adapters) — core business logic has zero frame
 ### Setup / 一键启动
 
 ```bash
-git clone <repo-url> && cd sse
+git clone https://github.com/abe87654321/sse.git && cd sse
 pnpm install
 
 # MinIO 使用随仓库提供的本地镜像（默认离线场景，无需访问 Docker Hub）

@@ -131,7 +131,7 @@ minio:
 已经熟悉 Docker 和 Node 的读者，可以直接执行下面的最短路径；每一步的详细说明在后面。
 
 ```bash
-git clone <repo-url> && cd sse
+git clone https://github.com/abe87654321/sse.git && cd sse
 pnpm install
 
 # 导入 MinIO 本地镜像（首次或镜像被清理后）
@@ -157,10 +157,13 @@ README 的 Quick Start 与本路径一致。Windows 用户请先阅读 §2.2.2 �
 ### 2.1 获取代码并安装依赖
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/abe87654321/sse.git
 cd sse
 pnpm install
 ```
+
+> 仓库地址：`https://github.com/abe87654321/sse`。
+> 已配置 SSH 的机器也可以使用：`git@github.com:abe87654321/sse.git`。
 
 `pnpm install` 会安装所有 workspace 依赖，包括开发脚本使用的 `concurrently`。
 
