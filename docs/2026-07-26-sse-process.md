@@ -110,7 +110,7 @@ packages/web/src/pages/Notifications.vue (重写)
 packages/web/src/pages/Profile.vue
 packages/web/src/layouts/DefaultLayout.vue
 packages/web/src/router/index.ts
-docs/2026-07-06-sse-deployment.md
+docs/2026-11-09-sse-deployment.md
 ```
 
 ### Git 提交

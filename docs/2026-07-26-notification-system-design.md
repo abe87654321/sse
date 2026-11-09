@@ -348,7 +348,7 @@ ALIYUN_SMS_TEMPLATE_CODE=SMS_123456789   # 已审核的短信模板编号
 
 实现为 `packages/notifications/src/channels/sms.ts::AliyunSmsProvider`。失败时同样触发退回告警。
 
-> **开通教程详见部署文档 `docs/2026-07-06-sse-deployment.md`。**
+> **开通教程详见部署文档 `docs/2026-11-09-sse-deployment.md`。**
 
 ---
 

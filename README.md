@@ -161,7 +161,7 @@ pnpm dev
 > with the command above before running `docker compose up -d`.
 > **Windows PowerShell:** run `tar -xzf images\minio\sse-minio-local.tar.gz` then
 > `docker load -i images\minio\sse-minio-local.tar`. Full steps and checksum verification:
-> [部署文档 §2.3.1](docs/2026-07-06-sse-deployment.md).
+> [部署文档 §2.3.1](docs/2026-11-09-sse-deployment.md).
 
 | Service | URL | Port |
 |---------|-----|------|
@@ -315,7 +315,7 @@ External Systems (HR / LDAP / 企业微信)
 | Doc | Content |
 |-----|---------|
 | [系统需求设计 (v2)](docs/2026-07-06-sse-design.md) | Full feature spec, data model, API, MCP schema |
-| [部署文档](docs/2026-07-06-sse-deployment.md) | Step-by-step install, Docker, AI/OCR, email/SMS setup |
+| [部署文档](docs/2026-11-09-sse-deployment.md) | Step-by-step install, Docker, AI/OCR, email/SMS setup |
 | [MinIO 本地镜像](images/minio/sse-minio-local.meta.txt) | Bundled image version, SHA-256, offline load & verification |
 | [本体层设计](docs/2026-07-26-ontology-design.md) | OWL ontology + semantic orchestration engine |
 | [MDM 整合设计](docs/2026-07-26-mdm-design.md) | SCIM 2.0 + MDM Webhook + Identity Bridge |

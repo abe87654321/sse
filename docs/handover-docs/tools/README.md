@@ -201,7 +201,7 @@ docker run -d --name minio-tmp \
 > ⚠️ 用**你之前恢复出来的 `sse-minio:local` 镜像**（见
 > `hermes-tools/Dockerfile.minio-from-binary`）。
 > 镜像包随仓库放在 `images/minio/`，导入方式见
-> `docs/2026-07-06-sse-deployment.md` §2.3.1。
+> `docs/2026-11-09-sse-deployment.md` §2.3.1。
 > 新版 MinIO（2025-09 之后）对旧数据目录的兼容性要实测，
 > 若报错可改用旧盘 overlay2 里那个原始二进制直接跑。
 
@@ -558,7 +558,7 @@ cd sse-export && sha256sum -c meta/checksums.sha256
 ## 附：环境速查
 
 ```bash
-# MinIO 镜像来自仓库 images/minio/（导入见 docs/2026-07-06-sse-deployment.md §2.3.1）
+# MinIO 镜像来自仓库 images/minio/（导入见 docs/2026-11-09-sse-deployment.md §2.3.1）
 
 # 旧盘临时实例
 docker run -d --name pg-tmp -p 55432:5432 \
