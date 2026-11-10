@@ -118,7 +118,7 @@ pnpm build
 curl -s http://127.0.0.1:3001/healthz
 ```
 
-- 无数据库迁移。
+- 数据库迁移：`014_mcp_api_key_expiry.sql`（`mcp_api_keys.expires_at`）；其余无迁移。
 - **端点变化**：Streamable HTTP 使用 `:3001/mcp`；旧 SSE 客户端改用 `:3001/sse`（或迁到 Streamable）。
 - HTTP MCP 需要每个请求带 `Authorization: Bearer <mcp-api-key>`；不再有默认 key 兜底。
 
@@ -145,8 +145,12 @@ curl -s http://127.0.0.1:3001/healthz
 
 ### P1：Agent 接入加固
 
+- **下一次会话优先：MCP key 治理剩余项**（本次已完成 过期 / 限流 / 审计 / 刷新）：
+  - 作用域（read / write / admin）：新增 `scopes` 列，并在工具入口按 scope 校验。
+  - 轮换端点：`POST /admin/mcp-keys/:id/rotate`（或新增管理端接口），生成新 key、停用旧 key。
+  - 哈希存储：新增 `key_hash` 列、迁移现有明文 key、查询改为按哈希匹配。
+  - 前置：管理端 MCP key 管理页/接口（目前只能直接改 `mcp_api_keys` 表）。
 - 为 `@sse/mcp` 增加独立测试（目前仍以构建 + 现有套件验证）。
-- MCP key 治理：过期、限流、审计、刷新已完成；作用域、轮换端点、哈希存储待办。
 - 工具契约：`outputSchema`、`annotations`（只读/破坏性提示）、统一错误信封。
 - 更新 `docs/2026-07-29-mcp-test-cases.md` 与 `docs/2026-07-31-mcp-pi-test-cases.md`（14 → 18 工具、HTTP 传输）。
 
@@ -165,13 +169,15 @@ curl -s http://127.0.0.1:3001/healthz
 | `9d7a697` | feat(api): expose OpenAPI 3.1 spec for REST agents |
 | `63fded4` | docs: update deployment, README and process notes |
 | `a0dbadb` | fix(mcp): harden role scoping and API-key freshness |
-| 本提交 | fix(mcp): add rate limiting, audit logs and query guards |
+| `5090a48` | feat(mcp): add rate limiting, audit logs and query guards |
 
 ---
 
 ## 七、当前状态
 
-- `master` 已包含上述两个功能提交并推送。
+- `master` 已包含上述提交并推送（最新 `5090a48`）。
+- 授权审计加固（P1/P2）与 P3 运维加固（限流、审计、查询约束、key 过期）已完成。
 - 外部 Agent 可任选：**Streamable HTTP MCP（`/mcp`）** 或 **OpenAPI REST（`/openapi.json`）**，
   两者共用同一套 API key → 角色/部门数据范围。
 - Agent 已能完成：发票 OCR 建单 → 发票入库 → AI 核对 → 读摘要 → 审批/驳回 → 查询统计。
+- 未完成（下一会话）：MCP key 作用域、轮换端点、哈希存储；P0 密码安全。
