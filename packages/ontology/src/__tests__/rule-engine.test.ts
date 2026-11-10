@@ -184,6 +184,116 @@ describe('RuleEngine', () => {
     errorSpy.mockRestore();
   });
 
+  it('clears stale inferred data before evaluating rules so repeated runs are stable', async () => {
+    const store = new MemoryGraphStore();
+    await store.load(`
+<https://sse.local/report/r1> <${RDF_TYPE}> <${sse('ExpenseReport')}> <${DATA}> .
+<https://sse.local/report/r1> <${sse('status')}> "pending" <${DATA}> .
+`);
+
+    const engine = new RuleEngine(
+      store,
+      poolWith([
+        {
+          id: 'infer-pending-once',
+          construct_query:
+            `CONSTRUCT { ?r a <${sse('PendingReport')}> } WHERE { ` +
+            `GRAPH <${DATA}> { ?r a <${sse('ExpenseReport')}> ; <${sse('status')}> "pending" } ` +
+            `FILTER NOT EXISTS { GRAPH <${INFERRED}> { ?r a <${sse('PendingReport')}> } } }`,
+        },
+      ]) as any,
+    );
+
+    const first = await engine.materialize();
+    const afterFirst = await store.query(
+      `SELECT ?r WHERE { GRAPH <${INFERRED}> { ?r a <${sse('PendingReport')}> } }`,
+    );
+    const second = await engine.materialize();
+    const afterSecond = await store.query(
+      `SELECT ?r WHERE { GRAPH <${INFERRED}> { ?r a <${sse('PendingReport')}> } }`,
+    );
+
+    expect(first).toBe(1);
+    expect(second).toBe(1);
+    if (afterFirst.kind !== 'select' || afterSecond.kind !== 'select') {
+      throw new Error('expected select');
+    }
+    expect(afterFirst.rows).toHaveLength(1);
+    expect(afterSecond.rows).toEqual(afterFirst.rows);
+  });
+
+  it('lets a later rule consume conclusions from an earlier rule in the same cycle', async () => {
+    const store = new MemoryGraphStore();
+    await store.load(`
+<https://sse.local/report/r1> <${RDF_TYPE}> <${sse('ExpenseReport')}> <${DATA}> .
+<https://sse.local/report/r1> <${sse('status')}> "pending" <${DATA}> .
+`);
+
+    const engine = new RuleEngine(
+      store,
+      poolWith([
+        legacyRule('pending', 'PendingReport'),
+        {
+          id: 'infer-reviewable',
+          construct_query:
+            `CONSTRUCT { ?r a <${sse('Reviewable')}> } WHERE { ` +
+            `GRAPH <${INFERRED}> { ?r a <${sse('PendingReport')}> } }`,
+        },
+      ]) as any,
+    );
+
+    expect(await engine.materialize()).toBe(2);
+
+    const res = await store.query(
+      `SELECT ?class WHERE { GRAPH <${INFERRED}> { <https://sse.local/report/r1> a ?class } }`,
+    );
+    if (res.kind !== 'select') throw new Error('expected select');
+    expect(res.rows.map((row) => row.class).sort()).toEqual(
+      [sse('PendingReport'), sse('Reviewable')].sort(),
+    );
+  });
+
+  it('logs a failing rule and still materializes later chained rules', async () => {
+    const store = new MemoryGraphStore();
+    await store.load(`
+<https://sse.local/report/r1> <${RDF_TYPE}> <${sse('ExpenseReport')}> <${DATA}> .
+<https://sse.local/report/r1> <${sse('status')}> "pending" <${DATA}> .
+`);
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const engine = new RuleEngine(
+      store,
+      poolWith([
+        {
+          id: 'broken-rule',
+          construct_query:
+            `CONSTRUCT { ?r a <${sse('BrokenReport')}> } WHERE { ` +
+            `GRAPH <${DATA}> { ?r a <${sse('ExpenseReport')}> . THIS IS NOT SPARQL`,
+        },
+        legacyRule('pending', 'PendingReport'),
+        {
+          id: 'infer-reviewable',
+          construct_query:
+            `CONSTRUCT { ?r a <${sse('Reviewable')}> } WHERE { ` +
+            `GRAPH <${INFERRED}> { ?r a <${sse('PendingReport')}> } }`,
+        },
+      ]) as any,
+    );
+
+    expect(await engine.materialize()).toBe(2);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('broken-rule'));
+
+    const res = await store.query(
+      `SELECT ?class WHERE { GRAPH <${INFERRED}> { <https://sse.local/report/r1> a ?class } }`,
+    );
+    if (res.kind !== 'select') throw new Error('expected select');
+    expect(res.rows.map((row) => row.class).sort()).toEqual(
+      [sse('PendingReport'), sse('Reviewable')].sort(),
+    );
+
+    errorSpy.mockRestore();
+  });
+
   it('escapes literal quotes and newlines when serializing', () => {
     const statement = serializeConstructQuad({
       subject: 'https://sse.local/report/r1',

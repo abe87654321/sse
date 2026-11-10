@@ -50,11 +50,13 @@ export class RuleEngine {
   constructor(private readonly store: GraphStore, private readonly pool: RulePool) {}
 
   /**
-   * Recompute `urn:sse:inferred` from scratch. Idempotent: all triples are
-   * buffered first, then the inferred graph is cleared and swapped in a single
-   * update. A failing rule is logged and skipped, but the previous inferred
-   * graph is only replaced once the whole cycle has finished, so a failed cycle
-   * can never expose a partially materialized graph.
+   * Recompute `urn:sse:inferred` from scratch. The inferred graph is cleared
+   * before any rule runs so a rule that reads the default graph (or
+   * `urn:sse:inferred` directly) can never consume conclusions left over from a
+   * previous cycle. Rules run in priority order and each rule's CONSTRUCT
+   * results are inserted immediately, so later rules see earlier conclusions in
+   * the same cycle. A failing rule is logged to stderr and skipped; the next
+   * projector tick recomputes the graph from scratch.
    */
   async materialize(): Promise<number> {
     const { rows } = await this.pool.query(
@@ -64,7 +66,8 @@ export class RuleEngine {
         ORDER BY priority ASC, id ASC`,
     );
 
-    const triples: string[] = [];
+    await this.store.update(`CLEAR SILENT GRAPH <${GRAPH.inferred}>`);
+
     let total = 0;
     for (const rule of rows) {
       const query = typeof rule.construct_query === 'string' ? rule.construct_query.trim() : '';
@@ -73,17 +76,15 @@ export class RuleEngine {
       try {
         const result = await this.store.query(query);
         if (result.kind !== 'construct' || result.quads.length === 0) continue;
-        triples.push(...result.quads.map(serializeConstructQuad));
+        const triples = result.quads.map(serializeConstructQuad);
+        await this.store.update(
+          `INSERT DATA { GRAPH <${GRAPH.inferred}> { ${triples.join('\n')} } }`,
+        );
         total += result.quads.length;
       } catch (err: any) {
         console.error(`[ontology] rule ${rule.id} failed to materialize: ${err?.message ?? err}`);
       }
     }
-
-    const insert = triples.length > 0
-      ? `; INSERT DATA { GRAPH <${GRAPH.inferred}> { ${triples.join('\n')} } }`
-      : '';
-    await this.store.update(`CLEAR SILENT GRAPH <${GRAPH.inferred}>${insert}`);
 
     return total;
   }
