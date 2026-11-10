@@ -1,0 +1,85 @@
+@prefix sse: <https://sse.local/ontology#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+sse:Person a owl:Class .
+sse:Department a owl:Class .
+sse:ExpenseCategory a owl:Class .
+sse:ExpenseReport a owl:Class .
+sse:ExpenseItem a owl:Class .
+sse:Invoice a owl:Class .
+sse:ApprovalRule a owl:Class .
+sse:ApprovalRecord a owl:Class .
+sse:PaymentReceipt a owl:Class .
+
+sse:DraftReport a owl:Class ; rdfs:subClassOf sse:ExpenseReport .
+sse:PendingReport a owl:Class ; rdfs:subClassOf sse:ExpenseReport .
+sse:ApprovedReport a owl:Class ; rdfs:subClassOf sse:ExpenseReport .
+sse:RejectedReport a owl:Class ; rdfs:subClassOf sse:ExpenseReport .
+sse:PaidReport a owl:Class ; rdfs:subClassOf sse:ExpenseReport .
+
+sse:belongsTo a owl:ObjectProperty ;
+  rdfs:domain sse:Person ; rdfs:range sse:Department .
+sse:submittedBy a owl:ObjectProperty ;
+  rdfs:domain sse:ExpenseReport ; rdfs:range sse:Person .
+sse:containsItem a owl:ObjectProperty ;
+  rdfs:domain sse:ExpenseReport ; rdfs:range sse:ExpenseItem .
+sse:hasCategory a owl:ObjectProperty ;
+  rdfs:domain sse:ExpenseItem ; rdfs:range sse:ExpenseCategory .
+sse:hasInvoice a owl:ObjectProperty ;
+  rdfs:domain sse:ExpenseItem ; rdfs:range sse:Invoice .
+sse:hasApproval a owl:ObjectProperty ;
+  rdfs:domain sse:ExpenseReport ; rdfs:range sse:ApprovalRecord .
+sse:approvedBy a owl:ObjectProperty ;
+  rdfs:domain sse:ApprovalRecord ; rdfs:range sse:Person .
+sse:governedBy a owl:ObjectProperty ;
+  rdfs:domain sse:ExpenseReport ; rdfs:range sse:ApprovalRule .
+sse:paidBy a owl:ObjectProperty ;
+  rdfs:domain sse:ExpenseReport ; rdfs:range sse:Person .
+sse:hasPaymentReceipt a owl:ObjectProperty ;
+  rdfs:domain sse:ExpenseReport ; rdfs:range sse:PaymentReceipt .
+sse:hasCategoryRule a owl:ObjectProperty ;
+  rdfs:domain sse:ApprovalRule ; rdfs:range sse:ExpenseCategory .
+sse:uploadedBy a owl:ObjectProperty ;
+  rdfs:domain sse:PaymentReceipt ; rdfs:range sse:Person .
+
+sse:name a owl:DatatypeProperty ; rdfs:domain sse:Person ; rdfs:range xsd:string .
+sse:department a owl:DatatypeProperty ; rdfs:domain sse:Person ; rdfs:range xsd:string .
+sse:role a owl:DatatypeProperty ; rdfs:domain sse:Person ; rdfs:range xsd:string .
+sse:status a owl:DatatypeProperty ; rdfs:domain sse:ExpenseReport ; rdfs:range xsd:string .
+sse:amount a owl:DatatypeProperty ; rdfs:range xsd:decimal .
+sse:serialNo a owl:DatatypeProperty ; rdfs:domain sse:ExpenseReport ; rdfs:range xsd:string .
+sse:title a owl:DatatypeProperty ; rdfs:domain sse:ExpenseReport ; rdfs:range xsd:string .
+sse:currentStep a owl:DatatypeProperty ; rdfs:domain sse:ExpenseReport ; rdfs:range xsd:integer .
+sse:submittedAt a owl:DatatypeProperty ; rdfs:domain sse:ExpenseReport ; rdfs:range xsd:dateTime .
+sse:completedAt a owl:DatatypeProperty ; rdfs:domain sse:ExpenseReport ; rdfs:range xsd:dateTime .
+sse:createdAt a owl:DatatypeProperty ; rdfs:domain sse:ExpenseReport ; rdfs:range xsd:dateTime .
+sse:updatedAt a owl:DatatypeProperty ; rdfs:domain sse:ExpenseReport ; rdfs:range xsd:dateTime .
+sse:paidAt a owl:DatatypeProperty ; rdfs:domain sse:ExpenseReport ; rdfs:range xsd:dateTime .
+sse:paymentRef a owl:DatatypeProperty ; rdfs:domain sse:ExpenseReport ; rdfs:range xsd:string .
+sse:expenseDate a owl:DatatypeProperty ; rdfs:domain sse:ExpenseItem ; rdfs:range xsd:date .
+sse:description a owl:DatatypeProperty ; rdfs:domain sse:ExpenseItem ; rdfs:range xsd:string .
+sse:invoiceNo a owl:DatatypeProperty ; rdfs:domain sse:Invoice ; rdfs:range xsd:string .
+sse:verificationStatus a owl:DatatypeProperty ; rdfs:domain sse:PaymentReceipt ; rdfs:range xsd:string .
+sse:verifiedAt a owl:DatatypeProperty ; rdfs:domain sse:PaymentReceipt ; rdfs:range xsd:dateTime .
+sse:fileName a owl:DatatypeProperty ; rdfs:range xsd:string .
+sse:fileFormat a owl:DatatypeProperty ; rdfs:range xsd:string .
+sse:fileSize a owl:DatatypeProperty ; rdfs:range xsd:integer .
+sse:checksum a owl:DatatypeProperty ; rdfs:range xsd:string .
+sse:uploadedAt a owl:DatatypeProperty ; rdfs:range xsd:dateTime .
+sse:minAmount a owl:DatatypeProperty ; rdfs:domain sse:ApprovalRule ; rdfs:range xsd:decimal .
+sse:maxAmount a owl:DatatypeProperty ; rdfs:domain sse:ApprovalRule ; rdfs:range xsd:decimal .
+sse:priority a owl:DatatypeProperty ; rdfs:domain sse:ApprovalRule ; rdfs:range xsd:integer .
+sse:isActive a owl:DatatypeProperty ; rdfs:range xsd:boolean .
+sse:sortOrder a owl:DatatypeProperty ; rdfs:domain sse:ExpenseCategory ; rdfs:range xsd:integer .
+sse:approvalChain a owl:DatatypeProperty ; rdfs:domain sse:ApprovalRule ; rdfs:range xsd:string .
+sse:step a owl:DatatypeProperty ; rdfs:domain sse:ApprovalRecord ; rdfs:range xsd:integer .
+sse:stepStartedAt a owl:DatatypeProperty ; rdfs:domain sse:ApprovalRecord ; rdfs:range xsd:dateTime .
+sse:result a owl:DatatypeProperty ; rdfs:domain sse:ApprovalRecord ; rdfs:range xsd:string .
+sse:comment a owl:DatatypeProperty ; rdfs:domain sse:ApprovalRecord ; rdfs:range xsd:string .
+sse:approvedAt a owl:DatatypeProperty ; rdfs:domain sse:ApprovalRecord ; rdfs:range xsd:dateTime .
+sse:sourceTable a owl:DatatypeProperty ; rdfs:range xsd:string .
+sse:sourceId a owl:DatatypeProperty ; rdfs:range xsd:string .
+sse:recordVersion a owl:DatatypeProperty ; rdfs:range xsd:string .
+sse:deletedAt a owl:DatatypeProperty ; rdfs:range xsd:dateTime .

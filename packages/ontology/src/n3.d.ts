@@ -23,5 +23,6 @@ declare module 'n3' {
   export const DataFactory: {
     namedNode(iri: string): any;
     literal(value: string): any;
+    quad(subject: any, predicate: any, object: any, graph?: any): any;
   };
 }
