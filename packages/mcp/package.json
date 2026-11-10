@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "jest",
+    "test": "jest --passWithNoTests",
     "start:http": "node dist/http.js"
   },
   "dependencies": {
@@ -27,3 +27,4 @@
     "typescript": "^5.3"
   }
 }
+
