@@ -23,10 +23,6 @@ export class MinioStorage implements IFileStorage {
     await this.client.putObject(bucket, key, data, data.length, { 'Content-Type': contentType });
   }
 
-  async getSignedUrl(key: string, bucket: string, expiresInSeconds: number = 3600): Promise<string> {
-    return this.client.presignedGetObject(bucket, key, expiresInSeconds);
-  }
-
   async getObject(key: string, bucket: string): Promise<Buffer> {
     const stream = await this.client.getObject(bucket, key);
     const chunks: Buffer[] = [];

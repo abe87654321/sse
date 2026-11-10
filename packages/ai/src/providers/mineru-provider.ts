@@ -137,18 +137,18 @@ export function extractInvoiceDataFromMarkdown(markdown: string, fileName?: stri
 
   const invoiceNo =
     findFirst(flat, [
-      /(?:发票号码|发票代码|Invoice\s*No\.?)[\s:：]*([A-Za-z0-9]{8,30})/i,
+      /(?:发票号码|发票代码|发票号|回单编号|业务回单号|流水号|凭证号|Invoice\s*No\.?)[\s:：]*([A-Za-z0-9]{8,30})/i,
     ])
-    || lineValue(text, ['发票号码', '发票代码', 'InvoiceNo'])
+    || lineValue(text, ['发票号码', '发票代码', 'InvoiceNo', '回单编号', '业务回单号', '流水号', '凭证号'])
     || invoiceNumberFromFileName(fileName);
 
   const invoiceDate = normalizeDate(
     findFirst(flat, [
-      /(?:开票日期|Invoice\s*Date)[^0-9]{0,12}(\d{4}\s*[年./-]\s*\d{1,2}\s*[月./-]\s*\d{1,2}\s*日?)/i,
+      /(?:开票日期|交易日期|记账日期|回单日期|付款日期|交易时间|Invoice\s*Date)[^0-9]{0,12}(\d{4}\s*[年./-]\s*\d{1,2}\s*[月./-]\s*\d{1,2}\s*日?)/i,
     ])
   );
 
-  let totalAmount = parseNumber(
+  const invoiceTotal = parseNumber(
     findFirst(flat, [
       /(?:价税合计|价税总计)[^0-9]{0,160}?(?:小写)?[^0-9]{0,20}[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
       /[（(]小写[）)][^0-9]{0,10}[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
@@ -156,11 +156,19 @@ export function extractInvoiceDataFromMarkdown(markdown: string, fileName?: stri
     ])
   );
 
+  const receiptAmount = parseNumber(
+    findFirst(flat, [
+      /(?:付款金额|交易金额|汇出金额|收款金额|打款金额|付款额)[^0-9]{0,20}[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
+    ])
+  );
+
+  const totalAmount = invoiceTotal ?? receiptAmount;
+
   const totalsMatch = flat.match(
     /(?:^|\s)合计\s*[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)\s*[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/
   );
 
-  const amount = totalsMatch
+  const invoiceAmount = totalsMatch
     ? parseNumber(totalsMatch[1])
     : parseNumber(
         findFirst(flat, [
@@ -168,6 +176,8 @@ export function extractInvoiceDataFromMarkdown(markdown: string, fileName?: stri
           /(?:^|\s)金额[\s:：]*[¥￥]?\s*([\d,]+(?:\.\d{1,2})?)/,
         ])
       );
+
+  const amount = invoiceAmount ?? receiptAmount;
 
   const taxAmount = totalsMatch
     ? parseNumber(totalsMatch[2])

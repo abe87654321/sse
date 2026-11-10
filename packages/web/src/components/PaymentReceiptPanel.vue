@@ -42,6 +42,10 @@
           <span v-if="receipt.verifiedAt">核对时间：{{ formatDate(receipt.verifiedAt) }}</span>
         </div>
 
+        <div v-if="ocrSummary(receipt)" class="receipt-ocr">
+          识别结果：{{ ocrSummary(receipt) }}
+        </div>
+
         <div v-if="isSuspicious(receipt)" class="receipt-alert">
           ⚠️ 该回单存在差异或未识别，请人工复核
         </div>
@@ -53,20 +57,20 @@
         </ul>
 
         <div class="receipt-actions">
-          <button class="table-link" @click="downloadReceipt(receipt.id)">下载</button>
+          <button class="table-link" @click="downloadReceipt(receipt)">下载</button>
           <button
             v-if="canManage"
             class="table-link"
             :disabled="verifying === receipt.id"
             @click="$emit('verify', receipt.id, false)"
-          >{{ verifying === receipt.id ? '识别中...' : '重新识别' }}</button>
+          >{{ verifying === receipt.id ? '识别中...' : '🔍 重新核对' }}</button>
           <button
             v-if="canManage"
             class="table-link"
             :disabled="verifying === receipt.id"
-            title="忽略缓存，重新调用 OCR 引擎"
+            title="忽略缓存的识别结果，重新调用 OCR 引擎（会消耗 MinerU 额度）"
             @click="$emit('verify', receipt.id, true)"
-          >强制重新识别</button>
+          >重新识别</button>
         </div>
       </div>
     </div>
@@ -104,7 +108,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import api from '../api/index'
+import { apiErrorMessage, downloadFile } from '../utils/download'
 
 const props = defineProps<{
   reportId: string
@@ -152,6 +156,19 @@ function isSuspicious(receipt: any) {
   return ['warning', 'unverified', 'error'].includes(receipt.verificationStatus)
 }
 
+function ocrSummary(receipt: any) {
+  const ocr = receipt?.ocrResult
+  if (!ocr) return ''
+  const parts: string[] = []
+  const amount = ocr.totalAmount ?? ocr.amount
+  if (amount !== undefined && amount !== null) {
+    parts.push(`金额 ¥${Number(amount).toFixed(2)}`)
+  }
+  if (ocr.invoiceDate) parts.push(`日期 ${ocr.invoiceDate}`)
+  if (ocr.invoiceNo) parts.push(`编号 ${ocr.invoiceNo}`)
+  return parts.join(' · ')
+}
+
 function formatDate(value?: string) {
   if (!value) return '-'
   const date = new Date(value)
@@ -182,12 +199,14 @@ function submitRevert() {
   }, 300)
 }
 
-async function downloadReceipt(receiptId: string) {
+async function downloadReceipt(receipt: any) {
   try {
-    const res = await api.get(`/expenses/${props.reportId}/payment-receipts/${receiptId}/download`)
-    window.open(res.data.url, '_blank')
+    await downloadFile(
+      `/expenses/${props.reportId}/payment-receipts/${receipt.id}/download`,
+      receipt.fileName || 'payment-receipt',
+    )
   } catch (err: any) {
-    alert(err?.response?.data?.error?.message || '下载失败')
+    alert(await apiErrorMessage(err, '下载失败'))
   }
 }
 </script>
@@ -215,6 +234,7 @@ async function downloadReceipt(receiptId: string) {
 .receipt-status.status-unverified, .receipt-status.status-pending { background: var(--bg-warm); color: var(--text-muted); }
 .receipt-status.status-error { background: rgba(229, 62, 62, 0.15); color: #c92a2a; }
 .receipt-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.76rem; color: var(--text-muted); margin-top: 6px; }
+.receipt-ocr { margin-top: 6px; font-size: 0.78rem; color: var(--text-secondary); }
 .receipt-alert { margin-top: 8px; padding: 8px 10px; border-radius: var(--radius-sm); background: rgba(255, 146, 43, 0.12); color: #d9480f; font-size: 0.8rem; }
 .receipt-checks { margin: 8px 0 0; padding-left: 18px; font-size: 0.78rem; color: var(--text-secondary); }
 .receipt-checks li.fail { color: #d9480f; }

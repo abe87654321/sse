@@ -10,7 +10,7 @@ import {
   pool,
   withTransaction,
 } from '@sse/db';
-import { ReportService, aggregateVerificationStatus, planItemSync, verifyInvoices } from '@sse/core';
+import { ReportService, aggregateVerificationStatus, planItemSync, shouldReOcr, verifyInvoices } from '@sse/core';
 import { ReportStatus, InvoiceFormat, UserRole, ApprovalResult } from '@sse/shared';
 import { paymentPaidMessage } from '@sse/notifications';
 import { sendNotificationSafe } from '../services/notifications';
@@ -21,6 +21,7 @@ import { uploadInvoice, uploadPaymentReceipt } from '../middleware/upload';
 import { AppError } from '../middleware/error';
 import { MinioStorage } from '../storage/minio-storage';
 import { createOCREngine } from '../services/ai-engines';
+import { sendAttachment } from '../services/attachment';
 import {
   queuePaymentReceiptVerification,
   runPaymentReceiptVerification,
@@ -306,13 +307,7 @@ router.post(
       ? await pool.query('SELECT * FROM invoices WHERE item_id = ANY($1)', [itemIds])
       : { rows: [] as any[] };
 
-    const needsOcr = invoiceRows.some((row: any) => {
-      if (force || !row.ocr_result) return true;
-      const hasAmount = (row.ocr_result.totalAmount !== undefined && row.ocr_result.totalAmount !== null)
-        || (row.ocr_result.amount !== undefined && row.ocr_result.amount !== null);
-      return row.ocr_result.parserVersion !== MINERU_PARSER_VERSION
-        || (!hasAmount && !row.ocr_result.rawText);
-    });
+    const needsOcr = invoiceRows.some((row: any) => shouldReOcr(row.ocr_result, force, MINERU_PARSER_VERSION));
     const engine = needsOcr ? createOCREngine() : null;
     const canSeeDuplicateDetails =
       req.user!.role === UserRole.ADMIN ||
@@ -325,7 +320,7 @@ router.post(
       let ocr = invoice.ocrResult;
       let ocrError: string | undefined;
 
-      if (force || !ocr) {
+      if (shouldReOcr(ocr, force, MINERU_PARSER_VERSION)) {
         ocr = undefined;
         if (!engine) {
           ocrError = '发票 OCR 引擎未启用';
@@ -434,8 +429,8 @@ router.get(
       throw new AppError(404, 'NOT_FOUND', '打款回单不存在');
     }
 
-    const url = await minio.getSignedUrl(receipt.storageKey, receipt.storageBucket, 3600);
-    res.json({ url });
+    const buffer = await minio.getObject(receipt.storageKey, receipt.storageBucket);
+    sendAttachment(res, buffer, receipt.fileName);
   })
 );
 
@@ -928,8 +923,8 @@ router.get(
     if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
     await assertReportAccess(report, req.user!);
 
-    const url = await minio.getSignedUrl(inv.storageKey, inv.storageBucket, 3600);
-    res.json({ url });
+    const buffer = await minio.getObject(inv.storageKey, inv.storageBucket);
+    sendAttachment(res, buffer, inv.fileName);
   })
 );
 

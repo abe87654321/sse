@@ -217,6 +217,7 @@ import { reactive, computed, ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../api/index'
 import InvoiceVerificationPanel from '../components/InvoiceVerificationPanel.vue'
+import { apiErrorMessage, downloadFile } from '../utils/download'
 
 const router = useRouter()
 const route = useRoute()
@@ -553,10 +554,12 @@ async function runVerification(force = false) {
 
 async function downloadInvoice(invoice: InvoiceInfo) {
   try {
-    const res = await api.get(`/expenses/${invoice._expenseId}/items/${invoice._itemId}/invoice/${invoice.id}/download`)
-    window.open(res.data.url, '_blank')
+    await downloadFile(
+      `/expenses/${invoice._expenseId}/items/${invoice._itemId}/invoice/${invoice.id}/download`,
+      invoice.fileName || 'invoice',
+    )
   } catch (e: any) {
-    error.value = e?.response?.data?.error?.message || '下载失败'
+    error.value = await apiErrorMessage(e, '下载失败')
   }
 }
 

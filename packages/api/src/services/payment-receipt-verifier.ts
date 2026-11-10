@@ -1,5 +1,6 @@
 import type { PaymentReceiptVerification } from '@sse/shared';
-import { verifyPaymentReceipt } from '@sse/core';
+import { shouldReOcr, verifyPaymentReceipt } from '@sse/core';
+import { MINERU_PARSER_VERSION } from '@sse/ai';
 import { PgExpenseRepo, PgPaymentReceiptRepo } from '@sse/db';
 import { createOCREngine } from './ai-engines';
 import { MinioStorage } from '../storage/minio-storage';
@@ -31,7 +32,7 @@ export async function runPaymentReceiptVerification(
   let ocr = receipt.ocrResult ?? null;
   let ocrError: string | undefined;
 
-  if (!ocr || forceOcr) {
+  if (shouldReOcr(ocr, forceOcr, MINERU_PARSER_VERSION)) {
     const engine = createOCREngine();
     if (!engine) {
       ocr = null;

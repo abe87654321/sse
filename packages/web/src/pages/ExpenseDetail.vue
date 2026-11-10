@@ -169,6 +169,7 @@ import api from '../api/index'
 import ApprovalTimeline from '../components/ApprovalTimeline.vue'
 import PaymentDialog from '../components/PaymentDialog.vue'
 import PaymentReceiptPanel from '../components/PaymentReceiptPanel.vue'
+import { apiErrorMessage, downloadFile } from '../utils/download'
 
 const route = useRoute()
 const router = useRouter()
@@ -222,19 +223,23 @@ function getInvoice(itemId: string) {
 
 async function downloadInvoice(itemId: string, invoice: InvoiceItem) {
   try {
-    const res = await api.get(`/expenses/${route.params.id}/items/${itemId}/invoice/${invoice.id}/download`)
-    window.open(res.data.url, '_blank')
+    await downloadFile(
+      `/expenses/${route.params.id}/items/${itemId}/invoice/${invoice.id}/download`,
+      invoice.fileName || 'invoice',
+    )
   } catch (e: any) {
-    alert(e?.response?.data?.error?.message || '下载失败')
+    alert(await apiErrorMessage(e, '下载失败'))
   }
 }
 
 async function downloadInvoiceFile(invoice: InvoiceItem) {
   try {
-    const res = await api.get(`/expenses/${route.params.id}/items/${invoice.itemId}/invoice/${invoice.id}/download`)
-    window.open(res.data.url, '_blank')
+    await downloadFile(
+      `/expenses/${route.params.id}/items/${invoice.itemId}/invoice/${invoice.id}/download`,
+      invoice.fileName || 'invoice',
+    )
   } catch (e: any) {
-    alert(e?.response?.data?.error?.message || '下载失败')
+    alert(await apiErrorMessage(e, '下载失败'))
   }
 }
 

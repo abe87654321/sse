@@ -13,3 +13,4 @@ export {
   aggregatePaymentReceiptStatus,
 } from './payment-receipt-verifier';
 export type { VerifyPaymentReceiptInput } from './payment-receipt-verifier';
+export { shouldReOcr } from './ocr-freshness';

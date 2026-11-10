@@ -78,3 +78,56 @@ describe('extractInvoiceDataFromMarkdown', () => {
     expect(result.totalAmount).toBeUndefined();
   });
 });
+
+describe('extractInvoiceDataFromMarkdown — bank payment receipts', () => {
+  it('extracts the reference number, date and amount from a bank receipt', () => {
+    const markdown = `
+回单编号：578B5E0088694
+交易日期：2026-11-02
+付款金额：¥3,650.79
+`;
+
+    const result = extractInvoiceDataFromMarkdown(markdown);
+
+    expect(result.invoiceNo).toBe('578B5E0088694');
+    expect(result.invoiceDate).toBe('2026-11-02');
+    expect(result.totalAmount).toBe(3650.79);
+    expect(result.amount).toBe(3650.79);
+  });
+
+  it('extracts the amount from a receipt rendered as an HTML table', () => {
+    const markdown = `<table><tr><td>回单编号</td><td>578B5E0088694</td></tr>
+<tr><td>交易日期</td><td>2026年11月02日</td></tr>
+<tr><td>付款金额</td><td>3650.79</td></tr></table>`;
+
+    const result = extractInvoiceDataFromMarkdown(markdown);
+
+    expect(result.invoiceNo).toBe('578B5E0088694');
+    expect(result.invoiceDate).toBe('2026-11-02');
+    expect(result.totalAmount).toBe(3650.79);
+  });
+
+  it('recognises alternative bank receipt amount labels', () => {
+    expect(extractInvoiceDataFromMarkdown('交易金额：1234.50').totalAmount).toBe(1234.5);
+    expect(extractInvoiceDataFromMarkdown('汇出金额：88.00').totalAmount).toBe(88);
+    expect(extractInvoiceDataFromMarkdown('付款金额（小写）¥2,000.00').totalAmount).toBe(2000);
+  });
+
+  it('recognises alternative bank receipt date labels', () => {
+    expect(extractInvoiceDataFromMarkdown('记账日期 2026-11-03').invoiceDate).toBe('2026-11-03');
+    expect(extractInvoiceDataFromMarkdown('回单日期：2026/11/04').invoiceDate).toBe('2026-11-04');
+  });
+
+  it('recognises alternative bank receipt reference labels', () => {
+    expect(extractInvoiceDataFromMarkdown('流水号：889900112233').invoiceNo).toBe('889900112233');
+    expect(extractInvoiceDataFromMarkdown('凭证号：556677889900').invoiceNo).toBe('556677889900');
+  });
+
+  it('does not treat a receipt amount as a tax invoice total', () => {
+    const markdown = '价税合计：¥100.00\n付款金额：¥90.00\n';
+
+    const result = extractInvoiceDataFromMarkdown(markdown);
+
+    expect(result.totalAmount).toBe(100);
+  });
+});
