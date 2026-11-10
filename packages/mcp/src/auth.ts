@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { UserRole } from "@sse/shared";
 
 export interface AuthContext {
@@ -7,6 +8,19 @@ export interface AuthContext {
 }
 
 const apiKeyStore = new Map<string, AuthContext>();
+
+// Per-request identity for HTTP transport. The stdio transport keeps using
+// env/args; HTTP sets the resolved key context here so concurrent clients each
+// get their own role/department instead of sharing the process default key.
+const authStorage = new AsyncLocalStorage<AuthContext>();
+
+export function runWithAuth<T>(auth: AuthContext, fn: () => T): T {
+  return authStorage.run(auth, fn);
+}
+
+export function currentAuth(): AuthContext | undefined {
+  return authStorage.getStore();
+}
 
 const keysEnv = process.env.MCP_API_KEYS;
 if (keysEnv) {
@@ -47,7 +61,11 @@ export function validateApiKey(key: string): AuthContext | null {
 }
 
 export function resolveAuthContext(args?: Record<string, unknown>): AuthContext | null {
-  const key = (process.env.MCP_API_KEY || (args?.["api_key"] as string | undefined)) ?? null;
+  const requestAuth = authStorage.getStore();
+  if (requestAuth) return requestAuth;
+
+  const argKey = args?.["api_key"];
+  const key = (typeof argKey === "string" && argKey ? argKey : process.env.MCP_API_KEY) ?? null;
   if (!key) return null;
   return validateApiKey(key);
 }

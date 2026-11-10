@@ -1,7 +1,7 @@
 import type { ToolDefinition, ToolResult } from "./types.js";
 import { errorResult, successResult } from "./types.js";
 import { resolveAuthContext } from "../auth.js";
-import { getEngine } from "./get-engine.js";
+import { ensureOntologyLoaded } from "./get-engine.js";
 import { scopeGraphForUser } from "@sse/ontology";
 
 export const definition: ToolDefinition = {
@@ -24,7 +24,7 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
   const depth = (args.depth as number) || 2;
   if (!entityId) return errorResult("INVALID_PARAMS", "请提供 entity_id");
   try {
-    const engine = getEngine();
+    const engine = await ensureOntologyLoaded();
     const graph = scopeGraphForUser(engine.store.getGraph(), {
       role: auth.role,
       userId: auth.userId,

@@ -1,0 +1,27 @@
+[Unit]
+Description=SSE MCP server (Streamable HTTP)
+Documentation=https://github.com/abe87654321/sse
+After=network.target
+# If PostgreSQL runs on the same host as a service, add it to After= above.
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sse
+Group=sse
+# Must be the repo root: MCP reads ai-config.json and data/ relative to cwd.
+WorkingDirectory=/opt/sse
+EnvironmentFile=/opt/sse/.env
+Environment=MCP_HTTP_PORT=3001
+Environment=SSE_API_BASE=http://127.0.0.1:3000
+ExecStart=/usr/bin/node /opt/sse/packages/mcp/dist/http.js
+Restart=on-failure
+RestartSec=3
+# Health: curl -fsS http://127.0.0.1:3001/healthz
+# The app connects to PostgreSQL/MinIO/LLM on startup; keep it simple but isolated.
+NoNewPrivileges=true
+PrivateTmp=true
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

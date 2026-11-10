@@ -1,7 +1,7 @@
 import type { ToolDefinition, ToolResult } from "./types.js";
 import { errorResult, successResult } from "./types.js";
 import { resolveAuthContext } from "../auth.js";
-import { getEngine } from "./get-engine.js";
+import { ensureOntologyLoaded } from "./get-engine.js";
 import { scopeGraphForUser } from "@sse/ontology";
 
 export const definition: ToolDefinition = {
@@ -19,7 +19,7 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
   const auth = resolveAuthContext(args);
   if (!auth) return errorResult("UNAUTHORIZED", "无效或缺失 API key");
   try {
-    const engine = getEngine();
+    const engine = await ensureOntologyLoaded();
     const graph = scopeGraphForUser(engine.store.getGraph(), {
       role: auth.role,
       userId: auth.userId,

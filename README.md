@@ -50,7 +50,7 @@
 | ⚙️ **Admin Engine Setup** | Root URL + API key, model catalog picker, connectivity test, observable OCR test panel with history |
 | 📊 **Statistics & Export** | Charts, monthly trends, Excel export |
 | 🔔 **Notifications** | In-app + SMS + Email for approval / payment / broadcast events, per-user preferences, delivery tracking and bounce alerts |
-| 📡 **MCP Protocol** | 14 read/write tools for AI Agent integration |
+| 📡 **MCP Protocol** | 18 tools for AI Agent integration (stdio + Streamable HTTP) |
 | 🔗 **SCIM 2.0 + MDM** | External identity sync via SCIM and MDM Webhook |
 | 🗂️ **Object Storage** | Invoice files in MinIO, DB holds references only |
 | 🔐 **RBAC** | 4 roles with data scope isolation |
@@ -304,6 +304,24 @@ External Systems (HR / LDAP / 企业微信)
 | `get_entity_network` | N-hop semantic relationship network |
 | `query_ontology` | Query ontology graph by type or full graph |
 | `query_sparql` | SPARQL cross-domain query on the ontology graph |
+| `approve_expense` | Approve a report (verification acknowledgement supported) |
+| `reject_expense` | Reject a report with a required comment |
+| `upload_invoice` | Attach a PDF/OFD invoice to a report item |
+| `verify_expense` | Run AI invoice verification (amount/date/number + duplicates) |
+
+### 🔌 MCP Transports / 传输
+
+| Transport | Endpoint | Use |
+|-----------|----------|-----|
+| Streamable HTTP | `POST/GET/DELETE /mcp` | Claude Code / Cursor / VS Code and other MCP clients |
+| Legacy HTTP+SSE | `GET /sse` + `POST /messages` | Older clients (`MCP_LEGACY_SSE=0` disables) |
+| Health check | `GET /healthz` | Liveness / readiness |
+
+- Non-MCP agent frameworks: `GET /openapi.json` (OpenAPI 3.1); exchange a key via `POST /auth/api-key-login`.
+- Start: `MCP_HTTP_PORT=3001 pnpm mcp:http` (stdio remains `pnpm mcp`).
+- Auth: `Authorization: Bearer <mcp-api-key>`; identity is resolved per request and bound to the key's user/role/department.
+- Optional env: `MCP_JSON_RESPONSE=1`, `MCP_CORS_ORIGIN`, `MCP_MAX_SESSIONS`, `MCP_MAX_BODY_BYTES`.
+- systemd unit: `deploy/systemd/sse-mcp.service`.
 
 ### 🖥️ Pi Agent Calling MCP Tools / Pi 调用 MCP 工具
 
@@ -339,6 +357,11 @@ External Systems (HR / LDAP / 企业微信)
 
 ## 🆕 Recent Updates / 最近更新
 
+- **2026-11-10** — MCP agent integration:
+  - Streamable HTTP transport at `/mcp` (legacy `/sse` retained), `/healthz`, graceful shutdown
+  - Per-request API-key identity for HTTP (no shared default key); ontology loads the latest DB snapshot
+  - Added `approve_expense`, `reject_expense`, `upload_invoice`, `verify_expense`; invoice submit now stores PDF/OFD and triggers verification (18 tools)
+  - Added `GET /openapi.json` (OpenAPI 3.1) for non-MCP agents, using the same API key → JWT flow
 - **2026-11-09** — OCR pipeline and attachment fixes:
   - MinerU token resolution: a saved `ai-config.json` no longer silently shadows
     `MINERU_TOKEN`; the effective source (`saved` / `env` / `none`) is visible in

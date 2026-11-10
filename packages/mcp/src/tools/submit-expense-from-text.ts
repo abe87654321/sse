@@ -1,7 +1,7 @@
 import type { ToolDefinition, ToolResult } from "./types.js";
 import { errorResult, successResult } from "./types.js";
 import { resolveAuthContext } from "../auth.js";
-import { getEngine } from "./get-engine.js";
+import { ensureOntologyLoaded } from "./get-engine.js";
 import { signToken } from "@sse/auth";
 
 export const definition: ToolDefinition = {
@@ -22,7 +22,7 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
   const text = args.text as string;
   if (!text) return errorResult("INVALID_PARAMS", "请提供 text 参数");
   try {
-    const engine = getEngine();
+    const engine = await ensureOntologyLoaded();
     const token = signToken({ userId: auth.userId, role: auth.role, department: auth.department });
     const result = await engine.submitFromText(text, auth.userId, token);
     return successResult(result);

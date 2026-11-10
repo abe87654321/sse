@@ -132,6 +132,67 @@ async function api(
   return { status: res.status, data };
 }
 
+function base64ToBlob(base64: string, mime: string): Blob {
+  const payload = base64.startsWith("data:") ? base64.slice(base64.indexOf(",") + 1) : base64;
+  return new Blob([new Uint8Array(Buffer.from(payload, "base64"))], { type: mime });
+}
+
+async function apiMultipart(path: string, form: FormData): Promise<any> {
+  if (!API_KEY) throw new Error("未配置 SSE_API_KEY 环境变量");
+  if (!accessToken) await login();
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  });
+  const text = await res.text();
+  let data: any = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+  return data;
+}
+
+function invoiceExt(fileName: string, fileFormat?: string): string {
+  const fromName = fileName.split(".").pop()?.toLowerCase();
+  if (fromName === "pdf" || fromName === "ofd") return fromName;
+  if (fromName) return "image";
+  return String(fileFormat || "").toLowerCase() === "pdf" ? "pdf" : "image";
+}
+
+async function attachInvoiceAndVerify(
+  reportId: string,
+  imageBase64: string,
+  fileName: string,
+  fileFormat?: string,
+): Promise<Record<string, any>> {
+  const ext = invoiceExt(fileName, fileFormat);
+  if (ext !== "pdf" && ext !== "ofd") {
+    return { invoice_stored: false, verification_note: "图片发票仅做 OCR，未入库；AI 核对需要 PDF/OFD 原始文件。" };
+  }
+  try {
+    const detail = await api("GET", `/expenses/${encodeURIComponent(reportId)}`);
+    const itemId = (detail.data.items || [])[0]?.id;
+    if (!itemId) return { invoice_stored: false, verification_error: "未找到费用明细，无法挂载发票" };
+
+    const resolvedName = fileName.includes(".") ? fileName : `invoice.${ext}`;
+    const form = new FormData();
+    form.append(
+      "file",
+      base64ToBlob(imageBase64, ext === "pdf" ? "application/pdf" : "application/ofd"),
+      resolvedName,
+    );
+    const uploaded = await apiMultipart(
+      `/expenses/${encodeURIComponent(reportId)}/items/${encodeURIComponent(itemId)}/invoice`,
+      form,
+    );
+    const verify = await api("POST", `/expenses/${encodeURIComponent(reportId)}/verify`, { force: false });
+    return { invoice_stored: true, invoice: deepSnake(uploaded), verification: deepSnake(verify.data) };
+  } catch (e: any) {
+    return { invoice_stored: false, verification_error: e.message || "自动入库/核对失败" };
+  }
+}
+
 // ---------- 工具注册 ----------
 
 export default function sseMcpExtension(pi: ExtensionAPI) {
@@ -255,14 +316,108 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
 
     {
       name: "submit_expense_from_invoice",
-      description: "上传发票图片(base64)，通过OCR识别后自动创建报销单并提交审批。",
+      description: "上传发票(base64)，OCR 识别后自动创建并提交报销单。PDF/OFD 会自动入库并触发 AI 核对；图片仅做 OCR。",
       properties: {
-        image_base64: strReq("发票图片的base64编码"),
+        image_base64: strReq("发票文件的 base64 编码"),
         file_format: str("文件格式: pdf 或 image"),
+        file_name: str("文件名，用于判定 PDF/OFD（可选）"),
+        auto_verify: Type.Optional(Type.Boolean({ description: "PDF/OFD 建单后自动入库并核对，默认 true" })),
       },
       required: ["image_base64"],
+      call: async (a) => {
+        const r = await api("POST", "/expenses/from-invoice", {
+          imageBase64: a.image_base64,
+          fileFormat: a.file_format,
+        });
+        const result = deepSnake(r.data);
+        if (a.auto_verify !== false && r.data?.success && r.data?.report_id) {
+          const fileName =
+            (a.file_name as string) || (a.file_format === "pdf" ? "invoice.pdf" : "invoice.img");
+          Object.assign(
+            result,
+            await attachInvoiceAndVerify(
+              r.data.report_id,
+              a.image_base64 as string,
+              fileName,
+              a.file_format as string | undefined,
+            ),
+          );
+        }
+        return result;
+      },
+    },
+
+    {
+      name: "upload_invoice",
+      description: "将发票文件(base64)挂到报销单的费用明细上（仅 PDF/OFD），为 AI 核对提供原始凭证。",
+      properties: {
+        report_id: strReq("报销单 UUID"),
+        item_id: strReq("费用明细 UUID"),
+        image_base64: strReq("发票文件内容的 base64（PDF/OFD）"),
+        file_name: str("文件名，用于判定格式，如 invoice.pdf"),
+      },
+      required: ["report_id", "item_id", "image_base64"],
+      call: async (a) => {
+        const fileName = (a.file_name as string) || "invoice.pdf";
+        const ext = invoiceExt(fileName, undefined);
+        if (ext !== "pdf" && ext !== "ofd") throw new Error("发票入库仅支持 PDF/OFD");
+        const form = new FormData();
+        form.append(
+          "file",
+          base64ToBlob(a.image_base64 as string, ext === "pdf" ? "application/pdf" : "application/ofd"),
+          fileName.includes(".") ? fileName : `invoice.${ext}`,
+        );
+        const data = await apiMultipart(
+          `/expenses/${encodeURIComponent(a.report_id as string)}/items/${encodeURIComponent(a.item_id as string)}/invoice`,
+          form,
+        );
+        return deepSnake(data);
+      },
+    },
+
+    {
+      name: "verify_expense",
+      description: "对报销单的发票执行 AI 核对（金额/日期/发票号一致性 + 重复票检测），返回核对摘要与逐张明细。",
+      properties: {
+        report_id: strReq("报销单 UUID"),
+        force: Type.Optional(Type.Boolean({ description: "忽略 OCR 缓存重新识别（会消耗额度）" })),
+      },
+      required: ["report_id"],
       call: (a) =>
-        api("POST", "/expenses/from-invoice", { imageBase64: a.image_base64, fileFormat: a.file_format }).then((r) => deepSnake(r.data)),
+        api("POST", `/expenses/${encodeURIComponent(a.report_id as string)}/verify`, {
+          force: a.force === true,
+        }).then((r) => deepSnake(r.data)),
+    },
+
+    // ---------- 审批 ----------
+    {
+      name: "approve_expense",
+      description: "审批通过报销单（部门审批人/财务/管理员）。存在 AI 核对差异时需 acknowledge_verification=true。",
+      properties: {
+        report_id: strReq("报销单 UUID"),
+        comment: str("审批意见（可选）"),
+        acknowledge_verification: Type.Optional(Type.Boolean({ description: "已知晓 AI 核对差异并继续审批" })),
+      },
+      required: ["report_id"],
+      call: (a) =>
+        api("POST", `/approvals/${encodeURIComponent(a.report_id as string)}/approve`, {
+          comment: a.comment,
+          acknowledgeVerification: a.acknowledge_verification === true ? true : undefined,
+        }).then((r) => deepSnake(r.data)),
+    },
+
+    {
+      name: "reject_expense",
+      description: "驳回报销单（部门审批人/财务/管理员），必须填写驳回意见。",
+      properties: {
+        report_id: strReq("报销单 UUID"),
+        comment: strReq("驳回意见（必填）"),
+      },
+      required: ["report_id", "comment"],
+      call: (a) =>
+        api("POST", `/approvals/${encodeURIComponent(a.report_id as string)}/reject`, {
+          comment: a.comment,
+        }).then((r) => deepSnake(r.data)),
     },
 
     // ---------- 查询/解释 ----------

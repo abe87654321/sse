@@ -13,6 +13,10 @@ import * as getUserSummaryTool from "./tools/get-user-summary.js";
 import * as listPendingApprovalsTool from "./tools/list-pending-approvals.js";
 import * as submitExpenseFromTextTool from "./tools/submit-expense-from-text.js";
 import * as submitExpenseFromInvoiceTool from "./tools/submit-expense-from-invoice.js";
+import * as approveExpenseTool from "./tools/approve-expense.js";
+import * as rejectExpenseTool from "./tools/reject-expense.js";
+import * as uploadInvoiceTool from "./tools/upload-invoice.js";
+import * as verifyExpenseTool from "./tools/verify-expense.js";
 import * as queryExpenseStatusTool from "./tools/query-expense-status.js";
 import * as explainDecisionTool from "./tools/explain-decision.js";
 import * as getEntityNetworkTool from "./tools/get-entity-network.js";
@@ -35,6 +39,10 @@ const allTools: ToolEntry[] = [
   listPendingApprovalsTool,
   submitExpenseFromTextTool,
   submitExpenseFromInvoiceTool,
+  approveExpenseTool,
+  rejectExpenseTool,
+  uploadInvoiceTool,
+  verifyExpenseTool,
   queryExpenseStatusTool,
   explainDecisionTool,
   getEntityNetworkTool,
@@ -91,8 +99,9 @@ export function startServer(): Server {
     return tool.handler(args);
   };
 
-  // @ts-expect-error - SDK type union is overly broad for CallToolResult
-  server.setRequestHandler(CallToolRequestSchema, callToolHandler);
+  // The SDK's CallToolResult union now includes task-augmented variants; our
+  // plain { content, isError } result is valid at runtime.
+  server.setRequestHandler(CallToolRequestSchema, callToolHandler as any);
 
   return server;
 }

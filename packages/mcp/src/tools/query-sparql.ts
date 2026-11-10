@@ -1,7 +1,7 @@
 import type { ToolDefinition, ToolResult } from "./types.js";
 import { errorResult, successResult } from "./types.js";
 import { resolveAuthContext } from "../auth.js";
-import { getEngine } from "./get-engine.js";
+import { ensureOntologyLoaded } from "./get-engine.js";
 import { executeSparql } from "@sse/ontology";
 import { UserRole } from "@sse/shared";
 
@@ -24,7 +24,7 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
     return errorResult("FORBIDDEN", "仅管理员和财务可执行 SPARQL 查询");
   }
   try {
-    const engine = getEngine();
+    const engine = await ensureOntologyLoaded();
     const store = engine.store.getStore();
     const result = executeSparql(store, args.query as string);
     return successResult(result);

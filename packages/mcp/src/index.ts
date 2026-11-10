@@ -1,6 +1,13 @@
 import { startServer, runServer } from "./server.js";
 export { startServer, runServer };
-export { registerApiKey, validateApiKey, resolveAuthContext, enforceReadAccess } from "./auth.js";
+export {
+  registerApiKey,
+  validateApiKey,
+  resolveAuthContext,
+  enforceReadAccess,
+  runWithAuth,
+  currentAuth,
+} from "./auth.js";
 export type { AuthContext } from "./auth.js";
 
 runServer().catch((err: Error) => {
