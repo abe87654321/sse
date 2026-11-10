@@ -176,11 +176,22 @@ describe('reasoning services', () => {
     expect(invoices?.message).toContain('pass');
     expect(invoices?.evidence).toContain(invoice('v1'));
 
+    const categories = explanation!.why.find((entry) => entry.code === 'categories');
+    expect(categories?.message).toContain('差旅');
+    expect(categories?.evidence).toContain(category('c1'));
+
     for (const entry of explanation!.why) {
       expect(entry.evidence.length).toBeGreaterThan(0);
     }
     expect(explanation!.evidenceUris).toEqual(
-      expect.arrayContaining([report('r1'), rule('ar1'), invoice('v1'), approval('a1'), payment('pay1')]),
+      expect.arrayContaining([
+        report('r1'),
+        rule('ar1'),
+        category('c1'),
+        invoice('v1'),
+        approval('a1'),
+        payment('pay1'),
+      ]),
     );
   });
 

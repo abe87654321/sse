@@ -82,13 +82,19 @@ export async function explainReport(
   const items: EntityFacts[] = [];
   const invoices: EntityFacts[] = [];
   const categoryIds: string[] = [];
+  const categoryFacts = new Map<string, EntityFacts>();
+  const categoryUris: string[] = [];
   for (const itemUri of iris(report, 'containsItem')) {
     const item = await loadFacts(store, itemUri);
     items.push(item);
     relevant.add(itemUri);
     for (const categoryUri of iris(item, 'hasCategory')) {
       categoryIds.push(localName(categoryUri));
+      categoryUris.push(categoryUri);
       relevant.add(categoryUri);
+      if (!categoryFacts.has(categoryUri)) {
+        categoryFacts.set(categoryUri, await loadFacts(store, categoryUri));
+      }
     }
     for (const invoiceUri of iris(item, 'hasInvoice')) {
       const invoice = await loadFacts(store, invoiceUri);
@@ -190,6 +196,19 @@ export async function explainReport(
     message: `报销单 ${serialNo} 当前状态为 ${status ?? '未知'}`,
     evidence: [reportUri],
   });
+
+  const uniqueCategories = [...new Set(categoryUris)].sort();
+  if (uniqueCategories.length > 0) {
+    const names = [...new Set(uniqueCategories.map((categoryUri) => {
+      const facts = categoryFacts.get(categoryUri);
+      return facts ? literal(facts, 'name') ?? localName(categoryUri) : localName(categoryUri);
+    }))];
+    why.push({
+      code: 'categories',
+      message: `费用类别：${names.join('，')}`,
+      evidence: uniqueCategories,
+    });
+  }
 
   if (matched) {
     why.push({
