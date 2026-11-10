@@ -19,6 +19,7 @@ import { getEngine } from './routes/ontology-helpers';
 import { scimRoutes } from './routes/scim';
 import { webhookRoutes } from './routes/webhook';
 import { errorHandler } from './middleware/error';
+import { buildOpenApiDocument } from './openapi';
 import { processPendingPaymentReceipts } from './services/payment-receipt-verifier';
 
 const app = express();
@@ -50,6 +51,14 @@ app.get('/categories', async (_req, res, next) => {
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// OpenAPI 3.1 spec for agents/frameworks that consume REST instead of MCP.
+app.get('/openapi.json', (_req, res) => {
+  res.json(buildOpenApiDocument());
+});
+app.get('/openapi', (_req, res) => {
+  res.redirect('/openapi.json');
 });
 
 app.use(errorHandler);
