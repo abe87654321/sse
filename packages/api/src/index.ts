@@ -22,6 +22,11 @@ import { webhookRoutes } from './routes/webhook';
 import { errorHandler } from './middleware/error';
 import { buildOpenApiDocument } from './openapi';
 import { processPendingPaymentReceipts } from './services/payment-receipt-verifier';
+import {
+  anomalyIntervalMs,
+  defaultAnomalyScan,
+  startAnomalyScheduler,
+} from './services/anomaly-scheduler';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -69,6 +74,7 @@ app.use(errorHandler);
 
 let schedulerInstance: { start: () => void; stop: () => void } | null = null;
 let paymentReceiptTimer: NodeJS.Timeout | null = null;
+let anomalyTimer: NodeJS.Timeout | null = null;
 
 async function startScheduler() {
   try {
@@ -95,6 +101,10 @@ async function shutdown(server: Server) {
   if (paymentReceiptTimer) {
     clearInterval(paymentReceiptTimer);
     paymentReceiptTimer = null;
+  }
+  if (anomalyTimer) {
+    clearInterval(anomalyTimer);
+    anomalyTimer = null;
   }
   try {
     const { stopOntologyProjector } = await import('./services/ontology-projector');
@@ -134,6 +144,10 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
   if (process.env.ONTOLOGY_V2 === 'on' || process.env.ONTOLOGY_V2 === 'shadow') {
     const { startOntologyProjector } = await import('./services/ontology-projector');
     await startOntologyProjector();
+    anomalyTimer = startAnomalyScheduler(defaultAnomalyScan, anomalyIntervalMs());
+    if (anomalyTimer) {
+      console.error(`[ontology] anomaly scan scheduled every ${anomalyIntervalMs()}ms`);
+    }
   }
   console.log(`[SSE API] 服务启动成功，端口: ${PORT}`);
   startScheduler();
