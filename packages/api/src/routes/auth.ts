@@ -87,10 +87,12 @@ router.post(
       throw new AppError(403, 'UNAUTHORIZED', '账号已被禁用');
     }
 
+    // The user row is the source of truth for role/department. The key only
+    // proves identity; a stale key must not preserve an elevated role.
     const accessToken = signToken({
       userId: user.id,
-      role: keyRow.role || user.role,
-      department: keyRow.department || user.department,
+      role: user.role,
+      department: user.department || keyRow.department || '',
     });
 
     res.json({

@@ -1,4 +1,5 @@
 import { pool } from "@sse/db";
+import { resolveDataScope } from "@sse/auth";
 import { resolveAuthContext } from "../auth.js";
 import { ToolDefinition, ToolResult, parseISO8601Date, errorResult, successResult } from "./types.js";
 
@@ -22,25 +23,28 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
   }
 
   try {
+    const scope = resolveDataScope(auth);
+    if (scope.kind === "deny") {
+      return errorResult("FORBIDDEN", "当前角色无权查看统计");
+    }
+
     const dateFrom = parseISO8601Date(args.date_from);
     const dateTo = parseISO8601Date(args.date_to);
-    let department = typeof args.department === "string" ? args.department : undefined;
-
-    if (auth.role === "dept_approver") {
-      department = auth.department;
-    } else if (auth.role === "employee") {
-      department = undefined;
-    }
+    const department =
+      scope.kind === "department"
+        ? scope.department
+        : scope.kind === "all" && typeof args.department === "string"
+          ? args.department
+          : undefined;
 
     const conditions: string[] = [];
     const values: any[] = [];
     let idx = 1;
-    let joinClause = "";
     let userJoin = "";
 
-    if (auth.role === "employee") {
+    if (scope.kind === "self") {
       conditions.push(`er.user_id = $${idx++}`);
-      values.push(auth.userId);
+      values.push(scope.userId);
     } else if (department) {
       userJoin = "JOIN users u ON u.id = er.user_id";
       conditions.push(`u.department = $${idx++}`);

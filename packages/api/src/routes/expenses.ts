@@ -16,7 +16,7 @@ import { paymentPaidMessage } from '@sse/notifications';
 import { sendNotificationSafe } from '../services/notifications';
 import type { ExpenseQuery, VerificationSourceInvoice } from '@sse/core';
 import type { PaymentReceipt } from '@sse/shared';
-import { authMiddleware } from '@sse/auth';
+import { authMiddleware, canWriteReport } from '@sse/auth';
 import { uploadInvoice, uploadPaymentReceipt, validateUploadSignature } from '../middleware/upload';
 import { AppError } from '../middleware/error';
 import { MinioStorage } from '../storage/minio-storage';
@@ -42,6 +42,12 @@ function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Prom
   return (req: Request, res: Response, next: NextFunction) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
+}
+
+async function assertReportWriteAccess(report: { userId: string }, user: { role: string; userId: string }) {
+  if (!canWriteReport(user.role as UserRole, user.userId, report.userId)) {
+    throw new AppError(403, 'UNAUTHORIZED', '无权修改此报销单');
+  }
 }
 
 async function assertReportAccess(report: any, user: { role: string; department?: string; userId: string }) {
@@ -294,7 +300,13 @@ router.post(
     const report = await expenseRepo.findById(req.params.id);
     if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
 
+    // Approvers may run the (idempotent) verification to review a report in
+    // their department, but forcing a re-OCR costs quota and rewrites stored
+    // results, so that stays with the owner (or finance/admin).
     await assertReportAccess(report, req.user!);
+    if (force && !canWriteReport(req.user!.role as UserRole, req.user!.userId, report.userId)) {
+      throw new AppError(403, 'UNAUTHORIZED', '仅单据本人或财务/管理员可强制重新识别');
+    }
 
     const { rows: itemRows } = await pool.query(
       'SELECT * FROM expense_items WHERE report_id = $1 ORDER BY expense_date',
@@ -865,8 +877,6 @@ router.post(
       throw new AppError(404, 'NOT_FOUND', '报销单不存在');
     }
 
-    await assertReportAccess(report, req.user!);
-
     const { rows: itemRows } = await pool.query(
       'SELECT * FROM expense_items WHERE id = $1 AND report_id = $2',
       [itemId, req.params.id]
@@ -874,6 +884,9 @@ router.post(
     if (itemRows.length === 0) {
       throw new AppError(404, 'NOT_FOUND', '费用明细不存在');
     }
+
+    // Attaching/replacing an invoice mutates the report; approvers are read-only.
+    await assertReportWriteAccess(report, req.user!);
 
     const crypto = await import('crypto');
     const checksum = minio.calculateChecksum(req.file.buffer);

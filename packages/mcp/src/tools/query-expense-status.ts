@@ -2,6 +2,7 @@ import type { ToolDefinition, ToolResult } from "./types.js";
 import { errorResult, successResult } from "./types.js";
 import { resolveAuthContext } from "../auth.js";
 import { pool } from "@sse/db";
+import { resolveDataScope } from "@sse/auth";
 import { getEngine } from "./get-engine.js";
 
 export const definition: ToolDefinition = {
@@ -28,8 +29,20 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
     const parsed = await extractor.analyzeText(query, extractPrompt);
     let filters: any = {};
     try { const m = parsed.match(/\{[\s\S]*\}/); if (m) filters = JSON.parse(m[0]); } catch { /* ignore */ }
+    const scope = resolveDataScope(auth);
+    if (scope.kind === "deny") {
+      return errorResult("FORBIDDEN", "当前角色无权查询报销状态");
+    }
+
     let sql = "SELECT er.id, er.serial_no, er.title, er.total_amount, er.status, er.submitted_at, u.name as applicant_name FROM expense_reports er JOIN users u ON u.id = er.user_id WHERE 1=1";
     const values: any[] = []; let idx = 1;
+    if (scope.kind === "self") {
+      sql += ` AND er.user_id = $${idx++}`;
+      values.push(scope.userId);
+    } else if (scope.kind === "department") {
+      sql += ` AND u.department = $${idx++}`;
+      values.push(scope.department);
+    }
     if (filters.name) { sql += ` AND u.name ILIKE $${idx++}`; values.push(`%${filters.name}%`); }
     if (filters.status) { sql += ` AND er.status = $${idx++}`; values.push(filters.status); }
     if (filters.keyword) { sql += ` AND (er.title ILIKE $${idx++} OR er.serial_no ILIKE $${idx++})`; values.push(`%${filters.keyword}%`, `%${filters.keyword}%`); }

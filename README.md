@@ -363,6 +363,7 @@ External Systems (HR / LDAP / 企业微信)
   - Per-request API-key identity for HTTP (no shared default key); ontology loads the latest DB snapshot
   - Added `approve_expense`, `reject_expense`, `upload_invoice`, `verify_expense`; invoice submit now stores PDF/OFD and triggers verification (18 tools)
   - Added `GET /openapi.json` (OpenAPI 3.1) for non-MCP agents, using the same API key → JWT flow
+  - Authorization hardening: fail-closed role scoping (`resolveDataScope`), write-only invoice upload (approvers read-only), periodic API-key refresh (role follows the user row)
 - **2026-11-09** — OCR pipeline and attachment fixes:
   - MinerU token resolution: a saved `ai-config.json` no longer silently shadows
     `MINERU_TOKEN`; the effective source (`saved` / `env` / `none`) is visible in

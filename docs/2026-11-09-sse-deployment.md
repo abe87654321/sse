@@ -652,6 +652,9 @@ curl -s http://127.0.0.1:3001/healthz
 `MCP_API_KEY` 作为默认兜底；身份按请求解析，多个 key 并发互不串用。会话数、请求体
 大小可分别用 `MCP_MAX_SESSIONS`、`MCP_MAX_BODY_BYTES` 限制。
 
+数据库中的 `mcp_api_keys` 会按 `MCP_KEY_REFRESH_MS`（默认 60s）刷新，角色/部门以
+`users` 表为准；禁用用户或停用 key 最多在该周期内失效。
+
 客户端 `mcpServers` 示例（字段名因客户端而异）：
 
 ```json
@@ -1227,6 +1230,7 @@ Windows 下 `pnpm dev` 已通过 `concurrently` 跨平台并行启动，不需�
 | `MCP_CORS_ORIGIN` | 否 | — | 设置后开启 CORS |
 | `MCP_MAX_SESSIONS` | 否 | `100` | MCP 会话上限 |
 | `MCP_MAX_BODY_BYTES` | 否 | `52428800` | MCP 请求体上限（50MB） |
+| `MCP_KEY_REFRESH_MS` | 否 | `60000` | DB 中 `mcp_api_keys` 的刷新周期（key 吊销/角色变更生效延迟） |
 | `SSE_API_BASE` | 否 | `http://localhost:3000` | MCP 工具委托 REST 的基址 |
 | `PUBLIC_API_BASE` | 否 | — | OpenAPI `servers` 与内部 REST 基址 |
 | `SMS_PROVIDER` | 否 | `log` | `log` / `aliyun` |

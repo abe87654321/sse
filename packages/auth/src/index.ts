@@ -9,9 +9,11 @@ export {
 export {
   getPermissions,
   canViewReport,
+  canWriteReport,
+  resolveDataScope,
   ROLE_PERMISSIONS,
 } from './rbac';
 
-export type { Permission } from './rbac';
+export type { Permission, DataScope } from './rbac';
 
 export { authMiddleware } from './middleware';

@@ -63,14 +63,27 @@
 - 统一接入：`POST /auth/api-key-login`（key→JWT）→ 之后 `Authorization: Bearer <accessToken>`。
 - 新增契约测试 `packages/api/src/__tests__/openapi.test.ts`（版本、必需路径、bearer 鉴权、`$ref` 完整性）。
 
+### 7. 授权审计与加固（会话追加）
+
+**审计结论**：发现 1 个高危 + 3 个中危，已修复：
+
+- **高危 `query_expense_status` 无数据范围**：改为按 `resolveDataScope` 裁剪（员工本人 / 审批人本部门 / 管理财务全量）。
+- **中危 角色 fail-open**：`search_expenses`、`get_statistics`、`enforceReadAccess` 改为白名单
+  `resolveDataScope`；未知角色、审批人无部门一律 `deny`；`canViewReport` 不再让"空部门 == 空部门"放行。
+- **中危 附件写权限**：`upload_invoice` 改走新增 `assertReportWriteAccess`（本人/财务/管理员）；
+  `verify` 保留审批人非强制核对，`force` 重识别仅限本人/财务/管理员。
+- **中危 key 失效滞后**：MCP 端 `mcp_api_keys` 每 `MCP_KEY_REFRESH_MS`（默认 60s）刷新，
+  角色/部门以 `users` 表为准，禁用用户、停用 key 自动失效；`/auth/api-key-login` 也改为按用户当前角色签发 JWT。
+- 新增 `resolveDataScope` / `canWriteReport` 于 `@sse/auth`，补 10 个 RBAC 测试。
+
 ---
 
 ## 二、验证结果
 
 ```
 pnpm build  → 11 个包全部 Done
-pnpm test   → core 41 · auth 5 · db 13 · ai 100 · notifications 29 · ontology 8 · api 32
-              合计 228 passed / 0 failed（新增 api OpenAPI 测试 4 个）
+pnpm test   → core 41 · auth 15 · db 13 · ai 100 · notifications 29 · ontology 8 · api 32
+              合计 238 passed / 0 failed（新增 api OpenAPI 测试 4 个、RBAC 授权测试 10 个）
 ```
 
 冒烟验证：
@@ -120,7 +133,7 @@ curl -s http://127.0.0.1:3001/healthz
 ### P1：Agent 接入加固
 
 - 为 `@sse/mcp` 增加独立测试（目前仍以构建 + 现有套件验证）。
-- MCP key 治理：作用域、过期、轮换、哈希存储、审计、按 key 限流。
+- MCP key 治理：作用域、过期、轮换、哈希存储、审计、按 key 限流（TTL 刷新已完成，其余待办）。
 - 工具契约：`outputSchema`、`annotations`（只读/破坏性提示）、统一错误信封。
 - 更新 `docs/2026-07-29-mcp-test-cases.md` 与 `docs/2026-07-31-mcp-pi-test-cases.md`（14 → 18 工具、HTTP 传输）。
 
@@ -137,7 +150,8 @@ curl -s http://127.0.0.1:3001/healthz
 |---|---|
 | `55fb5eb` | feat(mcp): add agent tooling, Streamable HTTP and safe auth |
 | `9d7a697` | feat(api): expose OpenAPI 3.1 spec for REST agents |
-| 本文档 | docs: update deployment, README and process notes |
+| `63fded4` | docs: update deployment, README and process notes |
+| 本提交 | fix(mcp): harden role scoping and API-key freshness |
 
 ---
 

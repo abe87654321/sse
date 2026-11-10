@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { UserRole } from "@sse/shared";
+import { resolveDataScope } from "@sse/auth";
 
 export interface AuthContext {
   userId: string;
@@ -7,7 +7,11 @@ export interface AuthContext {
   department: string;
 }
 
-const apiKeyStore = new Map<string, AuthContext>();
+// Identity sources are kept separate so DB-backed keys can be refreshed
+// periodically without dropping environment-defined keys.
+const envKeys = new Map<string, AuthContext>();
+const manualKeys = new Map<string, AuthContext>();
+const dbKeys = new Map<string, AuthContext>();
 
 // Per-request identity for HTTP transport. The stdio transport keeps using
 // env/args; HTTP sets the resolved key context here so concurrent clients each
@@ -22,42 +26,60 @@ export function currentAuth(): AuthContext | undefined {
   return authStorage.getStore();
 }
 
-const keysEnv = process.env.MCP_API_KEYS;
-if (keysEnv) {
-  for (const entry of keysEnv.split(",")) {
+function parseEnvKeys(raw: string | undefined): void {
+  if (!raw) return;
+  for (const entry of raw.split(",")) {
     const [key, ctxStr] = entry.split("=");
     const [userId, role, department] = (ctxStr || "").split(":");
     if (key && userId && role) {
-      apiKeyStore.set(key.trim(), {
+      envKeys.set(key.trim(), {
         userId: userId.trim(),
-        role: role.trim() as UserRole,
+        role: role.trim(),
         department: (department || "").trim(),
       });
     }
   }
 }
 
-// Load keys from DB on startup
-(async () => {
+parseEnvKeys(process.env.MCP_API_KEYS);
+
+const REFRESH_MS = Number(process.env.MCP_KEY_REFRESH_MS) || 60_000;
+
+/**
+ * Reloads active keys from the DB, joined with the current user row so role
+ * and department follow the user (revoked/disabled users are dropped). On a
+ * transient failure the previous snapshot is kept.
+ */
+export async function refreshApiKeys(): Promise<void> {
   try {
     const { pool } = await import("@sse/db");
-    const { rows } = await pool.query("SELECT key, user_id, role, department FROM mcp_api_keys WHERE is_active = true");
+    const { rows } = await pool.query(
+      `SELECT k.key, k.user_id, u.role, u.department
+         FROM mcp_api_keys k
+         JOIN users u ON u.id = k.user_id
+        WHERE k.is_active = true AND u.status = 'active'`,
+    );
+    const next = new Map<string, AuthContext>();
     for (const row of rows) {
-      apiKeyStore.set(row.key, {
+      next.set(row.key, {
         userId: row.user_id,
         role: row.role,
         department: row.department || "",
       });
     }
-  } catch { /* table may not exist yet */ }
-})();
+    dbKeys.clear();
+    for (const [key, ctx] of next) dbKeys.set(key, ctx);
+  } catch {
+    /* keep the previous snapshot on transient DB failures */
+  }
+}
 
 export function registerApiKey(key: string, ctx: AuthContext): void {
-  apiKeyStore.set(key, ctx);
+  manualKeys.set(key, ctx);
 }
 
 export function validateApiKey(key: string): AuthContext | null {
-  return apiKeyStore.get(key) ?? null;
+  return manualKeys.get(key) ?? envKeys.get(key) ?? dbKeys.get(key) ?? null;
 }
 
 export function resolveAuthContext(args?: Record<string, unknown>): AuthContext | null {
@@ -75,7 +97,18 @@ export function enforceReadAccess(
   targetUserId: string,
   targetDepartment: string,
 ): boolean {
-  if (auth.role === UserRole.ADMIN || auth.role === UserRole.FINANCE) return true;
-  if (auth.role === UserRole.DEPT_APPROVER) return auth.department === targetDepartment;
-  return auth.userId === targetUserId;
+  const scope = resolveDataScope(auth);
+  if (scope.kind === "all") return true;
+  if (scope.kind === "department") {
+    return !!targetDepartment && scope.department === targetDepartment;
+  }
+  if (scope.kind === "self") return scope.userId === targetUserId;
+  return false;
 }
+
+// Keep DB-backed keys (and the role/department bound to them) fresh.
+void refreshApiKeys();
+const refreshTimer = setInterval(() => {
+  void refreshApiKeys();
+}, REFRESH_MS);
+refreshTimer.unref?.();

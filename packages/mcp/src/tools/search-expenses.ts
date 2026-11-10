@@ -1,4 +1,5 @@
 import { pool, PgExpenseRepo } from "@sse/db";
+import { resolveDataScope } from "@sse/auth";
 import { resolveAuthContext } from "../auth.js";
 import { ToolDefinition, ToolResult, toPaginated, parseISO8601Date, errorResult, successResult } from "./types.js";
 
@@ -60,8 +61,13 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
   const repo = new PgExpenseRepo();
 
   try {
-    if (auth.role === "employee") {
-      const { results, total } = await repo.findManyByUser(auth.userId, {
+    const scope = resolveDataScope(auth);
+    if (scope.kind === "deny") {
+      return errorResult("FORBIDDEN", "当前角色无权查询报销单");
+    }
+
+    if (scope.kind === "self") {
+      const { results, total } = await repo.findManyByUser(scope.userId, {
         dateFrom: parseISO8601Date(args.date_from),
         dateTo: parseISO8601Date(args.date_to),
         status: typeof args.status === "string" ? args.status : undefined,
@@ -79,9 +85,9 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
     const values: any[] = [];
     let idx = 1;
 
-    if (auth.role === "dept_approver") {
+    if (scope.kind === "department") {
       conditions.push(`u.department = $${idx++}`);
-      values.push(auth.department);
+      values.push(scope.department);
     }
 
     const dateFrom = parseISO8601Date(args.date_from);
