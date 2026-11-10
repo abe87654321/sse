@@ -449,7 +449,7 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
 
     {
       name: "validate_expense",
-      description: "合规检查：验证费用项是否符合审批规则",
+      description: "合规检查：验证费用项是否符合审批规则（需要 API 开启 ONTOLOGY_V2）",
       properties: {
         amount: numReq("报销金额"),
         category_id: str("费用类别 UUID（可选）"),
@@ -457,49 +457,59 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
       },
       required: ["amount"],
       call: (a) =>
-        api("POST", "/expenses/validate", {
+        api("POST", "/ontology/validate", {
           amount: a.amount,
-          categoryId: a.category_id,
-          categoryName: a.category_name,
+          category_id: a.category_id,
+          category_name: a.category_name,
         }).then((r) => deepSnake(r.data)),
     },
 
     // ---------- 本体图谱 ----------
     {
       name: "query_ontology",
-      description: "查询本体图谱。可按类型过滤，获取全图谱或统计概览",
-      properties: { type: str("实体类型过滤，不填返回全图谱") },
-      call: (a) =>
-        a.type
-          ? api("GET", `/ontology/query?type=${encodeURIComponent(a.type as string)}`).then((r) => ({
-              type: a.type,
-              count: (r.data || []).length,
-              entities: deepSnake(r.data || []),
-            }))
-          : api("GET", "/ontology/graph").then((r) => {
-              const g = r.data;
-              const typeCounts: Record<string, number> = {};
-              for (const n of g.nodes || []) typeCounts[n.type] = (typeCounts[n.type] || 0) + 1;
-              return {
-                summary: {
-                  total_nodes: (g.nodes || []).length,
-                  total_edges: (g.edges || []).length,
-                  type_counts: typeCounts,
-                },
-                graph: deepSnake(g),
-              };
-            }),
+      description: "查询本体图谱。可按类型、状态、部门、关键词过滤（需要 API 开启 ONTOLOGY_V2）",
+      properties: {
+        type: str("实体类型过滤，如 Person、ExpenseReport"),
+        status: str("状态过滤（可选）"),
+        department: str("部门过滤（可选）"),
+        q: str("关键词搜索（可选）"),
+        page: num("页码，默认 1"),
+        page_size: num("每页条数，默认 20，最大 100"),
+      },
+      call: (a) => {
+        const filters = ["status", "department", "q", "page", "page_size"];
+        const hasFilters = filters.some((k) => a[k] !== undefined && a[k] !== null && a[k] !== "");
+        if (a.type && !hasFilters) {
+          return api("GET", `/ontology/entities?type=${encodeURIComponent(a.type as string)}`).then((r) => ({
+            type: a.type,
+            count: (r.data || []).length,
+            entities: deepSnake(r.data || []),
+          }));
+        }
+        return api("POST", "/ontology/query", a).then((r) => deepSnake(r.data));
+      },
     },
 
     {
       name: "get_entity_network",
-      description: "获取实体N跳语义关系网络，可视化报销单、人员、部门间的关联",
+      description: "获取实体N跳语义关系网络，可视化报销单、人员、部门间的关联（需要 API 开启 ONTOLOGY_V2）",
       properties: {
         entity_id: strReq("实体标识，如报告ID或人员名称"),
-        depth: num("关系跳数，默认2"),
+        depth: num("关系跳数，默认2，最大5"),
+        direction: str("关系方向 both/out/in，默认 both"),
       },
       required: ["entity_id"],
-      call: (a) => api("GET", "/ontology/graph").then((r) => deepSnake(r.data)),
+      call: (a) => {
+        const entityId = a.entity_id as string;
+        const uri = entityId.includes("://") ? entityId : `https://sse.local/${entityId}`;
+        const rawDepth = typeof a.depth === "number" ? a.depth : Number(a.depth) || 2;
+        const depth = Math.min(5, Math.max(0, Math.floor(rawDepth)));
+        const direction = a.direction === "in" || a.direction === "out" ? a.direction : "both";
+        return api(
+          "GET",
+          `/ontology/entities/${encodeURIComponent(uri)}/network?depth=${depth}&direction=${direction}`,
+        ).then((r) => deepSnake(r.data));
+      },
     },
 
     {
@@ -508,6 +518,57 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
       properties: { query: strReq("SPARQL SELECT query string, e.g. SELECT ?s ?p ?o WHERE { ?s ?p ?o }") },
       required: ["query"],
       call: (a) => api("POST", "/ontology/sparql", { query: a.query }).then((r) => deepSnake(r.data)),
+    },
+
+    {
+      name: "explain_expense",
+      description: "解释报销单的审批决策与证据链：匹配规则、审批链、关联实体（需要 API 开启 ONTOLOGY_V2）",
+      properties: { report_id: strReq("报销单 UUID 或 URI") },
+      required: ["report_id"],
+      call: (a) =>
+        api("POST", "/ontology/explain", { report_id: a.report_id }).then((r) => deepSnake(r.data)),
+    },
+
+    {
+      name: "impact_analysis",
+      description: "评估规则/类别/部门/金额变化对报销单与审批链的影响（需要 API 开启 ONTOLOGY_V2）",
+      properties: {
+        rule_id: str("审批规则 ID（可选）"),
+        category_id: str("费用类别 ID（可选）"),
+        department: str("部门过滤（可选）"),
+        min_amount: num("金额下限（可选）"),
+        max_amount: num("金额上限（可选）"),
+        amount_delta: num("金额变动量（可选）"),
+      },
+      call: (a) => {
+        const body = Object.fromEntries(
+          Object.entries(a).filter(([, v]) => v !== undefined && v !== null && v !== ""),
+        );
+        return api("POST", "/ontology/impact", body).then((r) => deepSnake(r.data));
+      },
+    },
+
+    {
+      name: "find_anomalies",
+      description: "扫描本体图谱异常：金额不一致、发票号重复、审批人缺失（需要 API 开启 ONTOLOGY_V2）",
+      properties: {
+        codes: Type.Optional(Type.Array(Type.String(), { description: "异常类型过滤（可选）" })),
+        limit: num("返回数量上限，默认 500"),
+      },
+      call: (a) => {
+        const params = new URLSearchParams();
+        if (Array.isArray(a.codes) && a.codes.length > 0) params.set("codes", (a.codes as string[]).join(","));
+        if (typeof a.limit === "number") params.set("limit", String(a.limit));
+        const qs = params.toString();
+        return api("GET", `/ontology/anomalies${qs ? `?${qs}` : ""}`).then((r) => deepSnake(r.data));
+      },
+    },
+
+    {
+      name: "get_ontology_schema",
+      description: "获取本体模式（类与属性列表），用于构造查询（需要 API 开启 ONTOLOGY_V2）",
+      properties: {},
+      call: () => api("GET", "/ontology/schema").then((r) => deepSnake(r.data)),
     },
   ];
 

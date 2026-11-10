@@ -1,17 +1,19 @@
 # SSE MCP × Pi Agent — 接入指南与测试用例
 
-> 日期：2026-07-31 | 版本：v1.0 | 状态：已完成接入
+> 日期：2026-07-31 | 版本：v1.1 | 状态：已完成接入
+
+> **本次更新**：MCP 工具由 14 个扩展到 **22 个**（新增 `explain_expense`、`impact_analysis`、`find_anomalies`、`get_ontology_schema`）。本体相关工具改为通过 REST API 访问图服务，需保持 API 运行并设置 `ONTOLOGY_V2=on`（或 `shadow`）。
 
 ---
 
 ## 1. 目标
 
-把 SSE 报销系统的 **14 个 MCP 工具** 接入 Pi 编码 Agent（及同类 Agent），使 Pi 能直接：
+把 SSE 报销系统的 **22 个 MCP 工具** 接入 Pi 编码 Agent（及同类 Agent），使 Pi 能直接：
 
 - 查询报销单、统计、待审批列表
 - 用自然语言创建并提交报销单
 - 查询本体知识图谱、执行 SPARQL 跨域查询
-- 解释审批决策、做合规校验
+- 解释审批决策、做合规校验、分析影响与异常
 
 ---
 
@@ -19,7 +21,7 @@
 
 ```
 Pi Agent (新电脑)
-   │  pi.registerTool() × 14
+   │  pi.registerTool() × 22
    ▼
 .pi/extensions/sse-mcp.ts  (Pi 瘦客户端扩展，纯 fetch 零依赖)
    │  JWT（API key → /auth/api-key-login 换 token）
@@ -51,6 +53,8 @@ http://192.168.3.107:3000  (远端 REST API)
 | Ollama | `http://192.168.3.107:11434` | `curl http://192.168.3.107:11434/v1/models` | 仅 NL/OCR 工具需要 |
 
 > **客户端不需要**：git clone、pnpm、本地 MCP 进程、本地 `.env`、DB 凭据。
+
+> **本体工具依赖**：`query_ontology`、`get_entity_network`、`query_sparql`、`validate_expense`、`explain_expense`、`impact_analysis`、`find_anomalies`、`get_ontology_schema` 走 API 的 v2 图接口。部署 API 时需设置 `ONTOLOGY_V2=on`（或 `shadow`）；否则相关工具返回 `ONTOLOGY_V2_UNAVAILABLE`。
 
 ---
 
@@ -171,7 +175,7 @@ pi
 pi --extension .pi/extensions/sse-mcp.ts -p "列出你能调用的 SSE 报销工具"
 ```
 
-预期输出出现 14 个工具：
+预期输出出现 22 个工具：
 
 | 分组 | 工具 |
 |------|------|
@@ -179,8 +183,9 @@ pi --extension .pi/extensions/sse-mcp.ts -p "列出你能调用的 SSE 报销工
 | 提交类 | `submit_expense_from_text`, `submit_expense_from_invoice` |
 | 查询/解释 | `query_expense_status`, `explain_decision`, `validate_expense` |
 | 本体图谱 | `query_ontology`, `get_entity_network`, `query_sparql` |
+| 本体分析（新增） | `explain_expense`, `impact_analysis`, `find_anomalies`, `get_ontology_schema` |
 
-启动日志应见：`[sse-mcp] registered 14 tools`
+启动日志应见：`[sse-mcp] registered 22 tools`
 
 ---
 
@@ -307,6 +312,38 @@ pi ... -p "张三的出差住宿报销批了吗？"
 
 ---
 
+### 分组 F：本体分析（新增，需 ONTOLOGY_V2=on）
+
+**F1 explain_expense**
+```bash
+pi ... -p "用 explain_expense 解释报销单 <report_id> 的审批决策"
+```
+- 预期：`{ report, matched_rule, approval_chain, evidence[] }`
+- 通过标准：返回完整证据链；不存在或越权时 `error.code = NOT_FOUND`
+
+**F2 impact_analysis**
+```bash
+pi ... -p "分析研发部金额增加 100 元会影响哪些报销单"
+```
+- 预期：受影响报销单/规则及汇总
+- 通过标准：过滤条件（`rule_id/category_id/department/min_amount/max_amount/amount_delta`）可组合，且受数据范围限制
+
+**F3 find_anomalies**
+```bash
+pi ... -p "扫描金额不一致和重复发票号，最多返回 5 条"
+```
+- 预期：`{ anomalies[], summary }`；`codes` 支持 `amount_mismatch`、`duplicate_invoice_no`、`missing_approver`
+- 通过标准：`summary.total` 与 `anomalies.length` 一致（受 limit 限制）
+
+**F4 get_ontology_schema**
+```bash
+pi ... -p "获取本体模式，列出可用的类和属性"
+```
+- 预期：`{ classes[], properties[] }`
+- 通过标准：可用于后续查询构造；API 未开启 v2 时返回 `ONTOLOGY_V2_UNAVAILABLE`
+
+---
+
 ## 7. 直接 REST 验证（不经过 Pi，排障用）
 
 ```bash
@@ -318,9 +355,9 @@ TOKEN=$(curl -s -X POST "$BASE/auth/api-key-login" -H "Content-Type: application
 # 2. 搜索报销单（等价 search_expenses）
 curl -s -H "Authorization: Bearer $TOKEN" "$BASE/expenses?page=1&pageSize=5"
 
-# 3. 合规校验（等价 validate_expense）
-curl -s -X POST "$BASE/expenses/validate" -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" -d '{"amount":800,"categoryName":"差旅费"}'
+# 3. 合规校验（等价 validate_expense，需 ONTOLOGY_V2=on）
+curl -s -X POST "$BASE/ontology/validate" -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"amount":800,"category_name":"差旅费"}'
 
 # 4. NL 查询（等价 query_expense_status）
 curl -s -X POST "$BASE/ontology/query-expense-status" -H "Authorization: Bearer $TOKEN" \
@@ -339,6 +376,7 @@ curl -s -X POST "$BASE/ontology/query-expense-status" -H "Authorization: Bearer 
 | NL 工具返回解析失败 | Ollama 未启动或模型未拉取 | `ollama pull llama3.2-vision`，验证 `192.168.3.107:11434` |
 | Pi 不加载项目扩展 | 项目未信任 | 交互模式信任项目；`-p` 加 `--approve` |
 | API 重启后图谱/SPARQL 为空 | 本体 Store 异步恢复 | `curl http://192.168.3.107:3000/ontology/sync` |
+| 本体分析工具返回 ONTOLOGY_V2_UNAVAILABLE | API 未开启 v2 图服务 | 启动 API 时设置 `ONTOLOGY_V2=on`（或 `shadow`）并重启 |
 | 想用原生 MCP 客户端 | 方案 B HTTP transport | 部署 `packages/mcp/dist/http.js` 到 `:3001/mcp`，配 `Authorization: Bearer <key>` |
 
 ---
