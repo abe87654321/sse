@@ -9,7 +9,7 @@ describe('ProjectorRunner', () => {
       drain: async () => { calls.push('drain'); return result; },
       purgeOldEvents: async () => 0,
       snapshot: async () => {},
-      runRules: async () => {},
+      runRules: async () => 1,
       needsRebuild: () => false,
       reconcile: async () => { calls.push('reconcile'); },
     } as any, { intervalMs: 5, snapshotEvery: 2 });
@@ -28,6 +28,7 @@ describe('ProjectorRunner', () => {
       drain: async () => { calls.push('drain'); return result; },
       purgeOldEvents: async () => 0,
       snapshot: async () => {},
+      runRules: async () => 1,
       needsRebuild: () => true,
       reconcile: async () => { calls.push('reconcile'); },
     } as any, { intervalMs: 1000, snapshotEvery: 5 });
@@ -39,12 +40,13 @@ describe('ProjectorRunner', () => {
     errorSpy.mockRestore();
   });
 
-  it('does not require runRules', async () => {
+  it('materializes rules after a processed batch', async () => {
     const calls: string[] = [];
     const runner = new ProjectorRunner({
       drain: async () => { calls.push('drain'); return result; },
       purgeOldEvents: async () => 0,
       snapshot: async () => {},
+      runRules: async () => { calls.push('rules'); return 1; },
       needsRebuild: () => false,
       reconcile: async () => {},
     } as any, { intervalMs: 1000, snapshotEvery: 1 });
@@ -52,7 +54,7 @@ describe('ProjectorRunner', () => {
     await expect((runner as any).tick()).resolves.toBeUndefined();
     await runner.stop();
 
-    expect(calls).toEqual(['drain']);
+    expect(calls).toEqual(['drain', 'rules']);
   });
 
   it('snapshots after the configured number of successful ticks', async () => {
@@ -61,6 +63,7 @@ describe('ProjectorRunner', () => {
       drain: async () => result,
       purgeOldEvents: async () => 0,
       snapshot: async () => { snapshots += 1; },
+      runRules: async () => 1,
       needsRebuild: () => false,
       reconcile: async () => {},
     } as any, { intervalMs: 1000, snapshotEvery: 2 });
@@ -87,6 +90,7 @@ describe('ProjectorRunner', () => {
       },
       purgeOldEvents: async () => 0,
       snapshot: async () => { snapshotSawActive = active; },
+      runRules: async () => 1,
       needsRebuild: () => false,
       reconcile: async () => {},
     } as any, { intervalMs: 5, snapshotEvery: 100 });
@@ -112,6 +116,7 @@ describe('ProjectorRunner', () => {
       },
       purgeOldEvents: async () => 0,
       snapshot: async () => {},
+      runRules: async () => 1,
       needsRebuild: () => false,
       reconcile: async () => {},
     } as any, { intervalMs: 1000, snapshotEvery: 5 });
@@ -131,6 +136,7 @@ describe('ProjectorRunner', () => {
       drain: async () => result,
       purgeOldEvents: async () => { purges += 1; return 0; },
       snapshot: async () => {},
+      runRules: async () => 1,
       needsRebuild: () => false,
       reconcile: async () => {},
     } as any, { intervalMs: 1000, snapshotEvery: 5 });

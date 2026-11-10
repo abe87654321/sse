@@ -4,6 +4,7 @@ import { GRAPH } from '../graph/namespaces';
 import { SnapshotRepo } from '../graph/snapshot-repo';
 import { loadTBox } from '../graph/ontology-loader';
 import type { GraphCounts, GraphStore } from '../graph/types';
+import { RuleEngine } from '../reasoning/rule-engine';
 import { projectRow, type MappedTable } from './entity-mapper';
 
 const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
@@ -95,6 +96,11 @@ export async function rebuildGraph(
   for (const table of TABLES) {
     await projectTable(fresh, pool, table, batchSize);
   }
+
+  // Materialize rules into urn:sse:inferred before dumping so the snapshot
+  // contains the same conclusions the incremental projector would produce.
+  const rules = new RuleEngine(fresh, pool);
+  await rules.materialize();
 
   const nquads = await fresh.dump(GRAPH_NAMES);
   const checksum = canonicalChecksum(nquads);

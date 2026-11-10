@@ -3,6 +3,7 @@ import {
   GRAPH,
   GraphProjector,
   OxigraphStore,
+  RuleEngine,
   SnapshotRepo,
   loadTBox,
   reconcile,
@@ -13,7 +14,7 @@ export interface ProjectorDeps {
   drain: (n?: number) => Promise<{ processed: number; failed: number; deadLettered: number }>;
   purgeOldEvents: (days?: number) => Promise<number>;
   snapshot: () => Promise<void>;
-  runRules?: () => Promise<void>;
+  runRules: () => Promise<number>;
   /** True after a worker timeout/respawn; the runner must reconcile from DB. */
   needsRebuild: () => boolean;
   reconcile: () => Promise<void>;
@@ -67,7 +68,7 @@ export class ProjectorRunner {
         await this.deps.reconcile();
       }
       const { processed, failed, deadLettered } = await this.deps.drain();
-      if (processed > 0) await this.deps.runRules?.();
+      if (processed > 0) await this.deps.runRules();
       this.ticks++;
       if (processed > 0 && this.ticks % this.opts.snapshotEvery === 0) await this.deps.snapshot();
       if (failed > 0) console.error(`[ontology] projector failures: ${failed}`);
@@ -133,11 +134,13 @@ export async function startOntologyProjector(): Promise<void> {
   liveStore = store;
 
   const projector = new GraphProjector(store, pool);
+  const rules = new RuleEngine(store, pool);
   const graphNames = [GRAPH.tbox, GRAPH.data, GRAPH.inferred, GRAPH.history, GRAPH.manual];
 
   runner = new ProjectorRunner({
     drain: (n) => projector.drain(n),
     purgeOldEvents: (d) => projector.purgeOldEvents(d),
+    runRules: () => rules.materialize(),
     snapshot: async () => {
       const nquads = await store.dump(graphNames);
       const state = await pool.query(`SELECT last_outbox_id FROM ontology_projector_state WHERE id = 'default'`);

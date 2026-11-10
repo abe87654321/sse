@@ -23,6 +23,7 @@ export * from './projection/reconcile-jobs';
 export * from './query/query-service';
 export * from './query/sparql-guard';
 export * from './query/sparql-term';
+export * from './reasoning/rule-engine';
 
 import { OwlStore } from './owl-store';
 import { SemanticMapper } from './semantic-mapper';
