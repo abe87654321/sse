@@ -3,7 +3,7 @@ import { join } from 'path';
 import { Parser } from 'n3';
 import { MemoryGraphStore } from '../graph/memory-store';
 import { loadTBox } from '../graph/ontology-loader';
-import { RDF_TYPE, sse } from '../graph/namespaces';
+import { PROV, RDF_TYPE, sse } from '../graph/namespaces';
 
 const ttl = readFileSync(join(__dirname, '../graph/ontology/sse.ttl'), 'utf-8');
 const quads = new Parser().parse(ttl);
@@ -46,6 +46,34 @@ describe('SSE TBox', () => {
     for (const p of MAPPED_PREDICATES) {
       expect(hasType(p, 'Property')).toBe(true);
     }
+  });
+
+  it('does not restrict shared predicates to a single domain', () => {
+    for (const p of ['name', 'verificationStatus']) {
+      expect(
+        quads.some(q => q.subject.value === sse(p) && q.predicate.value.endsWith('#domain')),
+      ).toBe(false);
+    }
+  });
+
+  it('declares prov:generatedAtTime for Phase 2 mapping', () => {
+    const property = `${PROV}generatedAtTime`;
+    expect(
+      quads.some(
+        q =>
+          q.subject.value === property &&
+          q.predicate.value.endsWith('#type') &&
+          q.object.value.endsWith('DatatypeProperty'),
+      ),
+    ).toBe(true);
+    expect(
+      quads.some(
+        q =>
+          q.subject.value === property &&
+          q.predicate.value.endsWith('#range') &&
+          q.object.value === 'http://www.w3.org/2001/XMLSchema#dateTime',
+      ),
+    ).toBe(true);
   });
 });
 

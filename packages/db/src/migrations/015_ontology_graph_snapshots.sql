@@ -1,5 +1,7 @@
 -- Dedicated table: the legacy `ontology_snapshots` JSONB rows must keep working
 -- until Phase 7. Do not share one table between the two formats.
+CREATE SEQUENCE IF NOT EXISTS ontology_snapshot_version_seq START WITH 1;
+
 CREATE TABLE IF NOT EXISTS ontology_graph_snapshots (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   version BIGINT NOT NULL,

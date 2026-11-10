@@ -1,6 +1,9 @@
 import oxigraph from 'oxigraph';
-import type { GraphCounts, GraphQueryResult, GraphStore, ProjectedQuad } from './types';
-import { GRAPH } from './namespaces';
+import { isConstructQuery, type GraphCounts, type GraphQueryResult, type GraphStore, type ProjectedQuad } from './types';
+import { GRAPH, XSD, sse } from './namespaces';
+
+const DEFAULT_GRAPHS = [GRAPH.tbox, GRAPH.data, GRAPH.inferred, GRAPH.manual]
+  .map(name => oxigraph.namedNode(name));
 
 function toQuad(q: ProjectedQuad) {
   const subject = oxigraph.namedNode(q.subject);
@@ -46,19 +49,19 @@ export class MemoryGraphStore implements GraphStore {
   }
 
   async query(sparql: string): Promise<GraphQueryResult> {
-    const raw = this.store.query(sparql, { use_default_graph_as_union: true });
+    const raw = this.store.query(sparql, { default_graph: DEFAULT_GRAPHS });
     if (typeof raw === 'boolean') return { kind: 'ask', value: raw };
-    if (Array.isArray(raw)) {
-      return {
-        kind: 'select',
-        rows: (raw as Array<Map<string, any>>).map((binding) => {
-          const row: Record<string, string> = {};
-          for (const [k, v] of binding) row[k] = v.value;
-          return row;
-        }),
-      };
+    if (isConstructQuery(sparql)) {
+      return { kind: 'construct', quads: Array.from(raw as Iterable<any>).map(fromQuad) };
     }
-    return { kind: 'construct', quads: Array.from(raw).map(fromQuad) };
+    return {
+      kind: 'select',
+      rows: (raw as Array<Map<string, any>>).map((binding) => {
+        const row: Record<string, string> = {};
+        for (const [k, v] of binding) row[k] = v.value;
+        return row;
+      }),
+    };
   }
 
   async update(sparql: string): Promise<void> {
@@ -83,7 +86,10 @@ export class MemoryGraphStore implements GraphStore {
   async deleteSubject(subject: string): Promise<void> {
     this.store.update(`DELETE WHERE { GRAPH <${GRAPH.data}> { <${subject}> ?p ?o } }`);
     this.store.update(`DELETE WHERE { GRAPH <${GRAPH.data}> { ?s ?p <${subject}> } }`);
-    this.store.update(`INSERT DATA { GRAPH <${GRAPH.history}> { <${subject}> <https://sse.local/ontology#deletedAt> "${new Date().toISOString()}" } }`);
+    this.store.update(`DELETE WHERE { GRAPH <${GRAPH.history}> { <${subject}> <${sse('deletedAt')}> ?o } }`);
+    this.store.update(
+      `INSERT DATA { GRAPH <${GRAPH.history}> { <${subject}> <${sse('deletedAt')}> "${new Date().toISOString()}"^^<${XSD}dateTime> } }`,
+    );
   }
 
   checkpoint(nquads: string): void {

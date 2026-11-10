@@ -1,8 +1,16 @@
 import { parentPort } from 'node:worker_threads';
 import oxigraph from 'oxigraph';
-import type { ProjectedQuad } from './types';
+import { isConstructQuery, type ProjectedQuad } from './types';
+import { GRAPH, XSD, sse } from './namespaces';
 
 const store = new oxigraph.Store();
+
+const DEFAULT_GRAPHS = [
+  oxigraph.namedNode(GRAPH.tbox),
+  oxigraph.namedNode(GRAPH.data),
+  oxigraph.namedNode(GRAPH.inferred),
+  oxigraph.namedNode(GRAPH.manual),
+];
 
 function toQuad(q: ProjectedQuad) {
   return oxigraph.quad(
@@ -30,6 +38,13 @@ function fromQuad(q: any): ProjectedQuad {
   };
 }
 
+function writeTombstone(subject: string): void {
+  store.update(`DELETE WHERE { GRAPH <${GRAPH.history}> { <${subject}> <${sse('deletedAt')}> ?o } }`);
+  store.update(
+    `INSERT DATA { GRAPH <${GRAPH.history}> { <${subject}> <${sse('deletedAt')}> "${new Date().toISOString()}"^^<${XSD}dateTime> } }`,
+  );
+}
+
 parentPort!.on('message', (msg: any) => {
   try {
     switch (msg.type) {
@@ -52,10 +67,12 @@ parentPort!.on('message', (msg: any) => {
         parentPort!.postMessage({ id: msg.id, ok: true });
         break;
       case 'query': {
-        const raw = store.query(msg.sparql, { use_default_graph_as_union: true });
+        const raw = store.query(msg.sparql, { default_graph: DEFAULT_GRAPHS });
         if (typeof raw === 'boolean') {
           parentPort!.postMessage({ id: msg.id, ok: true, result: { kind: 'ask', value: raw } });
-        } else if (Array.isArray(raw)) {
+        } else if (isConstructQuery(msg.sparql)) {
+          parentPort!.postMessage({ id: msg.id, ok: true, result: { kind: 'construct', quads: Array.from(raw as Iterable<any>).map(fromQuad) } });
+        } else {
           parentPort!.postMessage({
             id: msg.id,
             ok: true,
@@ -68,30 +85,28 @@ parentPort!.on('message', (msg: any) => {
               }),
             },
           });
-        } else {
-          parentPort!.postMessage({ id: msg.id, ok: true, result: { kind: 'construct', quads: Array.from(raw as Iterable<any>).map(fromQuad) } });
         }
         break;
       }
       case 'replaceEntity':
         for (const predicate of msg.ownedPredicates) {
-          store.update(`DELETE WHERE { GRAPH <urn:sse:data> { <${msg.subject}> <${predicate}> ?o } }`);
+          store.update(`DELETE WHERE { GRAPH <${GRAPH.data}> { <${msg.subject}> <${predicate}> ?o } }`);
         }
         for (const q of msg.quads) store.add(toQuad(q));
         parentPort!.postMessage({ id: msg.id, ok: true });
         break;
       case 'addRelation':
-        store.add(toQuad({ subject: msg.from, predicate: msg.predicate, object: msg.to, objectType: 'iri', graph: 'urn:sse:data' }));
+        store.add(toQuad({ subject: msg.from, predicate: msg.predicate, object: msg.to, objectType: 'iri', graph: GRAPH.data }));
         parentPort!.postMessage({ id: msg.id, ok: true });
         break;
       case 'removeRelation':
-        store.update(`DELETE DATA { GRAPH <urn:sse:data> { <${msg.from}> <${msg.predicate}> <${msg.to}> } }`);
+        store.update(`DELETE DATA { GRAPH <${GRAPH.data}> { <${msg.from}> <${msg.predicate}> <${msg.to}> } }`);
         parentPort!.postMessage({ id: msg.id, ok: true });
         break;
       case 'delete':
-        store.update(`DELETE WHERE { GRAPH <urn:sse:data> { <${msg.subject}> ?p ?o } }`);
-        store.update(`DELETE WHERE { GRAPH <urn:sse:data> { ?s ?p <${msg.subject}> } }`);
-        store.update(`INSERT DATA { GRAPH <urn:sse:history> { <${msg.subject}> <https://sse.local/ontology#deletedAt> "${new Date().toISOString()}" } }`);
+        store.update(`DELETE WHERE { GRAPH <${GRAPH.data}> { <${msg.subject}> ?p ?o } }`);
+        store.update(`DELETE WHERE { GRAPH <${GRAPH.data}> { ?s ?p <${msg.subject}> } }`);
+        writeTombstone(msg.subject);
         parentPort!.postMessage({ id: msg.id, ok: true });
         break;
       case 'counts': {

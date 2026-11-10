@@ -38,6 +38,12 @@ export class SnapshotRepo {
     );
     if (rows.length === 0) return null;
     const row = rows[0];
+    const checksum = createHash('sha256').update(row.nquads).digest('hex');
+    if (checksum !== row.checksum) {
+      throw new Error(
+        `Snapshot version ${row.version} checksum mismatch: expected ${row.checksum}, got ${checksum}`,
+      );
+    }
     return {
       version: Number(row.version),
       checksum: row.checksum,
@@ -58,7 +64,7 @@ export class SnapshotRepo {
 
   private async nextVersion(): Promise<number> {
     const { rows } = await this.pool.query(
-      `SELECT COALESCE(MAX(version), 0) + 1 AS version FROM ontology_graph_snapshots`,
+      `SELECT nextval('ontology_snapshot_version_seq') AS version`,
     );
     return Number(rows[0].version);
   }

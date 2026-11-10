@@ -2,6 +2,7 @@
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
 
 sse:Person a owl:Class .
 sse:Department a owl:Class .
@@ -44,7 +45,7 @@ sse:hasCategoryRule a owl:ObjectProperty ;
 sse:uploadedBy a owl:ObjectProperty ;
   rdfs:domain sse:PaymentReceipt ; rdfs:range sse:Person .
 
-sse:name a owl:DatatypeProperty ; rdfs:domain sse:Person ; rdfs:range xsd:string .
+sse:name a owl:DatatypeProperty ; rdfs:range xsd:string .
 sse:department a owl:DatatypeProperty ; rdfs:domain sse:Person ; rdfs:range xsd:string .
 sse:role a owl:DatatypeProperty ; rdfs:domain sse:Person ; rdfs:range xsd:string .
 sse:status a owl:DatatypeProperty ; rdfs:domain sse:ExpenseReport ; rdfs:range xsd:string .
@@ -61,7 +62,7 @@ sse:paymentRef a owl:DatatypeProperty ; rdfs:domain sse:ExpenseReport ; rdfs:ran
 sse:expenseDate a owl:DatatypeProperty ; rdfs:domain sse:ExpenseItem ; rdfs:range xsd:date .
 sse:description a owl:DatatypeProperty ; rdfs:domain sse:ExpenseItem ; rdfs:range xsd:string .
 sse:invoiceNo a owl:DatatypeProperty ; rdfs:domain sse:Invoice ; rdfs:range xsd:string .
-sse:verificationStatus a owl:DatatypeProperty ; rdfs:domain sse:PaymentReceipt ; rdfs:range xsd:string .
+sse:verificationStatus a owl:DatatypeProperty ; rdfs:range xsd:string .
 sse:verifiedAt a owl:DatatypeProperty ; rdfs:domain sse:PaymentReceipt ; rdfs:range xsd:dateTime .
 sse:fileName a owl:DatatypeProperty ; rdfs:range xsd:string .
 sse:fileFormat a owl:DatatypeProperty ; rdfs:range xsd:string .
@@ -83,3 +84,5 @@ sse:sourceTable a owl:DatatypeProperty ; rdfs:range xsd:string .
 sse:sourceId a owl:DatatypeProperty ; rdfs:range xsd:string .
 sse:recordVersion a owl:DatatypeProperty ; rdfs:range xsd:string .
 sse:deletedAt a owl:DatatypeProperty ; rdfs:range xsd:dateTime .
+
+prov:generatedAtTime a owl:DatatypeProperty ; rdfs:range xsd:dateTime .

@@ -1,5 +1,13 @@
 export type ObjectType = 'iri' | 'literal';
 
+/** Oxigraph returns arrays for both SELECT and CONSTRUCT, so inspect the query form. */
+export function isConstructQuery(sparql: string): boolean {
+  const stripped = sparql
+    .replace(/^\s*(?:PREFIX\s+\S+\s*<[^>]*>|BASE\s*<[^>]*>)\s*/gim, '')
+    .trimStart();
+  return /^(CONSTRUCT|DESCRIBE)\b/i.test(stripped);
+}
+
 export interface ProjectedQuad {
   subject: string;
   predicate: string;

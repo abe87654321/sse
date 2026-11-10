@@ -23,31 +23,64 @@ describe('OxigraphStore', () => {
     await store.close();
   });
 
-  it('times out a runaway query without killing the store', async () => {
+  it('recovers from a real runaway query and restores the checkpoint', async () => {
     const store = new OxigraphStore(WORKER_PATH);
-    await expect(store.query('SELECT * WHERE { ?s ?p ?o }', { timeoutMs: 1 })).rejects.toThrow(/timeout/i);
-    const counts = await store.counts();
-    expect(counts.quads).toBe(0);
-    await store.close();
-  });
-
-  it('restores the full checkpoint (data + TBox) after a timeout respawn', async () => {
-    const store = new OxigraphStore(WORKER_PATH);
-    const dataQuad = '<https://sse.local/report/r1> <https://sse.local/ontology#status> "pending" <urn:sse:data> .\n';
-    const filler = Array.from({ length: 100 }, (_, i) =>
+    const filler = Array.from({ length: 50_000 }, (_, i) =>
       `<https://sse.local/report/f${i}> <https://sse.local/ontology#status> "pending" <urn:sse:data> .`,
     ).join('\n') + '\n';
-    await store.load(dataQuad + filler);
-    await store.load('<https://sse.local/Person> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> <urn:sse:tbox> .\n');
+    await store.load(filler);
 
     await expect(store.query(
-      'SELECT * WHERE { ?a ?b ?c . ?d ?e ?f . ?g ?h ?i . ?j ?k ?l }',
-      { timeoutMs: 1 },
+      'SELECT * WHERE { ?a ?b ?c . ?d ?e ?f . ?g ?h ?i }',
+      { timeoutMs: 10 },
     )).rejects.toThrow(/timeout/i);
 
     expect(store.needsRebuild()).toBe(true);
-    const res = await store.query('SELECT ?o WHERE { <https://sse.local/report/r1> <https://sse.local/ontology#status> ?o }');
+    const res = await store.query(
+      'SELECT ?o WHERE { <https://sse.local/report/f49999> <https://sse.local/ontology#status> ?o }',
+    );
     expect(res).toEqual({ kind: 'select', rows: [{ o: 'pending' }] });
+    await store.close();
+  });
+
+  it('excludes urn:sse:history from bare queries but exposes it via GRAPH', async () => {
+    const store = new OxigraphStore(WORKER_PATH);
+    await store.load(`
+<https://sse.local/report/history-only> <https://sse.local/ontology#status> "deleted" <urn:sse:history> .
+<https://sse.local/report/r1> <https://sse.local/ontology#status> "pending" <urn:sse:data> .
+`);
+    const bare = await store.query('SELECT ?s ?p ?o WHERE { ?s ?p ?o }');
+    if (bare.kind !== 'select') throw new Error('expected select result');
+    expect(bare.rows.some(row => row.s === 'https://sse.local/report/history-only')).toBe(false);
+
+    const explicit = await store.query(`
+      SELECT ?o WHERE {
+        GRAPH <urn:sse:history> { <https://sse.local/report/history-only> <https://sse.local/ontology#status> ?o }
+      }
+    `);
+    if (explicit.kind !== 'select') throw new Error('expected select result');
+    expect(explicit.rows).toEqual([{ o: 'deleted' }]);
+    await store.close();
+  });
+
+  it('writes one typed tombstone even when the subject is deleted twice', async () => {
+    const store = new OxigraphStore(WORKER_PATH);
+    const subject = 'https://sse.local/report/r1';
+    await store.load(`<${subject}> <https://sse.local/ontology#status> "pending" <urn:sse:data> .\n`);
+    await store.deleteSubject(subject);
+    await store.deleteSubject(subject);
+
+    const res = await store.query(`
+      SELECT ?o ?dt WHERE {
+        GRAPH <urn:sse:history> {
+          <${subject}> <https://sse.local/ontology#deletedAt> ?o .
+          BIND(DATATYPE(?o) AS ?dt)
+        }
+      }
+    `);
+    if (res.kind !== 'select') throw new Error('expected select result');
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0].dt).toBe('http://www.w3.org/2001/XMLSchema#dateTime');
     await store.close();
   });
 });
