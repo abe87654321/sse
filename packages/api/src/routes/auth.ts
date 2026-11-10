@@ -3,7 +3,7 @@ import { PgUserRepo } from '@sse/db';
 import { signToken, signRefreshToken, verifyRefreshToken, authMiddleware } from '@sse/auth';
 import { AppError } from '../middleware/error';
 import { pool } from '@sse/db';
-import { uploadAvatar } from '../middleware/upload';
+import { uploadAvatar, validateUploadSignature } from '../middleware/upload';
 import { MinioStorage } from '../storage/minio-storage';
 
 const router = Router();
@@ -197,7 +197,7 @@ router.post(
     if (!req.file) throw new AppError(400, 'INVALID_PARAMS', '请选择图片');
 
     const minio = new MinioStorage();
-    const ext = req.file.originalname.split('.').pop()?.toLowerCase() || 'png';
+    const ext = validateUploadSignature(req.file, ['png', 'jpg', 'jpeg']);
     const storageKey = `avatars/${req.user!.userId}_${Date.now()}.${ext}`;
 
     await minio.upload(storageKey, 'avatars', req.file.buffer,

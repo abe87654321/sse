@@ -17,7 +17,7 @@ import { sendNotificationSafe } from '../services/notifications';
 import type { ExpenseQuery, VerificationSourceInvoice } from '@sse/core';
 import type { PaymentReceipt } from '@sse/shared';
 import { authMiddleware } from '@sse/auth';
-import { uploadInvoice, uploadPaymentReceipt } from '../middleware/upload';
+import { uploadInvoice, uploadPaymentReceipt, validateUploadSignature } from '../middleware/upload';
 import { AppError } from '../middleware/error';
 import { MinioStorage } from '../storage/minio-storage';
 import { createOCREngine } from '../services/ai-engines';
@@ -395,7 +395,7 @@ router.post(
     }
     if (!req.file) throw new AppError(400, 'INVALID_PARAMS', '请上传打款回单');
 
-    const ext = req.file.originalname.split('.').pop()?.toLowerCase() || 'pdf';
+    const ext = validateUploadSignature(req.file, ['pdf', 'png', 'jpg', 'jpeg']);
     const contentType = ext === 'pdf' ? 'application/pdf' : ext === 'png' ? 'image/png' : 'image/jpeg';
     const checksum = minio.calculateChecksum(req.file.buffer);
     const storageKey = `payment-receipts/${id}/${Date.now()}.${ext}`;
@@ -877,7 +877,7 @@ router.post(
 
     const crypto = await import('crypto');
     const checksum = minio.calculateChecksum(req.file.buffer);
-    const ext = req.file.originalname.split('.').pop()?.toLowerCase() || 'pdf';
+    const ext = validateUploadSignature(req.file, ['pdf', 'ofd']);
     const storageKey = `invoices/${req.params.id}/${itemId}_${Date.now()}.${ext}`;
 
     await minio.upload(storageKey, 'invoices', req.file.buffer, ext === 'pdf' ? 'application/pdf' : 'application/ofd');

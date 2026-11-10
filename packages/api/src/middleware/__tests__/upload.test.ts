@@ -1,4 +1,4 @@
-import { hasValidSampleSignature } from '../upload';
+import { hasValidSampleSignature, validateUploadSignature } from '../upload';
 
 const pdf = Buffer.from('%PDF-1.7');
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -21,5 +21,38 @@ const cases: Array<[string, Buffer, string, boolean]> = [
 describe('hasValidSampleSignature', () => {
   it.each(cases)('%s', (_label, buffer, ext, expected) => {
     expect(hasValidSampleSignature(buffer, ext)).toBe(expected);
+  });
+});
+
+describe('validateUploadSignature', () => {
+  function file(originalname: string, buffer: Buffer) {
+    return { originalname, buffer } as any;
+  }
+
+  it('accepts a file whose content matches its extension', () => {
+    expect(validateUploadSignature(file('receipt.pdf', pdf), ['pdf', 'png', 'jpg', 'jpeg'])).toBe('pdf');
+    expect(validateUploadSignature(file('receipt.png', png), ['pdf', 'png'])).toBe('png');
+    expect(validateUploadSignature(file('receipt.jpg', jpeg), ['pdf', 'jpg'])).toBe('jpg');
+  });
+
+  it('accepts a PDF whose header is not at offset zero', () => {
+    const padded = Buffer.concat([Buffer.alloc(32, 7), pdf]);
+
+    expect(validateUploadSignature(file('receipt.pdf', padded), ['pdf'])).toBe('pdf');
+  });
+
+  it('rejects a file whose content does not match its extension', () => {
+    expect(() => validateUploadSignature(file('receipt.pdf', Buffer.from('hello world')), ['pdf']))
+      .toThrow(/内容/);
+  });
+
+  it('rejects an extension that is not allowed', () => {
+    expect(() => validateUploadSignature(file('payload.exe', Buffer.from('MZ')), ['pdf']))
+      .toThrow(/仅支持/);
+  });
+
+  it('rejects an empty file', () => {
+    expect(() => validateUploadSignature(file('receipt.pdf', Buffer.alloc(0)), ['pdf']))
+      .toThrow(/内容/);
   });
 });

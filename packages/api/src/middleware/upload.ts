@@ -1,6 +1,7 @@
 import multer from 'multer';
 import type { Request, Response, NextFunction } from 'express';
 import { InvoiceFormat } from '@sse/shared';
+import { AppError } from './error';
 
 const storage = multer.memoryStorage();
 
@@ -95,4 +96,30 @@ export function hasValidSampleSignature(buffer: Buffer, ext: string): boolean {
       && buffer[0] === 0x50 && buffer[1] === 0x4b;
   }
   return false;
+}
+
+/**
+ * 上传附件的内容校验：扩展名必须在白名单内，且文件真实类型要和扩展名一致。
+ * 只看扩展名会让改名后的任意文件直接入库（设计文档 §7.3 要求 MIME 嗅探）。
+ */
+export function validateUploadSignature(
+  file: { originalname: string; buffer: Buffer },
+  allowedExtensions: string[],
+): string {
+  const ext = (file.originalname.split('.').pop() || '').toLowerCase();
+  const allowed = allowedExtensions.map((item) => item.toLowerCase());
+
+  if (!allowed.includes(ext)) {
+    throw new AppError(
+      400,
+      'INVALID_FILE_TYPE',
+      `仅支持 ${allowedExtensions.map((item) => item.toUpperCase()).join('、')} 格式的文件`,
+    );
+  }
+
+  if (!hasValidSampleSignature(file.buffer, ext)) {
+    throw new AppError(400, 'INVALID_FILE_CONTENT', '文件内容与扩展名不匹配');
+  }
+
+  return ext;
 }
