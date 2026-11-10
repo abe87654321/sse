@@ -11,7 +11,7 @@ export const definition: ToolDefinition = {
     type: "object",
     properties: {
       entity_id: { type: "string", description: "实体标识，如报告ID或人员名称" },
-      depth: { type: "number", description: "关系跳数，默认2" },
+      depth: { type: "number", description: "关系跳数，默认2，最大5" },
     },
     required: ["entity_id"],
   },
@@ -21,7 +21,8 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
   const auth = resolveAuthContext(args);
   if (!auth) return errorResult("UNAUTHORIZED", "无效或缺失 API key");
   const entityId = args.entity_id as string;
-  const depth = (args.depth as number) || 2;
+  const rawDepth = typeof args.depth === "number" ? args.depth : Number(args.depth);
+  const depth = Number.isFinite(rawDepth) ? Math.min(5, Math.max(0, Math.floor(rawDepth))) : 2;
   if (!entityId) return errorResult("INVALID_PARAMS", "请提供 entity_id");
   try {
     const engine = await ensureOntologyLoaded();

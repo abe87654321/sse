@@ -67,7 +67,9 @@ router.post(
 
     const { rows } = await pool.query(
       `SELECT key, user_id, role, department, is_active
-       FROM mcp_api_keys WHERE key = $1`,
+       FROM mcp_api_keys
+      WHERE key = $1
+        AND (expires_at IS NULL OR expires_at > NOW())`,
       [apiKey]
     );
     if (rows.length === 0) {

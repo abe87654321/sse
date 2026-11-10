@@ -53,12 +53,21 @@ const REFRESH_MS = Number(process.env.MCP_KEY_REFRESH_MS) || 60_000;
 export async function refreshApiKeys(): Promise<void> {
   try {
     const { pool } = await import("@sse/db");
-    const { rows } = await pool.query(
+    const select = (expiryFilter: string) => pool.query(
       `SELECT k.key, k.user_id, u.role, u.department
          FROM mcp_api_keys k
          JOIN users u ON u.id = k.user_id
-        WHERE k.is_active = true AND u.status = 'active'`,
+        WHERE k.is_active = true AND u.status = 'active'${expiryFilter}`,
     );
+
+    let rows: any[];
+    try {
+      ({ rows } = await select(" AND (k.expires_at IS NULL OR k.expires_at > NOW())"));
+    } catch {
+      // Pre-014 database: no expires_at column yet.
+      ({ rows } = await select(""));
+    }
+
     const next = new Map<string, AuthContext>();
     for (const row of rows) {
       next.set(row.key, {

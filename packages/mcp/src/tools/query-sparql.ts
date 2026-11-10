@@ -7,7 +7,7 @@ import { UserRole } from "@sse/shared";
 
 export const definition: ToolDefinition = {
   name: "query_sparql",
-  description: "Execute a SPARQL query against the SSE ontology knowledge graph for cross-domain queries.",
+  description: "Execute a SELECT-only SPARQL query against the SSE ontology (bounded result set).",
   inputSchema: {
     type: "object",
     properties: {
@@ -26,7 +26,8 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
   try {
     const engine = await ensureOntologyLoaded();
     const store = engine.store.getStore();
-    const result = executeSparql(store, args.query as string);
+    const maxResults = Number(process.env.MCP_SPARQL_MAX_RESULTS) || 1000;
+    const result = executeSparql(store, args.query as string, { maxResults });
     return successResult(result);
   } catch (err: any) {
     return errorResult("INTERNAL_ERROR", err.message || "内部错误");

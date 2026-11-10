@@ -23,6 +23,8 @@ import * as getEntityNetworkTool from "./tools/get-entity-network.js";
 import * as validateExpenseTool from "./tools/validate-expense.js";
 import * as queryOntologyTool from "./tools/query-ontology.js";
 import * as querySparqlTool from "./tools/query-sparql.js";
+import { checkRateLimit, pruneRateLimitStore, type RateLimitWindow } from "@sse/auth";
+import { resolveAuthContext } from "./auth.js";
 import type { ToolDefinition, ToolResult } from "./tools/types.js";
 
 interface ToolEntry {
@@ -52,6 +54,22 @@ const allTools: ToolEntry[] = [
 ];
 
 const toolMap = new Map(allTools.map((t) => [t.definition.name, t]));
+
+// Per-process, per-user fixed-window limit. Multiple MCP instances each keep
+// their own window; put a shared limiter in front if you run a cluster.
+const rateStore = new Map<string, RateLimitWindow>();
+const RATE_LIMIT_PER_MIN = Number(process.env.MCP_RATE_LIMIT_PER_MIN) || 120;
+const RATE_WINDOW_MS = 60_000;
+const AUDIT_ENABLED = process.env.MCP_AUDIT_LOG !== "0";
+
+const ratePruneTimer = setInterval(() => pruneRateLimitStore(rateStore), RATE_WINDOW_MS);
+ratePruneTimer.unref?.();
+
+function audit(event: Record<string, unknown>): void {
+  if (!AUDIT_ENABLED) return;
+  // stderr only: stdout is the JSON-RPC channel for the stdio transport.
+  console.error(`[mcp-audit] ${JSON.stringify({ ts: new Date().toISOString(), ...event })}`);
+}
 
 export function startServer(): Server {
   const server = new Server(
@@ -96,7 +114,47 @@ export function startServer(): Server {
       }
     }
 
-    return tool.handler(args);
+    const auth = resolveAuthContext(args);
+
+    if (auth) {
+      const limited = checkRateLimit(rateStore, auth.userId, {
+        limit: RATE_LIMIT_PER_MIN,
+        windowMs: RATE_WINDOW_MS,
+      });
+      if (!limited.allowed) {
+        audit({ tool: name, userId: auth.userId, role: auth.role, ok: false, error: "RATE_LIMITED" });
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: { code: "RATE_LIMITED", message: "调用过于频繁，请稍后再试" } }) }],
+          isError: true,
+        };
+      }
+    }
+
+    const startedAt = Date.now();
+    try {
+      const result = await tool.handler(args);
+      audit({
+        tool: name,
+        userId: auth?.userId ?? null,
+        role: auth?.role ?? null,
+        ok: !result.isError,
+        durationMs: Date.now() - startedAt,
+      });
+      return result;
+    } catch (err: any) {
+      audit({
+        tool: name,
+        userId: auth?.userId ?? null,
+        role: auth?.role ?? null,
+        ok: false,
+        durationMs: Date.now() - startedAt,
+        error: err?.message || "INTERNAL_ERROR",
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify({ error: { code: "INTERNAL_ERROR", message: err?.message || "内部错误" } }) }],
+        isError: true,
+      };
+    }
   };
 
   // The SDK's CallToolResult union now includes task-augmented variants; our

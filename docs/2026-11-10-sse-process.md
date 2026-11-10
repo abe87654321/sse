@@ -76,14 +76,27 @@
   角色/部门以 `users` 表为准，禁用用户、停用 key 自动失效；`/auth/api-key-login` 也改为按用户当前角色签发 JWT。
 - 新增 `resolveDataScope` / `canWriteReport` 于 `@sse/auth`，补 10 个 RBAC 测试。
 
+### 8. P3 运维加固（会话追加）
+
+- **速率限制**：`@sse/auth` 新增固定窗口限流，`server.ts` 按 `userId` 计数
+  （`MCP_RATE_LIMIT_PER_MIN`，默认 120/分钟），超限返回 `RATE_LIMITED`。
+- **审计日志**：每次工具调用输出一条 stderr JSON（`[mcp-audit]`，`MCP_AUDIT_LOG=0` 可关），
+  含工具、用户、角色、耗时、结果；**不写 stdout**，避免污染 stdio JSON-RPC。
+- **本体查询约束**：`get_entity_network` 的 `depth` 限制在 0–5；`executeSparql` 增加查询长度、
+  图模式数量、结果上限（`MCP_SPARQL_MAX_RESULTS`，默认 1000，尊重更小的 LIMIT），
+  并移除会污染 stdio 的 `console.log`。
+- **key 过期**：迁移 `014_mcp_api_key_expiry.sql` 增加 `expires_at`；`/auth/api-key-login`
+  与 MCP key 刷新均拒绝过期 key。
+- 仍未做：key 作用域（scope）、轮换端点、哈希存储（需 schema + 管理端改造）。
+
 ---
 
 ## 二、验证结果
 
 ```
 pnpm build  → 11 个包全部 Done
-pnpm test   → core 41 · auth 15 · db 13 · ai 100 · notifications 29 · ontology 8 · api 32
-              合计 238 passed / 0 failed（新增 api OpenAPI 测试 4 个、RBAC 授权测试 10 个）
+pnpm test   → core 41 · auth 19 · db 13 · ai 100 · notifications 29 · ontology 14 · api 32
+              合计 248 passed / 0 failed（新增 api OpenAPI 4、RBAC 10、限流 4、SPARQL 6）
 ```
 
 冒烟验证：
@@ -133,7 +146,7 @@ curl -s http://127.0.0.1:3001/healthz
 ### P1：Agent 接入加固
 
 - 为 `@sse/mcp` 增加独立测试（目前仍以构建 + 现有套件验证）。
-- MCP key 治理：作用域、过期、轮换、哈希存储、审计、按 key 限流（TTL 刷新已完成，其余待办）。
+- MCP key 治理：过期、限流、审计、刷新已完成；作用域、轮换端点、哈希存储待办。
 - 工具契约：`outputSchema`、`annotations`（只读/破坏性提示）、统一错误信封。
 - 更新 `docs/2026-07-29-mcp-test-cases.md` 与 `docs/2026-07-31-mcp-pi-test-cases.md`（14 → 18 工具、HTTP 传输）。
 
@@ -151,7 +164,8 @@ curl -s http://127.0.0.1:3001/healthz
 | `55fb5eb` | feat(mcp): add agent tooling, Streamable HTTP and safe auth |
 | `9d7a697` | feat(api): expose OpenAPI 3.1 spec for REST agents |
 | `63fded4` | docs: update deployment, README and process notes |
-| 本提交 | fix(mcp): harden role scoping and API-key freshness |
+| `a0dbadb` | fix(mcp): harden role scoping and API-key freshness |
+| 本提交 | fix(mcp): add rate limiting, audit logs and query guards |
 
 ---
 

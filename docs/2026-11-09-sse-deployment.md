@@ -653,7 +653,11 @@ curl -s http://127.0.0.1:3001/healthz
 大小可分别用 `MCP_MAX_SESSIONS`、`MCP_MAX_BODY_BYTES` 限制。
 
 数据库中的 `mcp_api_keys` 会按 `MCP_KEY_REFRESH_MS`（默认 60s）刷新，角色/部门以
-`users` 表为准；禁用用户或停用 key 最多在该周期内失效。
+`users` 表为准；禁用用户或停用 key 最多在该周期内失效。迁移 014 支持 `expires_at`
+过期时间，过期 key 会被拒绝。
+
+按用户限流（`MCP_RATE_LIMIT_PER_MIN`，默认 120/分钟）与审计日志（`MCP_AUDIT_LOG`，
+stderr JSON）在 MCP 进程内生效；多实例部署时各自计数，如需全局配额请在前置网关限流。
 
 客户端 `mcpServers` 示例（字段名因客户端而异）：
 
@@ -1231,6 +1235,9 @@ Windows 下 `pnpm dev` 已通过 `concurrently` 跨平台并行启动，不需�
 | `MCP_MAX_SESSIONS` | 否 | `100` | MCP 会话上限 |
 | `MCP_MAX_BODY_BYTES` | 否 | `52428800` | MCP 请求体上限（50MB） |
 | `MCP_KEY_REFRESH_MS` | 否 | `60000` | DB 中 `mcp_api_keys` 的刷新周期（key 吊销/角色变更生效延迟） |
+| `MCP_RATE_LIMIT_PER_MIN` | 否 | `120` | 每用户每分钟 MCP 工具调用上限 |
+| `MCP_AUDIT_LOG` | 否 | `1` | 设为 `0` 关闭工具调用审计（stderr JSON） |
+| `MCP_SPARQL_MAX_RESULTS` | 否 | `1000` | SPARQL 结果硬上限 |
 | `SSE_API_BASE` | 否 | `http://localhost:3000` | MCP 工具委托 REST 的基址 |
 | `PUBLIC_API_BASE` | 否 | — | OpenAPI `servers` 与内部 REST 基址 |
 | `SMS_PROVIDER` | 否 | `log` | `log` / `aliyun` |

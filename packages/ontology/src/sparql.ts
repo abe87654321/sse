@@ -1,7 +1,36 @@
 import type { Store } from 'n3';
 
-export function executeSparql(store: Store, sparql: string): Array<Record<string, string>> {
-  const results: Array<Record<string, string>> = [];
+export interface SparqlOptions {
+  maxResults?: number;
+  maxPatterns?: number;
+  maxQueryLength?: number;
+}
+
+const DEFAULTS = {
+  maxResults: 1000,
+  maxPatterns: 20,
+  maxQueryLength: 20_000,
+};
+
+/**
+ * Minimal SELECT-only SPARQL executor over the in-memory N3 store.
+ *
+ * Guards keep agent-driven queries bounded: query length, graph-pattern count,
+ * and a hard result cap (honouring a smaller explicit LIMIT). Never writes to
+ * stdout — the MCP stdio transport uses stdout for JSON-RPC.
+ */
+export function executeSparql(
+  store: Store,
+  sparql: string,
+  options: SparqlOptions = {},
+): Array<Record<string, string>> {
+  if (typeof sparql !== 'string') throw new Error('SPARQL 查询必须为字符串');
+
+  const maxQueryLength = options.maxQueryLength ?? DEFAULTS.maxQueryLength;
+  if (sparql.length > maxQueryLength) {
+    throw new Error(`SPARQL 查询过长（上限 ${maxQueryLength} 字符）`);
+  }
+
   const selectMatch = sparql.match(/SELECT\s+(.+?)\s+WHERE\s*\{(.+?)\}/is);
   if (!selectMatch) throw new Error('仅支持 SELECT ?var WHERE { ?s ?p ?o } 格式');
 
@@ -14,11 +43,20 @@ export function executeSparql(store: Store, sparql: string): Array<Record<string
     patterns.push({ subject: tokens[i], predicate: tokens[i + 1], object: tokens[i + 2] });
   }
 
-  const quads = store.getQuads(null, null, null, null);
-  console.log(`[SPARQL] quads total: ${quads.length}, patterns: ${patterns.length}`);
-  if (patterns.length > 0) console.log(`[SPARQL] pattern[0]: ${JSON.stringify(patterns[0])}`);
+  const maxPatterns = options.maxPatterns ?? DEFAULTS.maxPatterns;
+  if (patterns.length > maxPatterns) {
+    throw new Error(`SPARQL 图模式过多（上限 ${maxPatterns}）`);
+  }
 
-  for (const quad of quads) {
+  const limitMatch = sparql.match(/\bLIMIT\s+(\d+)/i);
+  const requestedLimit = limitMatch ? parseInt(limitMatch[1], 10) : undefined;
+  const maxResults = options.maxResults ?? DEFAULTS.maxResults;
+  const effectiveLimit = Math.max(0, Math.min(maxResults, requestedLimit ?? maxResults));
+
+  const results: Array<Record<string, string>> = [];
+  for (const quad of store.getQuads(null, null, null, null)) {
+    if (results.length >= effectiveLimit) break;
+
     const binding: Record<string, string> = {};
     let match = true;
     for (const pat of patterns) {
@@ -28,7 +66,10 @@ export function executeSparql(store: Store, sparql: string): Array<Record<string
       if (pat.subject.startsWith('?')) binding[pat.subject] = quad.subject.value;
       if (pat.predicate.startsWith('?')) binding[pat.predicate] = quad.predicate.value;
       if (pat.object.startsWith('?')) binding[pat.object] = quad.object.value;
-      if (!matchTerm(quad.subject.value, s) || !matchTerm(quad.predicate.value, p) || !matchTerm(quad.object.value, o)) { match = false; break; }
+      if (!matchTerm(quad.subject.value, s) || !matchTerm(quad.predicate.value, p) || !matchTerm(quad.object.value, o)) {
+        match = false;
+        break;
+      }
     }
     if (match) {
       const row: Record<string, string> = {};
@@ -36,7 +77,6 @@ export function executeSparql(store: Store, sparql: string): Array<Record<string
       results.push(row);
     }
   }
-  console.log(`[SPARQL] results: ${results.length}`);
   return results;
 }
 
