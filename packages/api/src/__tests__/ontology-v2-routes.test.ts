@@ -16,6 +16,7 @@ const DATA = 'urn:sse:data';
 const NQ = `
 <https://sse.local/report/r1> <${RDF}type> <${SSE}ExpenseReport> <${DATA}> .
 <https://sse.local/report/r1> <${SSE}status> "pending" <${DATA}> .
+<https://sse.local/report/r1> <${SSE}amount> "11"^^<http://www.w3.org/2001/XMLSchema#decimal> <${DATA}> .
 <https://sse.local/report/r1> <${SSE}submittedBy> <https://sse.local/person/p1> <${DATA}> .
 <https://sse.local/report/r1> <${SSE}containsItem> <https://sse.local/item/i1> <${DATA}> .
 
@@ -69,6 +70,25 @@ describe('ontology v2 routes', () => {
       query: async (sql: string) => {
         if (sql.includes('ontology_projector_state')) {
           return { rows: [{ last_snapshot_version: '3' }] };
+        }
+        if (sql.includes('FROM expense_categories')) {
+          return { rows: [{ id: 'c1', name: '差旅' }] };
+        }
+        if (sql.includes('FROM approval_rules')) {
+          return {
+            rows: [{
+              id: 'db-rule',
+              name: 'DB 规则',
+              min_amount: '0',
+              max_amount: '1000',
+              category_ids: [],
+              approval_chain: [{ step: 1, role: 'finance' }],
+              priority: 1,
+            }],
+          };
+        }
+        if (sql.includes('FROM users')) {
+          return { rows: [{ cnt: '1' }] };
         }
         return {
           rows: [{ pending: '1', dead_lettered: '0', lag_seconds: '2', last_error: null }],
@@ -169,6 +189,48 @@ describe('ontology v2 routes', () => {
     const res = await get('/ontology/entities?type=bad-type!', adminToken);
     expect(res.status).toBe(400);
     expect(((await res.json()) as any).error.code).toBe('INVALID_PARAMS');
+  });
+
+  it('validates through the graph/DB fallback', async () => {
+    const res = await post('/ontology/validate', { amount: 100 }, adminToken);
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    expect(body.source).toBe('db-fallback');
+    expect(body.valid).toBe(true);
+    expect(body.matched_rule.name).toBe('DB 规则');
+  });
+
+  it('explains a report with evidence URIs', async () => {
+    const res = await post('/ontology/explain', { report_id: 'r1' }, adminToken);
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    expect(body.report).toBe('https://sse.local/report/r1');
+    expect(body.evidenceUris).toContain('https://sse.local/report/r1');
+    expect(body.why.length).toBeGreaterThan(0);
+  });
+
+  it('enforces scope on explain', async () => {
+    const res = await post('/ontology/explain', { report_id: 'r2' }, employeeToken);
+    expect(res.status).toBe(404);
+  });
+
+  it('analyzes impact without writing', async () => {
+    const res = await post('/ontology/impact', { department: '技术部' }, adminToken);
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    expect(body.affected_reports.map((report: any) => report.uri)).toEqual([
+      'https://sse.local/report/r1',
+    ]);
+    expect(body.hypothetical).toBe(false);
+  });
+
+  it('returns real anomalies with a summary', async () => {
+    const res = await get('/ontology/anomalies', adminToken);
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    const codes = body.anomalies.map((anomaly: any) => anomaly.code);
+    expect(codes).toContain('amount_mismatch');
+    expect(body.summary.total).toBe(body.anomalies.length);
   });
 
   it('returns 503 for v2 routes when the platform is disabled', async () => {

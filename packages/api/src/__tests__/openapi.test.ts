@@ -33,6 +33,9 @@ describe('OpenAPI document', () => {
       '/ontology/entities/{uri}/network',
       '/ontology/query',
       '/ontology/anomalies',
+      '/ontology/validate',
+      '/ontology/explain',
+      '/ontology/impact',
     ];
     for (const path of required) {
       expect(doc.paths[path]).toBeDefined();
@@ -43,10 +46,15 @@ describe('OpenAPI document', () => {
     expect(doc.paths['/ontology/entities/{uri}/network'].get).toBeDefined();
   });
 
-  it('does not advertise 501 placeholder endpoints as contracts', () => {
-    for (const path of ['/ontology/validate', '/ontology/explain', '/ontology/impact']) {
-      expect(doc.paths[path]).toBeUndefined();
-    }
+  it('documents the Phase 4 reasoning endpoints with real response schemas', () => {
+    expect(doc.paths['/ontology/validate'].post.responses['200'].content['application/json'].schema)
+      .toEqual({ $ref: '#/components/schemas/OntologyValidateResult' });
+    expect(doc.paths['/ontology/explain'].post.responses['200'].content['application/json'].schema)
+      .toEqual({ $ref: '#/components/schemas/OntologyExplanation' });
+    expect(doc.paths['/ontology/impact'].post.responses['200'].content['application/json'].schema)
+      .toEqual({ $ref: '#/components/schemas/OntologyImpactResult' });
+    expect(doc.paths['/ontology/anomalies'].get.responses['200'].content['application/json'].schema)
+      .toEqual({ $ref: '#/components/schemas/OntologyAnomalyResult' });
   });
 
   it('declares bearer auth and keeps the login endpoint public', () => {

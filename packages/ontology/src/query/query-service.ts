@@ -328,6 +328,11 @@ ORDER BY ?entity ?p ?o`);
     };
   }
 
+  /** Public scope check for reasoning services that need the same rules. */
+  async isInScope(entity: string, scope: Scope): Promise<boolean> {
+    return this.entityInScope(entity, scope);
+  }
+
   async getEntity(uriValue: string, scope: Scope): Promise<EntityDetail | null> {
     const subject = safeIri(uriValue);
     if (!subject) {

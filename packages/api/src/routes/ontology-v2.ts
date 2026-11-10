@@ -1,6 +1,16 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { authMiddleware, resolveDataScope } from '@sse/auth';
-import { getQueryService, InvalidQueryError } from '@sse/ontology';
+import {
+  InvalidQueryError,
+  explainReport,
+  findAnomalies,
+  getGraphStore,
+  getPool,
+  getQueryService,
+  impactAnalysis,
+  reportUri as buildReportUri,
+  validateExpense,
+} from '@sse/ontology';
 import { requireRole } from '../middleware/rbac';
 import { AppError } from '../middleware/error';
 
@@ -32,6 +42,32 @@ function toScope(req: Request) {
     userId: req.user!.userId,
     department: req.user!.department,
   });
+}
+
+function graphStore() {
+  try {
+    return getGraphStore();
+  } catch {
+    throw new AppError(503, 'ONTOLOGY_V2_UNAVAILABLE', '本体图尚未初始化');
+  }
+}
+
+function graphPool() {
+  try {
+    return getPool();
+  } catch {
+    return undefined;
+  }
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function queryParam(value: unknown): string | undefined {
@@ -138,20 +174,61 @@ router.post('/query', asyncWrap(async (req, res) => {
   }));
 }));
 
-router.post('/validate', asyncWrap(async () => {
-  throw new AppError(501, 'NOT_IMPLEMENTED', '本体校验将在 Phase 4 提供');
+router.post('/validate', asyncWrap(async (req, res) => {
+  const body = req.body ?? {};
+  const amount = optionalNumber(body.amount);
+  if (amount === undefined || amount <= 0) {
+    throw new AppError(400, 'INVALID_PARAMS', '请提供有效的 amount');
+  }
+
+  res.json(await validateExpense(
+    graphStore(),
+    {
+      amount,
+      category_id: optionalString(body.category_id ?? body.categoryId),
+      category_name: optionalString(body.category_name ?? body.categoryName),
+      report_id: optionalString(body.report_id ?? body.reportId),
+    },
+    toScope(req),
+    graphPool(),
+  ));
 }));
 
-router.post('/explain', asyncWrap(async () => {
-  throw new AppError(501, 'NOT_IMPLEMENTED', '本体解释将在 Phase 4 提供');
+router.post('/explain', asyncWrap(async (req, res) => {
+  const body = req.body ?? {};
+  const raw = optionalString(body.report_uri ?? body.reportUri ?? body.uri ?? body.report_id ?? body.reportId);
+  if (!raw) {
+    throw new AppError(400, 'INVALID_PARAMS', '请提供 report_uri 或 report_id');
+  }
+
+  const explanation = await explainReport(graphStore(), buildReportUri(raw), toScope(req));
+  if (!explanation) throw new AppError(404, 'NOT_FOUND', '报销单不存在或无权访问');
+  res.json(explanation);
 }));
 
-router.post('/impact', asyncWrap(async () => {
-  throw new AppError(501, 'NOT_IMPLEMENTED', '影响分析将在 Phase 4 提供');
+router.post('/impact', asyncWrap(async (req, res) => {
+  const body = req.body ?? {};
+  res.json(await impactAnalysis(
+    graphStore(),
+    {
+      rule_id: optionalString(body.rule_id ?? body.ruleId),
+      category_id: optionalString(body.category_id ?? body.categoryId),
+      department: optionalString(body.department),
+      min_amount: optionalNumber(body.min_amount ?? body.minAmount),
+      max_amount: optionalNumber(body.max_amount ?? body.maxAmount),
+      amount_delta: optionalNumber(body.amount_delta ?? body.amountDelta),
+      limit: optionalNumber(body.limit),
+    },
+    toScope(req),
+  ));
 }));
 
-router.get('/anomalies', asyncWrap(async (_req, res) => {
-  res.json([]);
+router.get('/anomalies', asyncWrap(async (req, res) => {
+  const limit = optionalNumber(req.query.limit) ?? 500;
+  res.json(await findAnomalies(graphStore(), {
+    limit,
+    scope: toScope(req),
+  }));
 }));
 
 router.post('/reconcile', requireRole('admin'), asyncWrap(async (_req, res) => {

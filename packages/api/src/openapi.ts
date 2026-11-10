@@ -320,6 +320,174 @@ export function buildOpenApiDocument(): Record<string, unknown> {
             total: { type: "integer" },
           },
         },
+        OntologyValidationIssue: {
+          type: "object",
+          required: ["code", "message", "evidence"],
+          properties: {
+            code: { type: "string" },
+            message: { type: "string" },
+            evidence: { type: "array", items: { type: "string" } },
+          },
+        },
+        OntologyMatchedRule: {
+          type: "object",
+          required: ["id", "name", "min_amount", "max_amount", "amount_range", "approval_steps"],
+          properties: {
+            id: { type: "string" },
+            uri: { type: "string" },
+            name: { type: "string" },
+            min_amount: { type: "number" },
+            max_amount: { type: "number" },
+            amount_range: { type: "string" },
+            approval_steps: { type: "integer" },
+            approval_chain: { type: "array", items: { type: "object", additionalProperties: true } },
+          },
+        },
+        OntologyValidateRequest: {
+          type: "object",
+          required: ["amount"],
+          properties: {
+            amount: { type: "number" },
+            category_id: { type: "string", format: "uuid" },
+            category_name: { type: "string" },
+            report_id: { type: "string", format: "uuid" },
+          },
+        },
+        OntologyValidateResult: {
+          type: "object",
+          required: ["valid", "matched_rule", "issues", "suggestions", "source"],
+          properties: {
+            valid: { type: "boolean" },
+            matched_rule: {
+              oneOf: [ref("OntologyMatchedRule"), { type: "null" }],
+            },
+            issues: { type: "array", items: ref("OntologyValidationIssue") },
+            suggestions: { type: "array", items: { type: "string" } },
+            source: { type: "string", enum: ["graph", "db-fallback"] },
+          },
+        },
+        OntologyExplainRequest: {
+          type: "object",
+          properties: {
+            report_uri: { type: "string" },
+            report_id: { type: "string", format: "uuid" },
+          },
+        },
+        OntologyTimelineEntry: {
+          type: "object",
+          required: ["at", "event", "evidence"],
+          properties: {
+            at: { type: "string" },
+            event: { type: "string" },
+            actor: { type: "string" },
+            evidence: { type: "string" },
+          },
+        },
+        OntologyWhyEntry: {
+          type: "object",
+          required: ["code", "message", "evidence"],
+          properties: {
+            code: { type: "string" },
+            message: { type: "string" },
+            evidence: { type: "array", items: { type: "string" } },
+          },
+        },
+        OntologyExplanation: {
+          type: "object",
+          required: ["report", "timeline", "why", "evidenceUris"],
+          properties: {
+            report: { type: "string" },
+            timeline: { type: "array", items: ref("OntologyTimelineEntry") },
+            why: { type: "array", items: ref("OntologyWhyEntry") },
+            evidenceUris: { type: "array", items: { type: "string" } },
+          },
+        },
+        OntologyImpactRequest: {
+          type: "object",
+          properties: {
+            rule_id: { type: "string" },
+            category_id: { type: "string", format: "uuid" },
+            department: { type: "string" },
+            min_amount: { type: "number" },
+            max_amount: { type: "number" },
+            amount_delta: { type: "number" },
+            limit: { type: "integer", default: 500 },
+          },
+        },
+        OntologyImpactResult: {
+          type: "object",
+          required: ["affected_reports", "affected_people", "counts", "hypothetical"],
+          properties: {
+            affected_reports: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["uri", "serialNo", "amount", "status", "reason"],
+                properties: {
+                  uri: { type: "string" },
+                  serialNo: { type: "string" },
+                  amount: { type: "number" },
+                  status: { type: "string" },
+                  reason: { type: "string" },
+                },
+              },
+            },
+            affected_people: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["uri", "name", "department"],
+                properties: {
+                  uri: { type: "string" },
+                  name: { type: "string" },
+                  department: { type: "string" },
+                },
+              },
+            },
+            counts: {
+              type: "object",
+              required: ["reports", "people", "pending"],
+              properties: {
+                reports: { type: "integer" },
+                people: { type: "integer" },
+                pending: { type: "integer" },
+              },
+            },
+            hypothetical: { type: "boolean" },
+          },
+        },
+        OntologyAnomaly: {
+          type: "object",
+          required: ["code", "severity", "message", "entities", "evidence"],
+          properties: {
+            code: {
+              type: "string",
+              enum: ["amount_mismatch", "duplicate_invoice_no", "missing_approver"],
+            },
+            severity: { type: "string", enum: ["error", "warning", "info"] },
+            message: { type: "string" },
+            entities: { type: "array", items: { type: "string" } },
+            evidence: { type: "array", items: { type: "string" } },
+          },
+        },
+        OntologyAnomalyResult: {
+          type: "object",
+          required: ["anomalies", "summary"],
+          properties: {
+            anomalies: { type: "array", items: ref("OntologyAnomaly") },
+            summary: {
+              type: "object",
+              required: ["total", "error", "warning", "info", "byCode"],
+              properties: {
+                total: { type: "integer" },
+                error: { type: "integer" },
+                warning: { type: "integer" },
+                info: { type: "integer" },
+                byCode: { type: "object", additionalProperties: { type: "integer" } },
+              },
+            },
+          },
+        },
       },
     },
     security: [{ bearerAuth: [] }],
@@ -683,16 +851,55 @@ export function buildOpenApiDocument(): Record<string, unknown> {
           },
         },
       },
+      "/ontology/validate": {
+        post: {
+          tags: ["Ontology"],
+          operationId: "validateExpenseOntology",
+          summary: "Validate an amount/category (or report) against graph rules and approvers",
+          requestBody: { required: true, content: json(ref("OntologyValidateRequest")) },
+          responses: {
+            "200": ok("Validation result", ref("OntologyValidateResult")),
+            "400": error("Invalid parameters"),
+            "401": error("Unauthorized"),
+          },
+        },
+      },
+      "/ontology/explain": {
+        post: {
+          tags: ["Ontology"],
+          operationId: "explainExpenseOntology",
+          summary: "Explain a report with a timeline, evidence URIs, invoice status and constraints",
+          requestBody: { required: true, content: json(ref("OntologyExplainRequest")) },
+          responses: {
+            "200": ok("Explanation", ref("OntologyExplanation")),
+            "400": error("Invalid parameters"),
+            "401": error("Unauthorized"),
+            "404": error("Report not found or out of scope"),
+          },
+        },
+      },
+      "/ontology/impact": {
+        post: {
+          tags: ["Ontology"],
+          operationId: "analyzeOntologyImpact",
+          summary: "Hypothetical impact of a rule/threshold change (read-only)",
+          requestBody: { required: true, content: json(ref("OntologyImpactRequest")) },
+          responses: {
+            "200": ok("Impact analysis", ref("OntologyImpactResult")),
+            "401": error("Unauthorized"),
+          },
+        },
+      },
       "/ontology/anomalies": {
         get: {
           tags: ["Ontology"],
           operationId: "listOntologyAnomalies",
-          summary: "List ontology anomalies (Phase 4 populates results)",
+          summary: "List amount, duplicate-invoice and missing-approver anomalies",
+          parameters: [
+            { name: "limit", in: "query", schema: { type: "integer", default: 500, maximum: 2000 } },
+          ],
           responses: {
-            "200": ok("Anomaly list", {
-              type: "array",
-              items: { type: "object", additionalProperties: true },
-            }),
+            "200": ok("Anomaly result", ref("OntologyAnomalyResult")),
             "401": error("Unauthorized"),
           },
         },
