@@ -297,7 +297,7 @@ External Systems (HR / LDAP / 企业微信)
 | `get_user_summary` | Per-user expense overview |
 | `list_pending_approvals` | Approver's pending queue |
 | `submit_expense_from_text` | Natural language → create expense |
-| `submit_expense_from_invoice` | Invoice image → OCR → create expense |
+| `submit_expense_from_invoice` | Invoice (PDF/OFD) → OCR → create; auto-store + AI verification |
 | `query_expense_status` | NL query: "张三这个月报销批了吗" |
 | `explain_decision` | Approval chain + rule matching explanation |
 | `validate_expense` | Compliance check + suggestions |
@@ -336,7 +336,7 @@ External Systems (HR / LDAP / 企业微信)
 | Doc | Content |
 |-----|---------|
 | [系统需求设计 (v2)](docs/2026-07-06-sse-design.md) | Full feature spec, data model, API, MCP schema |
-| [部署文档](docs/2026-11-09-sse-deployment.md) | Beginner-first install, offline MinIO, AI/OCR, notifications, MCP, production & troubleshooting |
+| [部署文档](docs/2026-11-09-sse-deployment.md) | Beginner-first install, offline MinIO, AI/OCR, notifications, MCP stdio + Streamable HTTP, OpenAPI, systemd, production & troubleshooting |
 | [MinIO 本地镜像](images/minio/sse-minio-local.meta.txt) | Bundled image version, SHA-256, offline load & verification |
 | [本体层设计](docs/2026-07-26-ontology-design.md) | OWL ontology + semantic orchestration engine |
 | [MDM 整合设计](docs/2026-07-26-mdm-design.md) | SCIM 2.0 + MDM Webhook + Identity Bridge |
@@ -344,7 +344,8 @@ External Systems (HR / LDAP / 企业微信)
 | [UserPicker 设计](docs/2026-07-26-userpicker-design.md) | Reusable user search/select component |
 | [审批流设计器](docs/2026-07-07-workflow-organisation-design.md) | Visual drag-drop approval flow designer |
 | [实体关系与权限矩阵](docs/2026-07-07-er-permission-matrix.md) | ER diagram, RBAC data scope, permission matrix |
-| [开发过程记录 (v2.6, 2026-11-02)](docs/2026-11-02-sse-process.md) | Latest session progress, payment receipt verification, migration runner, next steps |
+| [开发过程记录 (2026-11-10)](docs/2026-11-10-sse-process.md) | MCP agent integration: Streamable HTTP, approval/OCR tools, per-request auth, OpenAPI |
+| [开发过程记录 (2026-11-02)](docs/2026-11-02-sse-process.md) | Payment receipt verification, migration runner, next steps |
 | [AI 发票核对设计](docs/superpowers/specs/2026-11-02-ai-invoice-verification-design.md) | Invoice field / duplicate verification + approval gating |
 | [打款回单核对设计](docs/superpowers/specs/2026-11-02-payment-receipt-verification-design.md) | Payment reference / receipt, OCR suspicion, correction / revert audit |
 | [管理端引擎设置设计](docs/superpowers/specs/2026-11-02-admin-engine-usability-design.md) | Root URL, API key, model picker, OCR test observability |

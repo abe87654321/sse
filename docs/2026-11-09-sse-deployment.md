@@ -1,6 +1,7 @@
 # SSE 智能报销系统 — 部署指南
 
 > 日期：2026-11-09 | 适用：`master` | 读者：第一次部署的新手
+> 更新：2026-11-10 — 增加 MCP Streamable HTTP、OpenAPI、systemd 运维与相关环境变量
 > 配套文件：[README](../README.md) · [.env.example](../.env.example) · [docker-compose.yml](../docker-compose.yml) · [MinIO 镜像元信息](../images/minio/sse-minio-local.meta.txt)
 
 本指南只回答一件事：**怎样把 SSE 从零跑起来**。
@@ -569,7 +570,7 @@ MCP 鉴权涉及两个不同的环境变量，名字很像，作用不同：
 | 变量 | 作用 | 示例 |
 |---|---|---|
 | `MCP_API_KEYS` | 定义“密钥 → 用户身份”的映射表，多个用逗号分隔 | `mcp_key_001=<uuid>:admin:管理部` |
-| `MCP_API_KEY` | 指定当前服务默认使用哪个密钥（客户端不传 `api_key` 时） | `mcp_key_001` |
+| `MCP_API_KEY` | stdio 模式下默认使用的密钥（客户端不传 `api_key` 时）；HTTP 模式不使用 | `mcp_key_001` |
 
 最简单的配置是**两个都写**：
 
@@ -578,7 +579,8 @@ MCP_API_KEYS=mcp_key_001=<admin-id>:admin:管理部
 MCP_API_KEY=mcp_key_001
 ```
 
-> 只写 `MCP_API_KEYS` 时，如果客户端不主动传 `api_key`，服务端无法确定使用哪把密钥。
+> 只写 `MCP_API_KEYS` 时，如果 stdio 客户端不主动传 `api_key`，服务端无法确定使用哪把密钥。
+> HTTP / OpenAPI 模式不走这个兜底：每个请求必须自带 `Authorization: Bearer <key>`。
 
 #### 3.4.2 获取管理员 UUID
 
@@ -630,6 +632,63 @@ Agent 的 `mcp.json` 示例（由 Agent 自己拉起 MCP 进程）：
 
 > MCP Server 通过 stdio 通信。`pnpm dev` 里的 MCP 进程主要用于本地编译和冒烟；
 > 真正接入 Agent 时，由 Agent 按上面的配置启动独立进程。
+
+#### 3.4.5 HTTP 传输（推荐远程 Agent）
+
+`pnpm mcp:http` 以 HTTP 方式启动同一个 MCP Server：
+
+| 端点 | 用途 |
+|---|---|
+| `POST/GET/DELETE /mcp` | Streamable HTTP（Claude Code / Cursor / VS Code 等） |
+| `GET /sse` + `POST /messages` | 旧版 HTTP+SSE 兼容（`MCP_LEGACY_SSE=0` 关闭） |
+| `GET /healthz` | 健康检查 |
+
+```bash
+MCP_HTTP_PORT=3001 pnpm mcp:http
+curl -s http://127.0.0.1:3001/healthz
+```
+
+鉴权：每个请求都必须带 `Authorization: Bearer <mcp-api-key>`。HTTP 模式**不使用**
+`MCP_API_KEY` 作为默认兜底；身份按请求解析，多个 key 并发互不串用。会话数、请求体
+大小可分别用 `MCP_MAX_SESSIONS`、`MCP_MAX_BODY_BYTES` 限制。
+
+客户端 `mcpServers` 示例（字段名因客户端而异）：
+
+```json
+{
+  "mcpServers": {
+    "sse": {
+      "type": "http",
+      "url": "http://<server-ip>:3001/mcp",
+      "headers": { "Authorization": "Bearer mcp_key_001" }
+    }
+  }
+}
+```
+
+> `MCP_API_KEYS` / `MCP_API_KEY` 仍用于 stdio 和 key 校验；HTTP 只需要 key 本身有效。
+
+#### 3.4.6 非 MCP Agent（OpenAPI）
+
+不支持 MCP 的 Agent / 编排平台（LangChain、Dify、n8n 等）可直接用 REST：
+
+1. `GET /openapi.json` 拉取 OpenAPI 3.1 规范（公开，无需鉴权）
+2. `POST /auth/api-key-login`，body `{ "apiKey": "mcp_key_001" }` 换 `accessToken`
+3. 之后所有请求带 `Authorization: Bearer <accessToken>`
+
+角色和部门随 key 绑定，服务端自动做数据范围过滤，与 MCP 一致。
+
+#### 3.4.7 systemd 托管（Linux）
+
+仓库提供 `deploy/systemd/sse-mcp.service`，按实际路径调整 `User` / `WorkingDirectory` /
+`ExecStart` 后安装：
+
+```bash
+sudo cp deploy/systemd/sse-mcp.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now sse-mcp
+curl -s http://127.0.0.1:3001/healthz
+```
 
 ### 3.5 通知调度器
 
@@ -760,10 +819,13 @@ cd ../..
 
 pnpm build
 pnpm migrate          # 先迁移，再重启 API
-# 重启 API / Web / 反向代理
+# 重启 API / Web / 反向代理（以及 MCP HTTP 服务）
 ```
 
 迁移必须在 API 重启前完成，否则新代码可能查询尚不存在的列/表。
+
+> 若升级包含 MCP 依赖变更（如 SDK 1.x + zod），`pnpm install` 不可跳过；
+> 重启 MCP HTTP 服务后访问 `/healthz` 确认。
 
 ### 4.6 备份与恢复
 
@@ -809,6 +871,9 @@ pnpm migrate          # 先迁移，再重启 API
 - [ ] OCR 引擎“检验图像 OCR”成功
 - [ ] 邮件/短信实际收到（或日志显示发送成功）
 - [ ] MCP 工具能返回数据
+- [ ] `curl -s http://127.0.0.1:3001/healthz` 返回 `status: ok`
+- [ ] `POST /mcp` initialize + `tools/list` 返回 18 个工具
+- [ ] `GET /openapi.json` 返回 OpenAPI 3.1；`POST /auth/api-key-login` 能换到 JWT
 - [ ] 通知偏好开关生效
 
 ---
@@ -1108,6 +1173,17 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   http://localhost:3000/ontology/sync
 ```
 
+**Q: HTTP 方式调用 MCP 返回 401 / Session not found？**
+
+- `401`：请求未带 `Authorization: Bearer <key>`，或 key 不在 `MCP_API_KEYS` / `mcp_api_keys` 中。
+- `Session not found`：客户端丢失了 `Mcp-Session-Id`，或服务重启后会话失效；重新初始化即可。
+- 多 key 并发时，每个会话绑定首次初始化用的 key，不能用另一把 key 复用它。
+
+**Q: `GET /openapi.json` 能拉到，但调用接口仍 401？**
+
+OpenAPI 里除 `GET /openapi.json`、`GET /health`、`POST /auth/api-key-login` 外都需要 JWT。
+先用 `POST /auth/api-key-login` 换 `accessToken`，再带 `Authorization: Bearer <accessToken>`。
+
 ### 6.8 Windows / PowerShell 差异
 
 | bash 写法 | PowerShell 写法 |
@@ -1144,7 +1220,15 @@ Windows 下 `pnpm dev` 已通过 `concurrently` 跨平台并行启动，不需�
 | `MINIO_SECRET_KEY` | 是 | `minioadmin` | MinIO 密码 |
 | `MINIO_BUCKET` | 否 | `invoices` | 发票桶；其他桶会在上传时自动创建 |
 | `MCP_API_KEYS` | 否 | — | 密钥映射表，格式 `key=userId:role:department` |
-| `MCP_API_KEY` | 否 | — | 当前服务默认使用的 key |
+| `MCP_API_KEY` | 否 | — | stdio 默认使用的 key（HTTP 不使用） |
+| `MCP_HTTP_PORT` | 否 | `3001` | MCP HTTP 端口（`pnpm mcp:http`） |
+| `MCP_LEGACY_SSE` | 否 | `1` | 设为 `0` 关闭旧 HTTP+SSE |
+| `MCP_JSON_RESPONSE` | 否 | `0` | 设为 `1` 时 Streamable HTTP 直接返回 JSON |
+| `MCP_CORS_ORIGIN` | 否 | — | 设置后开启 CORS |
+| `MCP_MAX_SESSIONS` | 否 | `100` | MCP 会话上限 |
+| `MCP_MAX_BODY_BYTES` | 否 | `52428800` | MCP 请求体上限（50MB） |
+| `SSE_API_BASE` | 否 | `http://localhost:3000` | MCP 工具委托 REST 的基址 |
+| `PUBLIC_API_BASE` | 否 | — | OpenAPI `servers` 与内部 REST 基址 |
 | `SMS_PROVIDER` | 否 | `log` | `log` / `aliyun` |
 | `EMAIL_PROVIDER` | 否 | `log` | `log` / `smtp` |
 | `EMAIL_HOST` | 否* | `smtp.163.com` | SMTP 地址 |
