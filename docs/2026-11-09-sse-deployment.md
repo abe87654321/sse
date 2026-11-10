@@ -815,24 +815,67 @@ VITE_API_BASE=https://api.example.com pnpm --filter @sse/web build
 
 ### 4.5 升级与迁移顺序
 
-```bash
-git pull
-pnpm install
+固定顺序：**拉代码 → 安装依赖 → 构建 → 迁移 → 重启**。迁移必须在新代码（尤其是 API）
+重启前完成，否则新代码可能查询尚不存在的列/表。
 
-# 如果 MinIO 镜像被清理，重新导入
-cd images/minio
-gunzip -c sse-minio-local.tar.gz | docker load
-cd ../..
+```bash
+cd /path/to/sse
+git pull
+
+pnpm install            # 依赖有变化时不可跳过（如新增 SDK / zod）
+
+# 让迁移脚本读取 .env 里的 DB_*（migrate 本身不加载 .env）
+set -a; . ./.env; set +a
 
 pnpm build
-pnpm migrate          # 先迁移，再重启 API
-# 重启 API / Web / 反向代理（以及 MCP HTTP 服务）
+pnpm migrate            # 先迁移，再重启
+
+# 如果 MinIO 镜像被清理，重新导入
+# cd images/minio && gunzip -c sse-minio-local.tar.gz | docker load && cd ../..
+
+# 重启 API / Web / 反向代理；如启用 HTTP MCP，一并重启
+# systemctl restart sse-mcp    （或 MCP_HTTP_PORT=3001 pnpm mcp:http）
 ```
 
-迁移必须在 API 重启前完成，否则新代码可能查询尚不存在的列/表。
+> `.env` 为默认的 `localhost:5433 / sse / sse_dev` 时，可省略 `set -a; . ./.env; set +a`，
+> 直接执行 `pnpm migrate`。
+>
+> `pnpm migrate` 可安全重复执行：已应用的版本记录在 `schema_migrations`，无待应用迁移时
+> 输出 `Database is up to date`。
 
-> 若升级包含 MCP 依赖变更（如 SDK 1.x + zod），`pnpm install` 不可跳过；
-> 重启 MCP HTTP 服务后访问 `/healthz` 确认。
+#### 4.5.1 迁移内容示例（014）
+
+本次升级新增 `014_mcp_api_key_expiry.sql`，只做加列与索引：
+
+```sql
+ALTER TABLE mcp_api_keys ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_mcp_api_keys_expires_at ON mcp_api_keys (expires_at);
+```
+
+- 现有 key 的 `expires_at` 为 `NULL`，表示永不过期；**无需回填数据**。
+- API 的 `/auth/api-key-login` 会读取该列，未迁移就重启会报“列不存在”。
+- MCP 端对旧库有降级兼容，但 API 没有，所以迁移仍必须先做。
+
+#### 4.5.2 升级后验证
+
+```bash
+# 迁移记录与列
+docker compose exec postgres psql -U sse -d sse \
+  -c "SELECT version, applied_at FROM schema_migrations ORDER BY applied_at DESC LIMIT 3;"
+docker compose exec postgres psql -U sse -d sse -c "\d mcp_api_keys"
+
+# API / OpenAPI / MCP HTTP
+curl -s http://127.0.0.1:3000/health
+curl -s http://127.0.0.1:3000/openapi.json | head -c 160
+curl -s http://127.0.0.1:3001/healthz
+```
+
+预期：`schema_migrations` 最新为 `014_mcp_api_key_expiry`；`mcp_api_keys` 含 `expires_at`；
+`/healthz` 返回 `status: ok`。
+
+> 若升级包含 MCP 依赖变更（如 SDK 1.x + zod），`pnpm install` 不可跳过。`pnpm dev` 只带
+> stdio MCP；对外提供 HTTP MCP 时需单独启动/重启 `pnpm mcp:http` 或 systemd 服务。
+> MCP 启动后首次本体查询从 DB 快照加载；若从未同步，管理员可执行 `GET /ontology/sync`。
 
 ### 4.6 备份与恢复
 
