@@ -1,22 +1,18 @@
 import type { GraphStore } from './types';
+import { OntologyQueryService } from '../query/query-service';
 
 export interface PoolLike {
   query(sql: string, params?: any[]): Promise<{ rows: any[] }>;
 }
 
-export interface GraphQueryService {
-  store: GraphStore;
-  pool: PoolLike;
-}
-
 let store: GraphStore | null = null;
 let poolRef: PoolLike | null = null;
-let queryService: GraphQueryService | null = null;
+let queryService: OntologyQueryService | null = null;
 
 export function setGraphContext(nextStore: GraphStore, pool: PoolLike): void {
   store = nextStore;
   poolRef = pool;
-  queryService = { store: nextStore, pool };
+  queryService = new OntologyQueryService(nextStore, pool);
 }
 
 export function getGraphStore(): GraphStore {
@@ -29,7 +25,7 @@ export function getPool(): PoolLike {
   return poolRef;
 }
 
-export function getQueryService(): GraphQueryService {
+export function getQueryService(): OntologyQueryService {
   if (!queryService) throw new Error('ontology query service is not initialized');
   return queryService;
 }
