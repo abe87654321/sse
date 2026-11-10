@@ -121,6 +121,10 @@ async function initOntology() {
 
 const server = app.listen(PORT, '0.0.0.0', async () => {
   await initOntology();
+  if (process.env.ONTOLOGY_V2 === 'on' || process.env.ONTOLOGY_V2 === 'shadow') {
+    const { startOntologyProjector } = await import('./services/ontology-projector');
+    await startOntologyProjector();
+  }
   console.log(`[SSE API] 服务启动成功，端口: ${PORT}`);
   startScheduler();
   processPendingPaymentReceipts().catch((err) => {
