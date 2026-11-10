@@ -485,6 +485,42 @@ export function buildOpenApiDocument(): Record<string, unknown> {
           },
         },
       },
+      "/ontology/status": {
+        get: {
+          tags: ["Ontology"],
+          operationId: "getOntologyStatus",
+          summary: "Projector, graph and outbox sync status",
+          responses: {
+            "200": ok("Sync status", {
+              type: "object",
+              required: ["engine", "counts", "outbox", "version"],
+              properties: {
+                engine: { type: "string", enum: ["oxigraph"] },
+                counts: {
+                  type: "object",
+                  required: ["quads", "subjects"],
+                  properties: {
+                    quads: { type: "integer" },
+                    subjects: { type: "integer" },
+                  },
+                },
+                outbox: {
+                  type: "object",
+                  required: ["pending", "deadLettered", "oldestPendingAgeSeconds", "lastError"],
+                  properties: {
+                    pending: { type: "integer" },
+                    deadLettered: { type: "integer" },
+                    oldestPendingAgeSeconds: { type: "number" },
+                    lastError: { type: ["string", "null"] },
+                  },
+                },
+                version: { type: "integer" },
+              },
+            }),
+            "401": error("Unauthorized"),
+          },
+        },
+      },
     },
   };
 }

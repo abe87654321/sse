@@ -1,6 +1,7 @@
+import { canonicalChecksum } from '../graph/checksum';
 import { MemoryGraphStore } from '../graph/memory-store';
 import { setGraphContext } from '../graph/graph-context';
-import { sse, uri } from '../graph/namespaces';
+import { GRAPH, sse, uri } from '../graph/namespaces';
 import { rebuildGraph, reconcile } from '../projection/reconcile';
 import { getReconcileJob, startReconcileJob } from '../projection/reconcile-jobs';
 
@@ -18,6 +19,7 @@ const tables: Record<string, any[]> = {
 class FakePool {
   state = { last_outbox_id: 0, last_snapshot_version: 0 };
   snapshots: any[] = [];
+  queries: string[] = [];
   private seq = 0;
 
   constructor(
@@ -27,6 +29,7 @@ class FakePool {
 
   async query(sql: string, params: any[] = []): Promise<{ rows: any[]; rowCount?: number | null }> {
     const statement = sql.replace(/\s+/g, ' ').trim();
+    this.queries.push(statement);
 
     const tableMatch = /^SELECT \* FROM (\w+)/.exec(statement);
     if (tableMatch) {
@@ -147,6 +150,59 @@ describe('reconcile', () => {
     const second = await reconcile(store, new FakePool() as any);
     expect(second.checksum).toBe(first.checksum);
     expect(second.counts).toEqual(first.counts);
+  });
+
+  it('captures the outbox watermark before scanning tables', async () => {
+    const pool = new FakePool();
+    await reconcile(new MemoryGraphStore(), pool as any);
+
+    const maxIndex = pool.queries.findIndex(
+      sql => sql.includes('MAX(id)') && sql.includes('ontology_outbox'),
+    );
+    const scanIndex = pool.queries.findIndex(sql => sql.startsWith('SELECT * FROM users'));
+    expect(maxIndex).toBeGreaterThanOrEqual(0);
+    expect(scanIndex).toBeGreaterThan(maxIndex);
+  });
+
+  it('paginates every table with keyset batches', async () => {
+    const users = Array.from({ length: 5 }, (_, i) => ({
+      id: `u${i + 1}`,
+      name: `User ${i + 1}`,
+      department: 'D',
+      role: 'employee',
+      status: 'active',
+    }));
+    const pool = new FakePool({ ...tables, users });
+    const store = new MemoryGraphStore();
+
+    const result = await rebuildGraph(store, pool as any, { batchSize: 2 });
+
+    expect(result.counts.subjects).toBeGreaterThanOrEqual(5);
+    const userScans = pool.queries.filter(sql => sql.startsWith('SELECT * FROM users'));
+    expect(userScans).toHaveLength(3);
+
+    const people = await store.query(
+      'SELECT ?s WHERE { GRAPH <urn:sse:data> { ?s a <https://sse.local/ontology#Person> } }',
+    );
+    if (people.kind !== 'select') throw new Error('expected select');
+    expect(people.rows).toHaveLength(5);
+  });
+
+  it('computes a canonical checksum regardless of n-quad insertion order', async () => {
+    const first = new MemoryGraphStore();
+    await first.load(`
+<https://sse.local/report/r1> <https://sse.local/ontology#status> "pending" <urn:sse:data> .
+<https://sse.local/report/r2> <https://sse.local/ontology#status> "approved" <urn:sse:data> .
+`);
+    const second = new MemoryGraphStore();
+    await second.load(`
+<https://sse.local/report/r2> <https://sse.local/ontology#status> "approved" <urn:sse:data> .
+<https://sse.local/report/r1> <https://sse.local/ontology#status> "pending" <urn:sse:data> .
+`);
+
+    expect(canonicalChecksum(await first.dump([GRAPH.data]))).toBe(
+      canonicalChecksum(await second.dump([GRAPH.data])),
+    );
   });
 
   it('runs a reconcile job and exposes its state', async () => {

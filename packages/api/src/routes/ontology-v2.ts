@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { authMiddleware } from '@sse/auth';
 import { requireRole } from '../middleware/rbac';
 import { AppError } from '../middleware/error';
+import { getOntologyStatus } from '../services/ontology-status';
 
 const router = Router();
 
@@ -12,6 +13,15 @@ function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Prom
 }
 
 router.use(authMiddleware);
+
+router.get('/status', asyncWrap(async (_req, res) => {
+  const { getQueryService } = await import('@sse/ontology');
+  const { store, pool } = getQueryService();
+  res.json(await getOntologyStatus({
+    query: (sql, params) => pool.query(sql, params),
+    counts: () => store.counts(),
+  }));
+}));
 
 router.post('/reconcile', requireRole('admin'), asyncWrap(async (_req, res) => {
   const { startReconcileJob } = await import('@sse/ontology');

@@ -113,7 +113,7 @@ function provenance(subject: string, table: string, row: Record<string, any>): P
   const quads: ProjectedQuad[] = [
     q(subject, 'sourceTable', table, 'literal'),
     q(subject, 'sourceId', String(row.id), 'literal'),
-    q(subject, 'recordVersion', version, 'literal', `${XSD}dateTime`),
+    q(subject, 'recordVersion', version, 'literal'),
   ];
   if (version !== '') {
     quads.push(qIri(subject, provGeneratedAtTime, version, 'literal', `${XSD}dateTime`));

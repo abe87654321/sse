@@ -1,5 +1,5 @@
 import { MemoryGraphStore } from '../graph/memory-store';
-import { sse } from '../graph/namespaces';
+import { sse, uri } from '../graph/namespaces';
 import type { ProjectedQuad } from '../graph/types';
 import { GraphProjector } from '../projection/projector';
 
@@ -55,10 +55,13 @@ class FakePool {
     if (statement.startsWith('DELETE FROM ontology_outbox')) {
       const days = Number(params[0]);
       const cutoff = Date.now() - days * 86_400_000;
+      const retainDeadLetters = statement.includes('dead_letter = false');
       const before = this.rows.length;
-      this.rows = this.rows.filter(
-        row => !(row.processed_at && new Date(row.processed_at).getTime() < cutoff),
-      );
+      this.rows = this.rows.filter((row) => {
+        const processedOld = row.processed_at && new Date(row.processed_at).getTime() < cutoff;
+        if (!processedOld) return true;
+        return retainDeadLetters && Boolean(row.dead_letter);
+      });
       return { rows: [], rowCount: before - this.rows.length };
     }
     return { rows: [] };
@@ -162,6 +165,36 @@ describe('GraphProjector', () => {
     expect(newEdge).toEqual({ kind: 'ask', value: true });
   });
 
+  it('removes the parent edges when a child row is deleted', async () => {
+    const store = new MemoryGraphStore();
+    await store.load(`
+<https://sse.local/report/r1> <https://sse.local/ontology#containsItem> <https://sse.local/item/i1> <urn:sse:data> .
+<https://sse.local/report/r1> <https://sse.local/ontology#hasApproval> <https://sse.local/approval/ap1> <urn:sse:data> .
+<https://sse.local/report/r1> <https://sse.local/ontology#hasPaymentReceipt> <https://sse.local/payment/pay1> <urn:sse:data> .
+`);
+    const pool = new FakePool([
+      { id: 1, table_name: 'expense_items', op: 'DELETE', row_id: 'i1', old_row: { id: 'i1', report_id: 'r1' }, new_row: null },
+      { id: 2, table_name: 'approval_records', op: 'DELETE', row_id: 'ap1', old_row: { id: 'ap1', report_id: 'r1' }, new_row: null },
+      { id: 3, table_name: 'payment_receipts', op: 'DELETE', row_id: 'pay1', old_row: { id: 'pay1', report_id: 'r1' }, new_row: null },
+    ]);
+    const projector = new GraphProjector(store, pool as any);
+
+    const result = await projector.drain(10);
+
+    expect(result).toEqual({ processed: 3, failed: 0, deadLettered: 0 });
+    const edges = [
+      [sse('containsItem'), uri.item('i1')],
+      [sse('hasApproval'), uri.approval('ap1')],
+      [sse('hasPaymentReceipt'), uri.payment('pay1')],
+    ] as const;
+    for (const [predicate, object] of edges) {
+      const edge = await store.query(
+        `ASK { GRAPH <urn:sse:data> { <${uri.report('r1')}> <${predicate}> <${object}> } }`,
+      );
+      expect(edge).toEqual({ kind: 'ask', value: false });
+    }
+  });
+
   it('stops at the first retryable failure so the watermark stays contiguous', async () => {
     const store = new FlakyStore('https://sse.local/person/p2');
     const row = (id: number, userId: string) => ({
@@ -223,17 +256,21 @@ describe('GraphProjector', () => {
     expect(pool.rows[0].processed_at).toBeUndefined();
   });
 
-  it('purges only processed events older than the retention window', async () => {
+  it('purges only processed live events older than the retention window', async () => {
     const old = new Date(Date.now() - 10 * 86_400_000).toISOString();
     const recent = new Date().toISOString();
     const pool = new FakePool([
       { id: 1, processed_at: old },
-      { id: 2, processed_at: recent },
-      { id: 3, processed_at: null },
+      { id: 2, processed_at: old, dead_letter: true },
+      { id: 3, processed_at: recent },
+      { id: 4, processed_at: null },
     ]);
     const projector = new GraphProjector(new MemoryGraphStore(), pool as any);
 
     await expect(projector.purgeOldEvents(7)).resolves.toBe(1);
-    expect(pool.rows.map(row => row.id)).toEqual([2, 3]);
+    expect(pool.rows.map(row => row.id)).toEqual([2, 3, 4]);
+
+    const deleteQuery = pool.queries.find(query => query.sql.startsWith('DELETE FROM ontology_outbox'));
+    expect(deleteQuery?.sql).toContain('dead_letter = false');
   });
 });

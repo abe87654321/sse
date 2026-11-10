@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { canonicalChecksum } from './checksum';
 
 export interface GraphSnapshot {
   version: number;
@@ -13,7 +13,7 @@ export class SnapshotRepo {
   constructor(private pool: { query: (sql: string, params?: any[]) => Promise<{ rows: any[] }> }) {}
 
   async save(graphNames: string[], nquads: string, lastOutboxId: number): Promise<GraphSnapshot> {
-    const checksum = createHash('sha256').update(nquads).digest('hex');
+    const checksum = canonicalChecksum(nquads);
     const version = await this.nextVersion();
     await this.pool.query(
       `INSERT INTO ontology_graph_snapshots (version, checksum, nquads, graph_names, last_outbox_id)
@@ -38,7 +38,7 @@ export class SnapshotRepo {
     );
     if (rows.length === 0) return null;
     const row = rows[0];
-    const checksum = createHash('sha256').update(row.nquads).digest('hex');
+    const checksum = canonicalChecksum(row.nquads);
     if (checksum !== row.checksum) {
       throw new Error(
         `Snapshot version ${row.version} checksum mismatch: expected ${row.checksum}, got ${checksum}`,

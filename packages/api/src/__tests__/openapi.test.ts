@@ -26,6 +26,7 @@ describe('OpenAPI document', () => {
       '/ontology/submit-from-text',
       '/ontology/query-expense-status',
       '/ontology/sparql',
+      '/ontology/status',
     ];
     for (const path of required) {
       expect(doc.paths[path]).toBeDefined();

@@ -30,7 +30,7 @@ INSERT INTO ontology_settings (key, value) VALUES ('outbox_enabled', 'false')
 CREATE OR REPLACE FUNCTION sse_ontology_outbox_trigger() RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
   enabled TEXT;
@@ -67,5 +67,8 @@ BEGIN
 END $$;
 
 -- Trigger function is SECURITY DEFINER, so the application role does not need
--- INSERT on ontology_outbox. Keep the explicit grant for tools/tests anyway.
-GRANT INSERT ON ontology_outbox TO CURRENT_USER;
+-- INSERT on ontology_outbox. Keep explicit grants for tools/tests anyway.
+-- Migrations run as the application role in this repo, so some of these are
+-- advisory in environments where the role already owns the tables.
+GRANT SELECT, INSERT ON ontology_outbox TO CURRENT_USER;
+GRANT UPDATE ON ontology_settings, ontology_projector_state TO CURRENT_USER;

@@ -19,10 +19,14 @@ export interface ProjectorDeps {
   reconcile: () => Promise<void>;
 }
 
+const PURGE_INTERVAL_MS = 60 * 60 * 1000;
+
 export class ProjectorRunner {
   private timer?: NodeJS.Timeout;
   private ticks = 0;
   private stopped = false;
+  private inFlight: Promise<void> | null = null;
+  private lastPurgeAt = 0;
 
   constructor(
     private readonly deps: ProjectorDeps,
@@ -36,13 +40,28 @@ export class ProjectorRunner {
 
   async stop(): Promise<void> {
     this.stopped = true;
-    if (this.timer) clearInterval(this.timer);
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
+    // Let the current drain + snapshot finish before taking the final snapshot,
+    // otherwise the snapshot could capture a half-applied batch.
+    if (this.inFlight) await this.inFlight;
     await this.deps.snapshot();
   }
 
-  private async tick(): Promise<void> {
+  tick(): Promise<void> {
+    if (this.stopped || this.inFlight) return Promise.resolve();
+    this.inFlight = this.runOnce().finally(() => {
+      this.inFlight = null;
+    });
+    return this.inFlight;
+  }
+
+  private async runOnce(): Promise<void> {
     if (this.stopped) return;
     try {
+      await this.maybePurge();
       if (this.deps.needsRebuild()) {
         console.error('[ontology] graph worker respawned; running full reconcile');
         await this.deps.reconcile();
@@ -55,6 +74,17 @@ export class ProjectorRunner {
       if (deadLettered > 0) console.error(`[ontology] dead-lettered rows: ${deadLettered}`);
     } catch (err: any) {
       console.error(`[ontology] projector tick failed: ${err?.message ?? err}`);
+    }
+  }
+
+  private async maybePurge(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastPurgeAt < PURGE_INTERVAL_MS) return;
+    this.lastPurgeAt = now;
+    try {
+      await this.deps.purgeOldEvents();
+    } catch (err: any) {
+      console.error(`[ontology] outbox purge failed: ${err?.message ?? err}`);
     }
   }
 }
@@ -73,21 +103,29 @@ export async function startOntologyProjector(): Promise<void> {
 
   const store = new OxigraphStore();
   const snapshots = new SnapshotRepo(pool);
-  const latest = await snapshots.latest();
 
   // Load the TBox first. The snapshot already includes the TBox, so restoring
   // the full snapshot afterwards leaves the respawn checkpoint complete.
   await loadTBox(store);
 
-  if (latest) {
-    await store.replaceAll(latest.nquads);
-    await pool.query(
-      `UPDATE ontology_projector_state
-          SET last_outbox_id = GREATEST(last_outbox_id, $1), updated_at = NOW()
-        WHERE id = 'default'`,
-      [latest.lastOutboxId],
-    );
-  } else {
+  let restored = false;
+  try {
+    const latest = await snapshots.latest();
+    if (latest) {
+      await store.replaceAll(latest.nquads);
+      await pool.query(
+        `UPDATE ontology_projector_state
+            SET last_outbox_id = GREATEST(last_outbox_id, $1), updated_at = NOW()
+          WHERE id = 'default'`,
+        [latest.lastOutboxId],
+      );
+      restored = true;
+    }
+  } catch (err: any) {
+    console.error(`[ontology] snapshot restore failed; falling back to reconcile: ${err?.message ?? err}`);
+  }
+
+  if (!restored) {
     await reconcile(store, pool);
   }
 

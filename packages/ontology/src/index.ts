@@ -10,6 +10,7 @@ export { scopeGraphForUser, type GraphScope } from './graph-scope';
 export * from './types';
 export * from './graph/types';
 export * from './graph/namespaces';
+export * from './graph/checksum';
 export * from './graph/memory-store';
 export * from './graph/oxigraph-store';
 export * from './graph/snapshot-repo';

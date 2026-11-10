@@ -130,12 +130,30 @@ describe('projectRow', () => {
   it('marks a soft-deleted user and drops the department edge', () => {
     const p = projectRow('users', 'UPDATE', {
       id: 'p1', name: '张三', department: '研发', role: 'employee', status: 'active',
-      deleted_at: '2026-11-10T00:00:00Z',
+      updated_at: '2026-11-10T00:00:00Z', deleted_at: '2026-11-10T00:00:00Z',
     });
     const person = p.writes[0];
     expect(findQuad(person.quads, sse('status'))!.object).toBe('deleted');
     expect(findQuad(person.quads, sse('deletedAt'))!.object).toBe('2026-11-10T00:00:00Z');
     expect(person.quads.some(q => q.predicate === sse('belongsTo'))).toBe(false);
+    expect(findQuad(person.quads, sse('recordVersion'))!.datatype).toBeUndefined();
+  });
+
+  it('emits recordVersion as an untyped string', () => {
+    const p = projectRow('expense_reports', 'UPDATE', {
+      id: 'r1', serial_no: 'RE-1', user_id: 'p1', title: 't', total_amount: '10',
+      status: 'pending', current_step: 1, updated_at: '2026-11-10T00:01:00Z',
+    });
+    const version = findQuad(p.writes[0].quads, sse('recordVersion'))!;
+    expect(version.object).toBe('2026-11-10T00:01:00Z');
+    expect(version.datatype).toBeUndefined();
+  });
+
+  it('never emits an empty typed recordVersion literal', () => {
+    const p = projectRow('expense_categories', 'INSERT', { id: 'c1', name: '差旅' });
+    const version = findQuad(p.writes[0].quads, sse('recordVersion'))!;
+    expect(version.object).toBe('');
+    expect(version.datatype).toBeUndefined();
   });
 
   it('defaults a missing department to 未分配', () => {

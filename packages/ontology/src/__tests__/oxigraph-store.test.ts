@@ -63,6 +63,32 @@ describe('OxigraphStore', () => {
     await store.close();
   });
 
+  it('round-trips a dump through replaceAll', async () => {
+    const source = new OxigraphStore(WORKER_PATH);
+    await source.load(`
+<https://sse.local/report/r1> <https://sse.local/ontology#status> "pending" <urn:sse:data> .
+<https://sse.local/report/r1> <https://sse.local/ontology#deletedAt> "2026-11-01T00:00:00Z"^^<http://www.w3.org/2001/XMLSchema#dateTime> <urn:sse:history> .
+`);
+    const dumped = await source.dump(['urn:sse:data', 'urn:sse:history']);
+    await source.close();
+    expect(dumped).toContain('urn:sse:data');
+    expect(dumped).toContain('urn:sse:history');
+
+    const target = new OxigraphStore(WORKER_PATH);
+    await target.replaceAll(dumped);
+
+    const data = await target.query(
+      'SELECT ?o WHERE { GRAPH <urn:sse:data> { <https://sse.local/report/r1> <https://sse.local/ontology#status> ?o } }',
+    );
+    expect(data).toEqual({ kind: 'select', rows: [{ o: 'pending' }] });
+
+    const history = await target.query(
+      'ASK { GRAPH <urn:sse:history> { <https://sse.local/report/r1> <https://sse.local/ontology#deletedAt> ?o } }',
+    );
+    expect(history).toEqual({ kind: 'ask', value: true });
+    await target.close();
+  });
+
   it('writes one typed tombstone even when the subject is deleted twice', async () => {
     const store = new OxigraphStore(WORKER_PATH);
     const subject = 'https://sse.local/report/r1';

@@ -56,11 +56,17 @@ describe('SSE TBox', () => {
   });
 
   it('does not restrict shared predicates to a single domain', () => {
-    for (const p of ['name', 'verificationStatus']) {
+    for (const p of ['name', 'verificationStatus', 'status']) {
       expect(
         quads.some(q => q.subject.value === sse(p) && q.predicate.value.endsWith('#domain')),
       ).toBe(false);
     }
+  });
+
+  it('leaves sse:status domain-free because users also have a status', () => {
+    expect(
+      quads.some(q => q.subject.value === sse('status') && q.predicate.value.endsWith('#domain')),
+    ).toBe(false);
   });
 
   it('declares prov:generatedAtTime for Phase 2 mapping', () => {

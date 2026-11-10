@@ -1,4 +1,4 @@
-﻿import { createHash } from 'crypto';
+﻿import { canonicalChecksum } from '../graph/checksum';
 import { MemoryGraphStore } from '../graph/memory-store';
 import { GRAPH } from '../graph/namespaces';
 import { SnapshotRepo } from '../graph/snapshot-repo';
@@ -37,6 +37,10 @@ export interface ReconcilePool {
   connect?(): Promise<ReconcileClient>;
 }
 
+export interface ReconcileOptions {
+  batchSize?: number;
+}
+
 export interface RebuildResult {
   counts: GraphCounts;
   checksum: string;
@@ -47,12 +51,17 @@ export interface ReconcileResult extends RebuildResult {
   lastOutboxId: number;
 }
 
-async function projectTable(store: GraphStore, pool: ReconcilePool, table: MappedTable): Promise<void> {
+async function projectTable(
+  store: GraphStore,
+  pool: ReconcilePool,
+  table: MappedTable,
+  batchSize: number,
+): Promise<void> {
   let lastId = ZERO_UUID;
   for (;;) {
     const { rows } = await pool.query(
       `SELECT * FROM ${table} WHERE id > $1 ORDER BY id LIMIT $2`,
-      [lastId, BATCH_SIZE],
+      [lastId, batchSize],
     );
     if (rows.length === 0) break;
 
@@ -67,11 +76,16 @@ async function projectTable(store: GraphStore, pool: ReconcilePool, table: Mappe
     }
 
     lastId = String(rows[rows.length - 1].id);
-    if (rows.length < BATCH_SIZE) break;
+    if (rows.length < batchSize) break;
   }
 }
 
-export async function rebuildGraph(target: GraphStore, pool: ReconcilePool): Promise<RebuildResult> {
+export async function rebuildGraph(
+  target: GraphStore,
+  pool: ReconcilePool,
+  opts: ReconcileOptions = {},
+): Promise<RebuildResult> {
+  const batchSize = Math.max(1, opts.batchSize ?? BATCH_SIZE);
   const fresh = new MemoryGraphStore();
   await loadTBox(fresh);
 
@@ -79,11 +93,11 @@ export async function rebuildGraph(target: GraphStore, pool: ReconcilePool): Pro
   if (history.trim() !== '') await fresh.load(history);
 
   for (const table of TABLES) {
-    await projectTable(fresh, pool, table);
+    await projectTable(fresh, pool, table, batchSize);
   }
 
   const nquads = await fresh.dump(GRAPH_NAMES);
-  const checksum = createHash('sha256').update(nquads).digest('hex');
+  const checksum = canonicalChecksum(nquads);
   await target.replaceAll(nquads);
   target.checkpoint(nquads);
 
@@ -110,12 +124,18 @@ async function withProjectorLock<T>(pool: ReconcilePool, fn: () => Promise<T>): 
   }
 }
 
-export async function reconcile(liveStore: GraphStore, pool: ReconcilePool): Promise<ReconcileResult> {
+export async function reconcile(
+  liveStore: GraphStore,
+  pool: ReconcilePool,
+  opts: ReconcileOptions = {},
+): Promise<ReconcileResult> {
   return withProjectorLock(pool, async () => {
-    const rebuilt = await rebuildGraph(liveStore, pool);
+    // Capture the watermark before scanning. Rows written while we scan are
+    // newer than this id and will be drained by the projector afterwards.
+    const watermark = await pool.query('SELECT COALESCE(MAX(id), 0) AS max_id FROM ontology_outbox');
+    const lastOutboxId = Number(watermark.rows[0]?.max_id ?? 0);
 
-    const { rows } = await pool.query('SELECT COALESCE(MAX(id), 0) AS max_id FROM ontology_outbox');
-    const lastOutboxId = Number(rows[0]?.max_id ?? 0);
+    const rebuilt = await rebuildGraph(liveStore, pool, opts);
 
     await pool.query(
       `UPDATE ontology_projector_state

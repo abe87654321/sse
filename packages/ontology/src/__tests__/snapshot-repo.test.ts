@@ -65,6 +65,15 @@ describe('SnapshotRepo', () => {
     expect(loaded?.lastOutboxId).toBe(42);
   });
 
+  it('computes a canonical checksum that ignores line order', async () => {
+    const repo = new SnapshotRepo(new FakePool() as any);
+    const forward = '<a> <b> <c> <urn:sse:data> .\n<d> <e> <f> <urn:sse:data> .\n';
+    const reversed = '<d> <e> <f> <urn:sse:data> .\n<a> <b> <c> <urn:sse:data> .\n';
+    const first = await repo.save(['urn:sse:data'], forward, 1);
+    const second = await repo.save(['urn:sse:data'], reversed, 2);
+    expect(first.checksum).toBe(second.checksum);
+  });
+
   it('increments the version on every save', async () => {
     const repo = new SnapshotRepo(new FakePool() as any);
     const first = await repo.save(['urn:sse:data'], NQUADS, 1);

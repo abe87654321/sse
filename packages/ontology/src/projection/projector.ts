@@ -134,6 +134,7 @@ export class GraphProjector {
     const { rowCount } = await this.pool.query(
       `DELETE FROM ontology_outbox
         WHERE processed_at IS NOT NULL
+          AND dead_letter = false
           AND processed_at < NOW() - ($1 || ' days')::interval`,
       [days],
     );
