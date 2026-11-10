@@ -1,0 +1,39 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix sse: <https://sse.local/ontology#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+sse:ExpenseReportShape a sh:NodeShape ;
+  sh:targetClass sse:ExpenseReport ;
+  sh:property [
+    sh:path sse:submittedBy ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:message "报销单必须有且仅有一个提交人" ;
+  ] ;
+  sh:property [
+    sh:path sse:status ;
+    sh:minCount 1 ;
+    sh:in ( "draft" "pending" "approved" "rejected" "paid" ) ;
+    sh:message "报销单状态必须是 draft/pending/approved/rejected/paid" ;
+  ] .
+
+sse:PaidReportShape a sh:NodeShape ;
+  sh:targetClass sse:PaidReport ;
+  sh:property [
+    sh:path sse:paidAt ;
+    sh:minCount 1 ;
+    sh:message "已打款单据必须有打款时间" ;
+  ] ;
+  sh:property [
+    sh:path sse:paidBy ;
+    sh:minCount 1 ;
+    sh:message "已打款单据必须有打款人" ;
+  ] .
+
+sse:InvoiceShape a sh:NodeShape ;
+  sh:targetClass sse:Invoice ;
+  sh:property [
+    sh:path sse:invoiceNo ;
+    sh:minCount 1 ;
+    sh:message "发票必须有发票号" ;
+  ] .

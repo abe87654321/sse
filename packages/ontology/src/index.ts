@@ -24,6 +24,7 @@ export * from './query/query-service';
 export * from './query/sparql-guard';
 export * from './query/sparql-term';
 export * from './reasoning/rule-engine';
+export * from './reasoning/shacl';
 
 import { OwlStore } from './owl-store';
 import { SemanticMapper } from './semantic-mapper';
