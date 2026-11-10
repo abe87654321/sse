@@ -14,6 +14,10 @@ export * from './graph/memory-store';
 export * from './graph/oxigraph-store';
 export * from './graph/snapshot-repo';
 export * from './graph/ontology-loader';
+export * from './graph/graph-context';
+export * from './projection/entity-mapper';
+export * from './projection/projector';
+export * from './projection/reconcile';
 
 import { OwlStore } from './owl-store';
 import { SemanticMapper } from './semantic-mapper';

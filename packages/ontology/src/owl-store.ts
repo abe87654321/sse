@@ -1,3 +1,4 @@
+/// <reference path="./n3.d.ts" />
 import { Store, Parser, Writer, DataFactory } from 'n3';
 
 export interface GraphNode {

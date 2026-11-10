@@ -85,12 +85,18 @@ async function startScheduler() {
   }
 }
 
-function shutdown(server: Server) {
+async function shutdown(server: Server) {
   console.log('[SSE] 正在关闭服务...');
   if (schedulerInstance) schedulerInstance.stop();
   if (paymentReceiptTimer) {
     clearInterval(paymentReceiptTimer);
     paymentReceiptTimer = null;
+  }
+  try {
+    const { stopOntologyProjector } = await import('./services/ontology-projector');
+    await stopOntologyProjector();
+  } catch (err) {
+    console.warn('[Ontology] 投影器关闭失败', err);
   }
   server.close(() => {
     console.log('[SSE] 服务已关闭');
@@ -138,5 +144,5 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
   paymentReceiptTimer.unref?.();
 });
 
-process.on('SIGTERM', () => shutdown(server));
-process.on('SIGINT', () => shutdown(server));
+process.on('SIGTERM', () => { void shutdown(server); });
+process.on('SIGINT', () => { void shutdown(server); });

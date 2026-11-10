@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
+/// <reference path="../n3.d.ts" />
 import { Parser, Writer, DataFactory } from 'n3';
 import { GRAPH } from './namespaces';
 import type { GraphStore } from './types';
