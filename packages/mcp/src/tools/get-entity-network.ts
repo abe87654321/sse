@@ -1,8 +1,7 @@
 import type { ToolDefinition, ToolResult } from "./types.js";
 import { errorResult, successResult } from "./types.js";
 import { resolveAuthContext } from "../auth.js";
-import { ensureOntologyLoaded } from "./get-engine.js";
-import { scopeGraphForUser } from "@sse/ontology";
+import { apiError, ontologyClient, type OntologyDirection } from "./ontology-client.js";
 
 export const definition: ToolDefinition = {
   name: "get_entity_network",
@@ -12,48 +11,40 @@ export const definition: ToolDefinition = {
     properties: {
       entity_id: { type: "string", description: "实体标识，如报告ID或人员名称" },
       depth: { type: "number", description: "关系跳数，默认2，最大5" },
+      direction: {
+        type: "string",
+        enum: ["both", "out", "in"],
+        description: "关系方向，默认 both",
+      },
     },
     required: ["entity_id"],
   },
 };
 
+function toDirection(value: unknown): OntologyDirection {
+  return value === "out" || value === "in" ? value : "both";
+}
+
 export async function handler(args: Record<string, unknown>): Promise<ToolResult> {
   const auth = resolveAuthContext(args);
   if (!auth) return errorResult("UNAUTHORIZED", "无效或缺失 API key");
-  const entityId = args.entity_id as string;
+
+  const entityId = typeof args.entity_id === "string" ? args.entity_id : "";
+  if (!entityId) return errorResult("INVALID_PARAMS", "请提供 entity_id");
+
   const rawDepth = typeof args.depth === "number" ? args.depth : Number(args.depth);
   const depth = Number.isFinite(rawDepth) ? Math.min(5, Math.max(0, Math.floor(rawDepth))) : 2;
-  if (!entityId) return errorResult("INVALID_PARAMS", "请提供 entity_id");
+  const direction = toDirection(args.direction);
+  const targetUri = entityId.includes("://") ? entityId : `https://sse.local/${entityId}`;
+
   try {
-    const engine = await ensureOntologyLoaded();
-    const graph = scopeGraphForUser(engine.store.getGraph(), {
-      role: auth.role,
-      userId: auth.userId,
-      department: auth.department,
-    });
-    const targetUri = entityId.includes("://") ? entityId : `https://sse.local/${entityId}`;
-    if (!graph.nodes.some(node => node.id === targetUri)) {
-      return errorResult("FORBIDDEN", "无权访问该实体");
+    const res = await ontologyClient(auth).network(targetUri, depth, direction);
+    if (!res.ok) {
+      const err = apiError(res);
+      return errorResult(err.code, err.message);
     }
-    const visited = new Set<string>();
-    const neighborhoodNodes: typeof graph.nodes = [];
-    const neighborhoodEdges: typeof graph.edges = [];
-    function expand(currentUri: string, currentDepth: number) {
-      if (currentDepth > depth || visited.has(currentUri)) return;
-      visited.add(currentUri);
-      const node = graph.nodes.find(n => n.id === currentUri);
-      if (node && !neighborhoodNodes.find(n => n.id === currentUri)) neighborhoodNodes.push(node);
-      for (const edge of graph.edges) {
-        if (edge.from === currentUri || edge.to === currentUri) {
-          if (!neighborhoodEdges.find(e => e.id === edge.id)) neighborhoodEdges.push(edge);
-          const neighbor = edge.from === currentUri ? edge.to : edge.from;
-          if (!visited.has(neighbor)) expand(neighbor, currentDepth + 1);
-        }
-      }
-    }
-    expand(targetUri, 0);
-    return successResult({ center: targetUri, depth, nodes: neighborhoodNodes, edges: neighborhoodEdges, node_count: neighborhoodNodes.length, edge_count: neighborhoodEdges.length });
+    return successResult(res.data);
   } catch (err: any) {
-    return errorResult("INTERNAL_ERROR", err.message || "内部错误");
+    return errorResult("INTERNAL_ERROR", err?.message || "内部错误");
   }
 }

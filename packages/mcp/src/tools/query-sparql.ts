@@ -1,8 +1,7 @@
 import type { ToolDefinition, ToolResult } from "./types.js";
 import { errorResult, successResult } from "./types.js";
 import { resolveAuthContext } from "../auth.js";
-import { ensureOntologyLoaded } from "./get-engine.js";
-import { executeSparql } from "@sse/ontology";
+import { apiError, ontologyClient } from "./ontology-client.js";
 import { UserRole } from "@sse/shared";
 
 export const definition: ToolDefinition = {
@@ -23,13 +22,18 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
   if (auth.role !== UserRole.ADMIN && auth.role !== UserRole.FINANCE) {
     return errorResult("FORBIDDEN", "仅管理员和财务可执行 SPARQL 查询");
   }
+
+  const query = typeof args.query === "string" ? args.query : "";
+  if (!query) return errorResult("INVALID_PARAMS", "请提供 query");
+
   try {
-    const engine = await ensureOntologyLoaded();
-    const store = engine.store.getStore();
-    const maxResults = Number(process.env.MCP_SPARQL_MAX_RESULTS) || 1000;
-    const result = executeSparql(store, args.query as string, { maxResults });
-    return successResult(result);
+    const res = await ontologyClient(auth).sparql(query);
+    if (!res.ok) {
+      const err = apiError(res);
+      return errorResult(err.code, err.message);
+    }
+    return successResult(res.data);
   } catch (err: any) {
-    return errorResult("INTERNAL_ERROR", err.message || "内部错误");
+    return errorResult("INTERNAL_ERROR", err?.message || "内部错误");
   }
 }

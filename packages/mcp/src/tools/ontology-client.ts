@@ -56,3 +56,17 @@ export function ontologyClient(auth: AuthContext) {
 }
 
 export type OntologyClient = ReturnType<typeof ontologyClient>;
+
+/**
+ * Normalizes an API error envelope into `{ code, message }` so every tool maps
+ * failures the same way. Non-JSON bodies fall back to an HTTP status message.
+ */
+export function apiError(res: ApiResult): { code: string; message: string } {
+  const code =
+    (typeof res.data?.error?.code === "string" && res.data.error.code) ||
+    (res.status === 401 ? "UNAUTHORIZED" : "API_ERROR");
+  const message =
+    (typeof res.data?.error?.message === "string" && res.data.error.message) ||
+    `本体 API 请求失败 (${res.status})`;
+  return { code, message };
+}
