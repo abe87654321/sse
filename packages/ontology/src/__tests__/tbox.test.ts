@@ -4,6 +4,7 @@ import { Parser } from 'n3';
 import { MemoryGraphStore } from '../graph/memory-store';
 import { loadTBox } from '../graph/ontology-loader';
 import { PROV, RDF_TYPE, sse } from '../graph/namespaces';
+import { PREDICATES } from '../projection/entity-mapper';
 
 const ttl = readFileSync(join(__dirname, '../graph/ontology/sse.ttl'), 'utf-8');
 const quads = new Parser().parse(ttl);
@@ -44,6 +45,12 @@ describe('SSE TBox', () => {
 
   it('declares every predicate the mapper can emit', () => {
     for (const p of MAPPED_PREDICATES) {
+      expect(hasType(p, 'Property')).toBe(true);
+    }
+  });
+
+  it('declares the exported mapper predicate list', () => {
+    for (const p of PREDICATES) {
       expect(hasType(p, 'Property')).toBe(true);
     }
   });
