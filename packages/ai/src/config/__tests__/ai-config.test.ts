@@ -3,6 +3,7 @@ import {
   createDefaultAiConfig,
   normalizeAiConfig,
   resolveSecretForEndpoint,
+  toPersistedAiConfig,
   toPublicAiConfig,
 } from '../ai-config';
 
@@ -220,5 +221,118 @@ describe('ai config', () => {
       .toBe('');
     expect(resolveSecretForEndpoint('http://other:11434', 'new', 'http://host:11434', 'saved'))
       .toBe('new');
+  });
+});
+
+describe('mineru token source', () => {
+  const env = { MINERU_TOKEN: 'env-token' } as any;
+
+  it('falls back to the environment token when the saved token is empty', () => {
+    const config = normalizeAiConfig({ ocrEngine: { mineruToken: '' } }, env);
+    expect(config.ocrEngine.mineruToken).toBe('env-token');
+    expect(config.ocrEngine.mineruTokenSource).toBe('env');
+  });
+
+  it('falls back to the environment token when the saved token key is missing', () => {
+    const config = normalizeAiConfig({ ocrEngine: {} }, env);
+    expect(config.ocrEngine.mineruToken).toBe('env-token');
+    expect(config.ocrEngine.mineruTokenSource).toBe('env');
+  });
+
+  it('keeps a saved token and reports it as the source', () => {
+    const config = normalizeAiConfig({ ocrEngine: { mineruToken: 'saved-token' } }, env);
+    expect(config.ocrEngine.mineruToken).toBe('saved-token');
+    expect(config.ocrEngine.mineruTokenSource).toBe('saved');
+  });
+
+  it('does not fall back to the environment token after an explicit clear', () => {
+    const config = normalizeAiConfig(
+      { ocrEngine: { mineruToken: '', mineruTokenCleared: true } },
+      env,
+    );
+    expect(config.ocrEngine.mineruToken).toBe('');
+    expect(config.ocrEngine.mineruTokenSource).toBe('none');
+  });
+
+  it('reports no source when no token is configured anywhere', () => {
+    const config = normalizeAiConfig({ ocrEngine: { mineruToken: '' } }, {} as any);
+    expect(config.ocrEngine.mineruToken).toBe('');
+    expect(config.ocrEngine.mineruTokenSource).toBe('none');
+  });
+
+  it('marks an explicitly cleared token so the environment cannot restore it', () => {
+    const config = createDefaultAiConfig(env);
+    const next = applyAiConfigPatch(config, { ocrEngine: { clearMineruToken: true } });
+    expect(next.ocrEngine.mineruToken).toBe('');
+    expect(next.ocrEngine.mineruTokenCleared).toBe(true);
+    expect(next.ocrEngine.mineruTokenSource).toBe('none');
+  });
+
+  it('records a newly provided token as coming from the saved config', () => {
+    const config = createDefaultAiConfig(env);
+    const next = applyAiConfigPatch(config, { ocrEngine: { mineruToken: 'new-token' } });
+    expect(next.ocrEngine.mineruToken).toBe('new-token');
+    expect(next.ocrEngine.mineruTokenCleared).toBe(false);
+    expect(next.ocrEngine.mineruTokenSource).toBe('saved');
+  });
+
+  it('keeps the environment source when the patch carries no token', () => {
+    const config = normalizeAiConfig({ ocrEngine: { mineruToken: '' } }, env);
+    const next = applyAiConfigPatch(config, { ocrEngine: { provider: 'mineru' } });
+    expect(next.ocrEngine.mineruTokenSource).toBe('env');
+    expect(next.ocrEngine.mineruTokenCleared).toBe(false);
+  });
+
+  it('marks the token as cleared when the MinerU endpoint changes without a new token', () => {
+    const config = createDefaultAiConfig(env);
+    config.ocrEngine.mineruToken = 'saved-token';
+    const next = applyAiConfigPatch(config, { ocrEngine: { mineruEndpoint: 'https://new-mineru' } });
+    expect(next.ocrEngine.mineruToken).toBe('');
+    expect(next.ocrEngine.mineruTokenCleared).toBe(true);
+    expect(next.ocrEngine.mineruTokenSource).toBe('none');
+  });
+
+  it('exposes the token source in the public config', () => {
+    const config = normalizeAiConfig({ ocrEngine: { mineruToken: 'saved-token' } }, env);
+    expect(toPublicAiConfig(config).ocrEngine.mineruTokenSource).toBe('saved');
+  });
+
+  it('switches the token back to the environment channel', () => {
+    const config = normalizeAiConfig({ ocrEngine: { mineruToken: 'saved-token' } }, env);
+    const next = applyAiConfigPatch(config, { ocrEngine: { useEnvMineruToken: true } }, env);
+    expect(next.ocrEngine.mineruToken).toBe('env-token');
+    expect(next.ocrEngine.mineruTokenSource).toBe('env');
+    expect(next.ocrEngine.mineruTokenCleared).toBe(false);
+  });
+
+  it('reports no source when switching to the environment channel without an environment token', () => {
+    const config = normalizeAiConfig({ ocrEngine: { mineruToken: 'saved-token' } }, {} as any);
+    const next = applyAiConfigPatch(config, { ocrEngine: { useEnvMineruToken: true } }, {} as any);
+    expect(next.ocrEngine.mineruToken).toBe('');
+    expect(next.ocrEngine.mineruTokenSource).toBe('none');
+    expect(next.ocrEngine.mineruTokenCleared).toBe(false);
+  });
+});
+
+describe('persisted ai config', () => {
+  const env = { MINERU_TOKEN: 'env-token' } as any;
+
+  it('does not persist a token that comes from the environment', () => {
+    const config = normalizeAiConfig({ ocrEngine: { mineruToken: '' } }, env);
+    const persisted = toPersistedAiConfig(config);
+    expect(persisted.ocrEngine.mineruToken).toBe('');
+    expect(persisted.ocrEngine.mineruTokenCleared).toBe(false);
+  });
+
+  it('persists a token that comes from the saved config', () => {
+    const config = normalizeAiConfig({ ocrEngine: { mineruToken: 'saved-token' } }, env);
+    expect(toPersistedAiConfig(config).ocrEngine.mineruToken).toBe('saved-token');
+  });
+
+  it('still resolves the environment token after the config was persisted and reloaded', () => {
+    const config = normalizeAiConfig({ ocrEngine: { mineruToken: '' } }, env);
+    const reloaded = normalizeAiConfig(toPersistedAiConfig(config), env);
+    expect(reloaded.ocrEngine.mineruToken).toBe('env-token');
+    expect(reloaded.ocrEngine.mineruTokenSource).toBe('env');
   });
 });

@@ -4,6 +4,7 @@ import { resolveActiveModel } from './model-catalog';
 
 export type OcrProvider = 'mineru' | 'paddle' | 'vision';
 export type CatalogSource = 'openai' | 'ollama' | 'openrouter';
+export type MineruTokenSource = 'saved' | 'env' | 'none';
 
 export interface CatalogModel {
   id: string;
@@ -34,6 +35,8 @@ export interface OcrEngineConfig {
   provider: OcrProvider;
   mineruEndpoint: string;
   mineruToken: string;
+  mineruTokenSource: MineruTokenSource;
+  mineruTokenCleared: boolean;
   paddleEndpoint: string;
   visionEndpoint: string;
   visionModel: string;
@@ -65,6 +68,7 @@ export interface AiConfigPatch {
     visionApiKey?: string;
     enabled?: boolean;
     clearMineruToken?: boolean;
+    useEnvMineruToken?: boolean;
     clearVisionApiKey?: boolean;
   };
 }
@@ -78,7 +82,7 @@ export interface PublicAiConfig {
     enabled: boolean;
     catalogs: Record<string, ModelCatalog>;
   };
-  ocrEngine: Omit<OcrEngineConfig, 'mineruToken' | 'visionApiKey'> & {
+  ocrEngine: Omit<OcrEngineConfig, 'mineruToken' | 'visionApiKey' | 'mineruTokenCleared'> & {
     mineruToken: '';
     mineruTokenSet: boolean;
     visionApiKey: '';
@@ -92,6 +96,7 @@ function isOcrProvider(value: any): value is OcrProvider {
 
 export function createDefaultAiConfig(env: NodeJS.ProcessEnv = process.env): AiConfig {
   const endpoint = normalizeServiceBase(env.AI_ENDPOINT || 'http://localhost:11434');
+  const mineruToken = (env.MINERU_TOKEN || '').trim();
   return {
     fillEngine: {
       endpoint,
@@ -103,7 +108,9 @@ export function createDefaultAiConfig(env: NodeJS.ProcessEnv = process.env): AiC
     ocrEngine: {
       provider: 'mineru',
       mineruEndpoint: normalizeServiceBase(env.MINERU_ENDPOINT || 'https://mineru.net'),
-      mineruToken: env.MINERU_TOKEN || '',
+      mineruToken,
+      mineruTokenSource: mineruToken ? 'env' : 'none',
+      mineruTokenCleared: false,
       paddleEndpoint: normalizeServiceBase(env.PADDLE_ENDPOINT || 'http://localhost:8899'),
       visionEndpoint: endpoint,
       visionModel: env.AI_VISION_MODEL || 'glm-ocr',
@@ -173,6 +180,17 @@ export function normalizeAiConfig(saved: any, env: NodeJS.ProcessEnv = process.e
   const defaults = createDefaultAiConfig(env);
   const fill = saved?.fillEngine || {};
   const ocr = saved?.ocrEngine || {};
+  const savedMineruToken = typeof ocr.mineruToken === 'string' ? ocr.mineruToken.trim() : '';
+  const envMineruToken = defaults.ocrEngine.mineruToken.trim();
+  const mineruTokenCleared = ocr.mineruTokenCleared === true;
+  const mineruToken = mineruTokenCleared ? '' : savedMineruToken || envMineruToken;
+  const mineruTokenSource: MineruTokenSource = mineruTokenCleared
+    ? 'none'
+    : savedMineruToken
+      ? 'saved'
+      : envMineruToken
+        ? 'env'
+        : 'none';
   const config: AiConfig = {
     fillEngine: {
       endpoint: normalizeServiceBase(fill.endpoint || defaults.fillEngine.endpoint),
@@ -184,7 +202,9 @@ export function normalizeAiConfig(saved: any, env: NodeJS.ProcessEnv = process.e
     ocrEngine: {
       provider: isOcrProvider(ocr.provider) ? ocr.provider : 'mineru',
       mineruEndpoint: normalizeServiceBase(ocr.mineruEndpoint || defaults.ocrEngine.mineruEndpoint),
-      mineruToken: typeof ocr.mineruToken === 'string' ? ocr.mineruToken : defaults.ocrEngine.mineruToken,
+      mineruToken,
+      mineruTokenSource,
+      mineruTokenCleared,
       paddleEndpoint: normalizeServiceBase(ocr.paddleEndpoint || defaults.ocrEngine.paddleEndpoint),
       visionEndpoint: normalizeServiceBase(ocr.visionEndpoint || defaults.ocrEngine.visionEndpoint),
       visionModel: typeof ocr.visionModel === 'string' ? ocr.visionModel : defaults.ocrEngine.visionModel,
@@ -201,7 +221,11 @@ export function normalizeAiConfig(saved: any, env: NodeJS.ProcessEnv = process.e
   return config;
 }
 
-export function applyAiConfigPatch(config: AiConfig, patch: AiConfigPatch): AiConfig {
+export function applyAiConfigPatch(
+  config: AiConfig,
+  patch: AiConfigPatch,
+  env: NodeJS.ProcessEnv = process.env,
+): AiConfig {
   const next = JSON.parse(JSON.stringify(config)) as AiConfig;
   const fill = patch.fillEngine;
   if (fill) {
@@ -255,10 +279,23 @@ export function applyAiConfigPatch(config: AiConfig, patch: AiConfigPatch): AiCo
 
     if (ocr.clearMineruToken) {
       next.ocrEngine.mineruToken = '';
+      next.ocrEngine.mineruTokenCleared = true;
+      next.ocrEngine.mineruTokenSource = 'none';
+    } else if (ocr.useEnvMineruToken) {
+      const envMineruToken = (env.MINERU_TOKEN || '').trim();
+      next.ocrEngine.mineruToken = envMineruToken;
+      next.ocrEngine.mineruTokenCleared = false;
+      next.ocrEngine.mineruTokenSource = envMineruToken ? 'env' : 'none';
     } else {
-      if (mineruChanged) next.ocrEngine.mineruToken = '';
+      if (mineruChanged) {
+        next.ocrEngine.mineruToken = '';
+        next.ocrEngine.mineruTokenCleared = true;
+        next.ocrEngine.mineruTokenSource = 'none';
+      }
       if (typeof ocr.mineruToken === 'string' && ocr.mineruToken.trim()) {
         next.ocrEngine.mineruToken = ocr.mineruToken.trim();
+        next.ocrEngine.mineruTokenCleared = false;
+        next.ocrEngine.mineruTokenSource = 'saved';
       }
     }
 
@@ -298,6 +335,7 @@ export function toPublicAiConfig(
       provider: config.ocrEngine.provider,
       mineruEndpoint: config.ocrEngine.mineruEndpoint,
       mineruToken: '',
+      mineruTokenSource: config.ocrEngine.mineruTokenSource,
       mineruTokenSet: !!config.ocrEngine.mineruToken,
       paddleEndpoint: config.ocrEngine.paddleEndpoint,
       visionEndpoint: config.ocrEngine.visionEndpoint,
@@ -307,6 +345,14 @@ export function toPublicAiConfig(
       enabled: config.ocrEngine.enabled,
     },
   };
+}
+
+export function toPersistedAiConfig(config: AiConfig): AiConfig {
+  const persisted = JSON.parse(JSON.stringify(config)) as AiConfig;
+  if (persisted.ocrEngine.mineruTokenSource === 'env') {
+    persisted.ocrEngine.mineruToken = '';
+  }
+  return persisted;
 }
 
 export function resolveSecretForEndpoint(

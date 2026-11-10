@@ -80,13 +80,18 @@
           <div class="field full"><label for="mineru-endpoint">MinerU 端点</label><input id="mineru-endpoint" v-model="cfg.ocrEngine.mineruEndpoint" placeholder="https://mineru.net" /></div>
           <div class="field full">
             <label for="mineru-token">MinerU Token</label>
-            <input
-              id="mineru-token"
-              v-model="cfg.ocrEngine.mineruToken"
-              type="password"
-              autocomplete="new-password"
-              :placeholder="cfg.ocrEngine.mineruTokenSet ? '已配置，留空则不修改' : '粘贴 MinerU API Token'"
-            />
+            <div class="key-row">
+              <input
+                id="mineru-token"
+                v-model="cfg.ocrEngine.mineruToken"
+                type="password"
+                autocomplete="new-password"
+                :placeholder="mineruTokenPlaceholder"
+              />
+              <button type="button" class="btn-secondary btn-sm" :disabled="saving" @click="useEnvMineruToken">↩ 环境变量</button>
+              <button type="button" class="btn-secondary btn-sm" :disabled="saving" @click="clearMineruToken">✕ 清除</button>
+            </div>
+            <div class="field-hint">当前生效来源：{{ mineruTokenSourceLabel }}</div>
           </div>
         </template>
         <template v-else-if="cfg.ocrEngine.provider==='paddle'">
@@ -180,6 +185,7 @@ const cfg = reactive<any>({
     mineruEndpoint: '',
     mineruToken: '',
     mineruTokenSet: false,
+    mineruTokenSource: 'none',
     paddleEndpoint: '',
     visionEndpoint: '',
     visionModel: '',
@@ -191,6 +197,22 @@ const cfg = reactive<any>({
 const saving = ref(false)
 const testing = ref<string|false>(false)
 const users = ref<any[]>([])
+const clearMineruTokenPending = ref(false)
+const useEnvMineruTokenPending = ref(false)
+
+const mineruTokenSourceLabel = computed(() => {
+  const source = cfg.ocrEngine.mineruTokenSource
+  if (source === 'saved') return '已保存的配置（ai-config.json）'
+  if (source === 'env') return '环境变量 MINERU_TOKEN'
+  return '未配置'
+})
+
+const mineruTokenPlaceholder = computed(() => {
+  const source = cfg.ocrEngine.mineruTokenSource
+  if (source === 'saved') return '已配置，留空则不修改'
+  if (source === 'env') return '来自环境变量，留空则不修改'
+  return '粘贴 MinerU API Token'
+})
 
 const showModelPicker = ref(false)
 const connectionTesting = ref(false)
@@ -263,6 +285,9 @@ async function saveConfig() {
   catalogRequestId++
   try {
     const catalog = currentCatalog.value
+    const typedMineruToken = String(cfg.ocrEngine.mineruToken || '').trim()
+    const clearingMineruToken = clearMineruTokenPending.value && !typedMineruToken
+    const switchingToEnv = useEnvMineruTokenPending.value && !typedMineruToken
     const payload: any = {
       fillEngine: {
         endpoint: cfg.fillEngine.endpoint,
@@ -274,7 +299,9 @@ async function saveConfig() {
       ocrEngine: {
         provider: cfg.ocrEngine.provider,
         mineruEndpoint: cfg.ocrEngine.mineruEndpoint,
-        mineruToken: cfg.ocrEngine.mineruToken,
+        mineruToken: clearingMineruToken || switchingToEnv ? '' : typedMineruToken,
+        ...(clearingMineruToken ? { clearMineruToken: true } : {}),
+        ...(switchingToEnv ? { useEnvMineruToken: true } : {}),
         paddleEndpoint: cfg.ocrEngine.paddleEndpoint,
         visionEndpoint: cfg.ocrEngine.visionEndpoint,
         visionModel: cfg.ocrEngine.visionModel,
@@ -284,9 +311,25 @@ async function saveConfig() {
     }
     const r = await api.put('/admin/ai-config', payload, { timeout: 30000 })
     if (r.data) Object.assign(cfg, r.data)
+    clearMineruTokenPending.value = false
+    useEnvMineruTokenPending.value = false
   } catch (e: any) {
     alert('保存失败: ' + errorMessage(e))
   } finally { saving.value = false }
+}
+
+async function clearMineruToken() {
+  cfg.ocrEngine.mineruToken = ''
+  clearMineruTokenPending.value = true
+  useEnvMineruTokenPending.value = false
+  await saveConfig()
+}
+
+async function useEnvMineruToken() {
+  cfg.ocrEngine.mineruToken = ''
+  useEnvMineruTokenPending.value = true
+  clearMineruTokenPending.value = false
+  await saveConfig()
 }
 
 function errorMessage(e: any): string {
