@@ -45,7 +45,7 @@ export class MemoryGraphStore implements GraphStore {
 
   async dump(graphs: string[]): Promise<string> {
     const quads = this.store.match(null, null, null, null).filter((q: any) => graphs.includes(q.graph.value));
-    return quads.map((q: any) => q.toString()).join('\n') + (quads.length ? '\n' : '');
+    return quads.map((q: any) => `${q.toString()} .`).join('\n') + (quads.length ? '\n' : '');
   }
 
   async query(sparql: string): Promise<GraphQueryResult> {

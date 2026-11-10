@@ -18,6 +18,7 @@ export * from './graph/graph-context';
 export * from './projection/entity-mapper';
 export * from './projection/projector';
 export * from './projection/reconcile';
+export * from './projection/reconcile-jobs';
 
 import { OwlStore } from './owl-store';
 import { SemanticMapper } from './semantic-mapper';

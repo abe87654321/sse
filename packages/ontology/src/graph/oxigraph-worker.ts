@@ -59,7 +59,7 @@ parentPort!.on('message', (msg: any) => {
         break;
       case 'dump': {
         const quads = store.match(null, null, null, null).filter((q: any) => msg.graphs.includes(q.graph.value));
-        parentPort!.postMessage({ id: msg.id, ok: true, result: quads.map((q: any) => q.toString()).join('\n') + (quads.length ? '\n' : '') });
+        parentPort!.postMessage({ id: msg.id, ok: true, result: quads.map((q: any) => `${q.toString()} .`).join('\n') + (quads.length ? '\n' : '') });
         break;
       }
       case 'update':

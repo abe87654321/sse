@@ -161,5 +161,10 @@ describe('GraphStore', () => {
     expect(dumped).toContain('https://sse.local/dept/d2');
     expect(dumped).toContain('Sales');
     expect(dumped).not.toContain('urn:sse:tbox');
+
+    const reloaded = new MemoryGraphStore();
+    await reloaded.load(dumped);
+    const res = await reloaded.query('ASK { GRAPH <urn:sse:data> { <https://sse.local/dept/d2> <https://sse.local/ontology#name> "Sales" } }');
+    expect(res).toEqual({ kind: 'ask', value: true });
   });
 });
