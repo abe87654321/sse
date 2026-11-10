@@ -1,6 +1,7 @@
 import type { OcrResult } from '@sse/shared';
 import type { IInvoiceOCRProvider } from '../ports/iocr-provider';
 import type { AIProviderConfig } from '../ports/iai-provider';
+import { hasPdfTextLayer, isPdfBuffer, prepareOcrImage } from '../services/document-image';
 
 export const MINERU_PARSER_VERSION = 3;
 
@@ -31,9 +32,28 @@ export class MinerUProvider implements IInvoiceOCRProvider {
       throw new Error('MinerU API Token 未配置');
     }
 
-    const { batch_id } = await this.uploadFile(fileBuffer, fileName);
+    const upload = await this.prepareUpload(fileBuffer, fileName);
+    const { batch_id } = await this.uploadFile(upload.buffer, upload.fileName);
     const markdown = await this.pollResult(batch_id);
     return extractInvoiceDataFromMarkdown(markdown, fileName);
+  }
+
+  /**
+   * 电子发票带文本层时保持 PDF 上传，交给 MinerU 直接抽文本；
+   * 扫描件没有文本层，而且大留白页面会让 MinerU 的版面分析跳过整块内容，
+   * 这类文件先渲染成图片并裁掉白边再上传。
+   */
+  private async prepareUpload(
+    fileBuffer: Buffer,
+    fileName: string,
+  ): Promise<{ buffer: Buffer; fileName: string }> {
+    if (isPdfBuffer(fileBuffer) && !(await hasPdfTextLayer(fileBuffer))) {
+      const image = await prepareOcrImage(fileBuffer, fileName);
+      if (image) {
+        return { buffer: image.buffer, fileName: 'scan.png' };
+      }
+    }
+    return { buffer: fileBuffer, fileName };
   }
 
   private async uploadFile(buffer: Buffer, fileName: string): Promise<FileUrlEntry> {
@@ -133,7 +153,11 @@ export function extractInvoiceDataFromMarkdown(markdown: string, fileName?: stri
     .replace(/&#39;/g, "'");
 
   const text = cleaned.replace(/([\u4e00-\u9fa5])\s+(?=[\u4e00-\u9fa5])/g, '$1');
-  const flat = text.replace(/[|*#]/g, ' ').replace(/\s+/g, ' ');
+  // OCR 可能在千分位逗号后插入空格（"19, 999.00"），先归一化再匹配金额
+  const flat = text
+    .replace(/[|*#]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/(\d)\s*,\s*(?=\d)/g, '$1,');
 
   const invoiceNo =
     findFirst(flat, [
@@ -232,7 +256,8 @@ function lineValue(text: string, keywords: string[]): string | undefined {
 
 function parseNumber(value?: string): number | undefined {
   if (!value) return undefined;
-  const match = value.match(/-?\d[\d,]*(?:\.\d+)?/);
+  const normalized = value.replace(/(\d)\s*,\s*(?=\d)/g, '$1,');
+  const match = normalized.match(/-?\d[\d,]*(\.\d+)?/);
   if (!match) return undefined;
   const number = Number(match[0].replace(/,/g, ''));
   return Number.isFinite(number) ? number : undefined;

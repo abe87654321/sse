@@ -131,3 +131,31 @@ describe('extractInvoiceDataFromMarkdown — bank payment receipts', () => {
     expect(result.totalAmount).toBe(100);
   });
 });
+
+describe('extractInvoiceDataFromMarkdown — thousands separators', () => {
+  it('keeps a thousands separator that OCR rendered with a following space', () => {
+    const markdown = '交易金额(小写): CNY19, 999.00\n';
+
+    const result = extractInvoiceDataFromMarkdown(markdown);
+
+    expect(result.totalAmount).toBe(19999);
+    expect(result.amount).toBe(19999);
+  });
+
+  it('keeps a spaced thousands separator on a receipt label', () => {
+    const markdown = '付款金额：¥1, 234.56\n';
+
+    const result = extractInvoiceDataFromMarkdown(markdown);
+
+    expect(result.totalAmount).toBe(1234.56);
+    expect(result.amount).toBe(1234.56);
+  });
+
+  it('still reads ordinary thousands separators', () => {
+    const markdown = '价税合计：¥1,400.00\n';
+
+    const result = extractInvoiceDataFromMarkdown(markdown);
+
+    expect(result.totalAmount).toBe(1400);
+  });
+});

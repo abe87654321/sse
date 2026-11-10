@@ -17,6 +17,9 @@ importers:
 
   packages/ai:
     dependencies:
+      '@napi-rs/canvas':
+        specifier: 0.1.80
+        version: 0.1.80
       '@sse/core':
         specifier: workspace:*
         version: link:../core
@@ -29,6 +32,9 @@ importers:
       pdf-parse:
         specifier: ^2.4.5
         version: 2.4.5
+      pdfjs-dist:
+        specifier: 5.4.296
+        version: 5.4.296
     devDependencies:
       '@types/jest':
         specifier: ^29
