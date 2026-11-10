@@ -208,6 +208,118 @@ export function buildOpenApiDocument(): Record<string, unknown> {
             query: { type: "string", description: "SPARQL SELECT query" },
           },
         },
+        OntologyEntity: {
+          type: "object",
+          required: ["uri", "type", "properties"],
+          properties: {
+            uri: { type: "string" },
+            type: { type: "string" },
+            properties: { type: "object", additionalProperties: { type: "string" } },
+          },
+        },
+        OntologyEntityList: {
+          type: "object",
+          required: ["results", "total"],
+          properties: {
+            results: { type: "array", items: ref("OntologyEntity") },
+            total: { type: "integer" },
+          },
+        },
+        OntologyEntityDetail: {
+          type: "object",
+          required: ["uri", "type", "properties", "relations"],
+          properties: {
+            uri: { type: "string" },
+            type: { type: "string" },
+            properties: { type: "object", additionalProperties: { type: "string" } },
+            relations: {
+              type: "object",
+              required: ["outgoing", "incoming"],
+              properties: {
+                outgoing: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    required: ["predicate", "target"],
+                    properties: {
+                      predicate: { type: "string" },
+                      target: { type: "string" },
+                    },
+                  },
+                },
+                incoming: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    required: ["predicate", "source"],
+                    properties: {
+                      predicate: { type: "string" },
+                      source: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        OntologyLegacyEntity: {
+          type: "object",
+          required: ["uri", "properties"],
+          properties: {
+            uri: { type: "string" },
+            properties: { type: "object", additionalProperties: { type: "string" } },
+          },
+        },
+        OntologyNetworkEdge: {
+          type: "object",
+          required: ["id", "from", "to", "predicate", "label"],
+          properties: {
+            id: { type: "string" },
+            from: { type: "string" },
+            to: { type: "string" },
+            predicate: { type: "string" },
+            label: { type: "string" },
+          },
+        },
+        OntologyNetwork: {
+          type: "object",
+          required: ["nodes", "edges"],
+          properties: {
+            nodes: { type: "array", items: ref("OntologyEntity") },
+            edges: { type: "array", items: ref("OntologyNetworkEdge") },
+          },
+        },
+        OntologySchema: {
+          type: "object",
+          required: ["classes", "properties"],
+          properties: {
+            classes: { type: "array", items: { type: "string" } },
+            properties: { type: "array", items: { type: "string" } },
+          },
+        },
+        OntologyQueryRequest: {
+          type: "object",
+          properties: {
+            type: { type: "string" },
+            status: { type: "string" },
+            department: { type: "string" },
+            q: { type: "string" },
+            page: { type: "integer", default: 1 },
+            pageSize: { type: "integer", default: 20, maximum: 100 },
+          },
+        },
+        OntologyReport: {
+          type: "object",
+          additionalProperties: true,
+        },
+        OntologyReportList: {
+          type: "object",
+          required: ["results", "total"],
+          properties: {
+            results: { type: "array", items: ref("OntologyReport") },
+            total: { type: "integer" },
+          },
+        },
       },
     },
     security: [{ bearerAuth: [] }],
@@ -472,6 +584,118 @@ export function buildOpenApiDocument(): Record<string, unknown> {
           parameters: [{ name: "type", in: "query", schema: { type: "string" } }],
           responses: { "200": ok("Entity list") },
         },
+        post: {
+          tags: ["Ontology"],
+          operationId: "queryTypedOntology",
+          summary: "Run a typed, role-scoped ontology query",
+          requestBody: { required: true, content: json(ref("OntologyQueryRequest")) },
+          responses: {
+            "200": ok("Entity or report results", {
+              oneOf: [ref("OntologyEntityList"), ref("OntologyReportList")],
+            }),
+            "401": error("Unauthorized"),
+          },
+        },
+      },
+      "/ontology/schema": {
+        get: {
+          tags: ["Ontology"],
+          operationId: "getOntologySchema",
+          summary: "Read TBox classes and properties",
+          responses: {
+            "200": ok("Ontology schema", ref("OntologySchema")),
+            "401": error("Unauthorized"),
+          },
+        },
+      },
+      "/ontology/entities": {
+        get: {
+          tags: ["Ontology"],
+          operationId: "listOntologyEntities",
+          summary: "List ontology entities (legacy array shape when type is supplied)",
+          parameters: [
+            { name: "type", in: "query", schema: { type: "string" } },
+            {
+              name: "status",
+              in: "query",
+              schema: { type: "string", enum: ["draft", "pending", "approved", "rejected", "paid"] },
+            },
+            { name: "department", in: "query", schema: { type: "string" } },
+            { name: "q", in: "query", schema: { type: "string" } },
+            { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+            { name: "page_size", in: "query", schema: { type: "integer", default: 20, maximum: 100 } },
+          ],
+          responses: {
+            "200": ok("Entity list", {
+              oneOf: [
+                ref("OntologyEntityList"),
+                { type: "array", items: ref("OntologyLegacyEntity") },
+              ],
+            }),
+            "401": error("Unauthorized"),
+          },
+        },
+      },
+      "/ontology/entities/{uri}": {
+        get: {
+          tags: ["Ontology"],
+          operationId: "getOntologyEntity",
+          summary: "Get one entity with outgoing and incoming relations",
+          parameters: [
+            {
+              name: "uri",
+              in: "path",
+              required: true,
+              description: "URL-encoded full entity IRI",
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": ok("Entity detail", ref("OntologyEntityDetail")),
+            "401": error("Unauthorized"),
+            "404": error("Entity not found or out of scope"),
+          },
+        },
+      },
+      "/ontology/entities/{uri}/network": {
+        get: {
+          tags: ["Ontology"],
+          operationId: "getOntologyEntityNetwork",
+          summary: "Walk an entity relationship network",
+          parameters: [
+            {
+              name: "uri",
+              in: "path",
+              required: true,
+              description: "URL-encoded full entity IRI",
+              schema: { type: "string" },
+            },
+            { name: "depth", in: "query", schema: { type: "integer", default: 2, maximum: 5 } },
+            {
+              name: "direction",
+              in: "query",
+              schema: { type: "string", enum: ["both", "out", "in"], default: "both" },
+            },
+          ],
+          responses: {
+            "200": ok("Relationship network", ref("OntologyNetwork")),
+            "401": error("Unauthorized"),
+          },
+        },
+      },
+      "/ontology/anomalies": {
+        get: {
+          tags: ["Ontology"],
+          operationId: "listOntologyAnomalies",
+          summary: "List ontology anomalies (Phase 4 populates results)",
+          responses: {
+            "200": ok("Anomaly list", {
+              type: "array",
+              items: { type: "object", additionalProperties: true },
+            }),
+            "401": error("Unauthorized"),
+          },
+        },
       },
       "/ontology/sparql": {
         post: {
@@ -493,7 +717,15 @@ export function buildOpenApiDocument(): Record<string, unknown> {
           responses: {
             "200": ok("Sync status", {
               type: "object",
-              required: ["engine", "counts", "outbox", "version"],
+              required: [
+                "engine",
+                "counts",
+                "outbox",
+                "version",
+                "outboxPending",
+                "deadLettered",
+                "lagSeconds",
+              ],
               properties: {
                 engine: { type: "string", enum: ["oxigraph"] },
                 counts: {
@@ -515,6 +747,9 @@ export function buildOpenApiDocument(): Record<string, unknown> {
                   },
                 },
                 version: { type: "integer" },
+                outboxPending: { type: "integer" },
+                deadLettered: { type: "integer" },
+                lagSeconds: { type: "number" },
               },
             }),
             "401": error("Unauthorized"),

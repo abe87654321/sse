@@ -27,9 +27,25 @@ describe('OpenAPI document', () => {
       '/ontology/query-expense-status',
       '/ontology/sparql',
       '/ontology/status',
+      '/ontology/schema',
+      '/ontology/entities',
+      '/ontology/entities/{uri}',
+      '/ontology/entities/{uri}/network',
+      '/ontology/query',
+      '/ontology/anomalies',
     ];
     for (const path of required) {
       expect(doc.paths[path]).toBeDefined();
+    }
+
+    expect(doc.paths['/ontology/query'].post).toBeDefined();
+    expect(doc.paths['/ontology/entities'].get).toBeDefined();
+    expect(doc.paths['/ontology/entities/{uri}/network'].get).toBeDefined();
+  });
+
+  it('does not advertise 501 placeholder endpoints as contracts', () => {
+    for (const path of ['/ontology/validate', '/ontology/explain', '/ontology/impact']) {
+      expect(doc.paths[path]).toBeUndefined();
     }
   });
 
