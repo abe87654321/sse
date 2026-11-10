@@ -339,6 +339,17 @@ External Systems (HR / LDAP / 企业微信)
 
 ## 🆕 Recent Updates / 最近更新
 
+- **2026-11-09** — OCR pipeline and attachment fixes:
+  - MinerU token resolution: a saved `ai-config.json` no longer silently shadows
+    `MINERU_TOKEN`; the effective source (`saved` / `env` / `none`) is visible in
+    `GET /admin/ai-config` and in the admin panel
+  - Invoice and payment receipt downloads are served through the API instead of
+    presigned MinIO URLs that embedded the server's own address
+  - Scan-like PDFs are rendered and cropped before OCR — MinerU's layout analysis
+    skipped bordered blocks on pages with large margins
+  - Bank receipt labels (`付款金额` / `交易日期` / `回单编号`) are parsed, and
+    thousands separators rendered as `19, 999.00` are no longer truncated to `19`
+  - Uploads validate file content (magic bytes), not just the extension
 - **2026-11-09** — Deployment and developer workflow updates:
   - MinIO runs from the bundled local image `sse-minio:local` (`images/minio/`) instead of
     pulling `minio/minio`; `docker compose up -d` works offline and after image pruning.

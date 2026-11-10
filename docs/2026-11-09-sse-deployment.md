@@ -416,29 +416,45 @@ AI_MODEL=llama3.2-vision
 
 在管理后台 **发票 OCR 引擎** 面板选择。三种方案任选其一，也可以暂时不配置。
 
+> **PDF 处理方式**：MinerU 与视觉模型引擎会自动处理 PDF ——
+> 电子发票（PDF 带文本层）保持 PDF 直接送引擎；扫描件会先渲染并裁掉页面白边再送识别，
+> 避免引擎的版面分析跳过带边框的内容区（见 §6.5）。
+> PaddleOCR 方案则把原始文件直接发给你的自建服务，由该服务自行处理 PDF/图片。
+
 #### 方案 A：MinerU（推荐）
 
-MinerU 适合中文 PDF 发票，输出结构化 Markdown。完整适配器脚本见
-[附录 D](#d-mineru-适配器完整脚本)，摘要：
+MinerU 适合中文 PDF 发票，输出结构化 Markdown。系统调用的是 **MinerU 云端 API**：
 
 ```bash
-pip install magic-pdf flask
-magic-pdf download_models
-python mineru_api.py        # 默认监听 0.0.0.0:8888
+# 无需本地部署 MinerU，只需一个云端 Token
+```
+
+Token 在 [MinerU 开放平台](https://mineru.net) 获取，两种配置方式：
+
+```env
+# 方式一：环境变量（推荐，便于容器化部署）
+# .env
+MINERU_TOKEN=<你的 MinerU Token>
 ```
 
 后台配置：
 
 ```text
 引擎: MinerU
-端点: http://<mineru-ip>:8888
+端点: https://mineru.net
+Token: 粘贴上面的 Token（保存后不再回显）
 ```
+
+> **Token 来源优先级**：系统管理里已保存的 MinerU Token > `.env` 的 `MINERU_TOKEN`；
+> 在系统管理点「↩ 环境变量」可交还给 `.env`，点「✕ 清除」则完全禁用（含 `.env`）。
+> 当前生效来源见系统管理面板下方提示，或 `GET /admin/ai-config` 的
+> `ocrEngine.mineruTokenSource`（`saved` / `env` / `none`）。
 
 #### 方案 B：PaddleOCR
 
 ```bash
 pip install paddlepaddle paddleocr flask
-# 适配器结构与 MinerU 相同，端口示例 8899
+# 适配器结构与附录 D 的自建方案相同，端口示例 8899
 ```
 
 后台配置：
@@ -1011,6 +1027,39 @@ curl http://localhost:11434/v1/models
 说明没有可用的 OCR 引擎或引擎调用失败。到管理后台检查 OCR 端点、模型和网络连通性；
 也可以先人工复核，不影响报销主流程。
 
+**Q: OCR 报“MinerU 认证失败：Token 无效或已过期”，但 Token 明明是对的？**
+
+先看系统管理 → 发票 OCR 引擎下方的「当前生效来源」：
+
+| 显示 | 含义 | 处理 |
+|---|---|---|
+| `已保存的配置（ai-config.json）` | 系统管理里保存的 Token 在生效，`.env` 里的不生效 | 在同一面板重新粘贴 Token 保存，或点「↩ 环境变量」改用 `.env` |
+| `环境变量 MINERU_TOKEN` | 用的是 `.env` 的值 | 确认 `.env` 在 **API 进程的工作目录**下、且改完后重启过 API |
+| `未配置` | 没有可用 Token | 在系统管理里粘贴 Token，或在 `.env` 配 `MINERU_TOKEN` 后重启 |
+
+**Q: 打款回单只识别出「经办／复核／授权／回单编号」一行，金额和日期都是空的？**
+
+这是引擎的版面分析跳过了整块内容：回单主体被放在带边框的矩形里，而整页留白很大时，
+引擎会把该矩形判成图片块而只 OCR 框外文字。系统已内置处理——扫描件会先渲染并裁掉白边再送识别。
+
+若仍出现：
+
+1. 确认版本已包含 `fix(ai): render and trim scan-like documents before OCR` 之后的提交；
+2. 在系统管理 → 发票 OCR 引擎 点一次「检验」，看原始识别文本是否已包含「交易金额」；
+3. 若原始文本里也没有金额，说明上游引擎没抽到该字段（例如金额在扫描图里而非文本层），
+   需人工复核或换用更高分辨率的原件。
+
+**Q: 回单金额识别成了 `19`（真实金额是 19,999）？**
+
+引擎把千分位逗号后加了空格，输出成 `19, 999.00`。系统已做归一化处理；
+若仍出现，确认版本包含 `fix(ai): render and trim scan-like documents before OCR`，
+并点「重新识别」重跑一次（历史结果不会自动重算）。
+
+**Q: 发票／回单下载打不开，或链接指向 localhost？**
+
+下载已改为由 API 代理返回文件字节，不会再出现 `localhost` 链接。
+若仍看到旧链接，说明前端未重新构建——执行 `pnpm build` 并刷新浏览器缓存。
+
 ### 6.6 通知
 
 **Q: 邮件没有发出？**
@@ -1110,7 +1159,7 @@ Windows 下 `pnpm dev` 已通过 `concurrently` 跨平台并行启动，不需�
 | `ALIYUN_SMS_TEMPLATE_CODE` | 否* | — | 通用回退模板 |
 | `AI_ENDPOINT` | 否 | `http://localhost:11434/v1/chat/completions` | AI 端点 |
 | `AI_MODEL` | 否 | `llama3.2-vision` | AI 模型 |
-| `MINERU_TOKEN` | 否 | — | MinerU 云端 Token |
+| `MINERU_TOKEN` | 否 | — | MinerU 云端 Token。**优先级低于系统管理里已保存的 Token**（见 §3.2） |
 
 > \* 仅在启用对应通知服务商时必填。
 
@@ -1176,9 +1225,21 @@ sse/
 | Docker 卷 `pgdata` | 业务数据 | — |
 | Docker 卷 `miniodata` | 附件对象 | — |
 
-### D. MinerU 适配器完整脚本
+### D. MinerU 适配器完整脚本（自建方案，已非默认路径）
 
-下面是一个最小 Flask 适配器示例，供 §3.2 方案 A 使用。
+> ⚠️ **本附录描述的是"自建 MinerU 适配器"方案，当前代码已不内置该适配器。**
+>
+> 现行实现直接调用 **MinerU 云端 API**（`https://mineru.net`），
+> 在系统管理里填 Token 即可，**不需要部署本脚本**。参见 §3.2 方案 A。
+>
+> 保留本节仅供以下情况参考：
+> - 内网无法访问 MinerU 云端，需要完全离线部署；
+> - 需要自建适配器来对接内部或第三方的文档解析服务。
+>
+> 若采用自建方案，需自行保证适配器的接口与系统约定一致
+> （提交文件 → 返回 Markdown，字段解析由 `packages/ai` 的解析器负责）。
+
+下面是一个最小 Flask 适配器示例，仅供自建方案参考。
 保存为 `mineru_api.py`，默认监听 `8888`：
 
 ```python
@@ -1233,6 +1294,11 @@ python mineru_api.py
 | Docker Compose | v2（`docker compose`） |
 | Ollama | 可选，建议最新稳定版 |
 | MinerU / PaddleOCR | 可选，按实际安装版本 |
+
+> **Node.js 版本说明**：扫描件 OCR 预处理需要 `pdfjs-dist` 与 `@napi-rs/canvas`，
+> 两者随 `pnpm install` 自动安装（后者为预编译二进制，pnpm 会挑选对应平台产物，
+> 无需原生编译）。pdfjs-dist 只提供 ESM 构建：Node 22.3 及以上用 `require(esm)` 加载，
+> 更低版本自动回退到动态 `import()`，Node 18+ 均可正常运行。
 
 MinIO 镜像安全提示：该版本早于 2025-10 的 CVE 修复。当前 SSE 用法（单 root 账号、
 不启用 STS/服务账号/集群）不受影响；生产环境建议升级到
