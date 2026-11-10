@@ -23,6 +23,10 @@ import * as getEntityNetworkTool from "./tools/get-entity-network.js";
 import * as validateExpenseTool from "./tools/validate-expense.js";
 import * as queryOntologyTool from "./tools/query-ontology.js";
 import * as querySparqlTool from "./tools/query-sparql.js";
+import * as explainExpenseTool from "./tools/explain-expense.js";
+import * as impactAnalysisTool from "./tools/impact-analysis.js";
+import * as findAnomaliesTool from "./tools/find-anomalies.js";
+import * as getOntologySchemaTool from "./tools/get-ontology-schema.js";
 import { checkRateLimit, pruneRateLimitStore, type RateLimitWindow } from "@sse/auth";
 import { resolveAuthContext } from "./auth.js";
 import type { ToolDefinition, ToolResult } from "./tools/types.js";
@@ -51,6 +55,10 @@ const allTools: ToolEntry[] = [
   validateExpenseTool,
   queryOntologyTool,
   querySparqlTool,
+  explainExpenseTool,
+  impactAnalysisTool,
+  findAnomaliesTool,
+  getOntologySchemaTool,
 ];
 
 const toolMap = new Map(allTools.map((t) => [t.definition.name, t]));
