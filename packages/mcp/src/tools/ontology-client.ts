@@ -1,4 +1,4 @@
-import { apiJson, type ApiResult } from "./api-client.js";
+import { apiJson, type ApiRequestOptions, type ApiResult } from "./api-client.js";
 import type { AuthContext } from "../auth.js";
 
 export type OntologyDirection = "both" | "out" | "in";
@@ -27,13 +27,14 @@ function toQuery(input: Record<string, unknown>): string {
  * `{ ok, status, data }` envelope so tool handlers own error mapping and no API
  * error shape is swallowed here.
  */
-export function ontologyClient(auth: AuthContext) {
+export function ontologyClient(auth: AuthContext, options: ApiRequestOptions = {}) {
   const call = (method: string, path: string, body?: unknown): Promise<ApiResult> =>
-    apiJson(auth, method, path, body);
+    apiJson(auth, method, path, body, options);
 
   return {
     getStatus: () => call("GET", "/ontology/status"),
     getSchema: () => call("GET", "/ontology/schema"),
+    graph: () => call("GET", "/ontology/graph"),
     search: (input: Record<string, unknown>) => call("POST", "/ontology/query", input),
     listEntities: (input: Record<string, unknown>) =>
       call("GET", `/ontology/entities?${toQuery(input)}`),

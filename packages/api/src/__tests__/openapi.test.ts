@@ -28,6 +28,7 @@ describe('OpenAPI document', () => {
       '/ontology/sparql',
       '/ontology/status',
       '/ontology/schema',
+      '/ontology/graph',
       '/ontology/entities',
       '/ontology/entities/{uri}',
       '/ontology/entities/{uri}/network',

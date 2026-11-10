@@ -83,6 +83,17 @@ export interface NetworkResult {
   edges: NetworkEdge[];
 }
 
+/** Legacy graph node shape: `id` mirrors `uri` for older consumers. */
+export interface GraphNodeView extends EntitySummary {
+  id: string;
+  label: string;
+}
+
+export interface ScopedGraphResult {
+  nodes: GraphNodeView[];
+  edges: NetworkEdge[];
+}
+
 export interface OntologyStatus {
   engine: 'oxigraph';
   version: number;
@@ -497,6 +508,105 @@ WHERE {
 
     return {
       nodes: await this.loadNetworkNodes([...visited]),
+      edges: [...edges.values()].sort((a, b) =>
+        a.from === b.from
+          ? a.to === b.to
+            ? a.predicate.localeCompare(b.predicate)
+            : a.to.localeCompare(b.to)
+          : a.from.localeCompare(b.from),
+      ),
+    };
+  }
+
+  /**
+   * Full role-scoped graph snapshot for the legacy `query_ontology` summary
+   * contract. Only the live data/inferred/manual views are read, so deleted
+   * entities recorded in the history named graph never surface.
+   */
+  async graph(scope: Scope): Promise<ScopedGraphResult> {
+    const propertyResult = await this.store.query(`${PROLOGUE}
+SELECT DISTINCT ?entity ?p ?o (isIRI(?o) AS ?isIri) ${DATASET}
+WHERE {
+  ?entity ?p ?o .
+  ${DATA_ENTITY_FILTER}
+  FILTER(?p != rdf:type)
+}`);
+    const typeResult = await this.store.query(`${PROLOGUE}
+SELECT DISTINCT ?entity ?type ${DATASET}
+WHERE {
+  ?entity a ?type .
+  ${DATA_ENTITY_FILTER}
+}
+ORDER BY ?entity ?type`);
+
+    const propertyRows = selectRows(propertyResult);
+    const typeRows = selectRows(typeResult);
+
+    const candidateUris = new Set<string>();
+    for (const row of typeRows) {
+      if (row.entity) candidateUris.add(row.entity);
+    }
+    for (const row of propertyRows) {
+      if (row.entity) candidateUris.add(row.entity);
+    }
+
+    const allowed = new Map<string, boolean>();
+    const isAllowed = async (entity: string): Promise<boolean> => {
+      if (scope.kind === 'all') return true;
+      const cached = allowed.get(entity);
+      if (cached !== undefined) return cached;
+      const value = await this.entityInScope(entity, scope);
+      allowed.set(entity, value);
+      return value;
+    };
+
+    const visible = new Set<string>();
+    for (const entity of candidateUris) {
+      if (await isAllowed(entity)) visible.add(entity);
+    }
+
+    const nodes = new Map<string, GraphNodeView>();
+    for (const entity of [...visible].sort()) {
+      nodes.set(entity, {
+        id: entity,
+        uri: entity,
+        type: '',
+        label: localName(entity),
+        properties: {},
+      });
+    }
+
+    for (const row of typeRows) {
+      if (!row.entity || !row.type) continue;
+      const node = nodes.get(row.entity);
+      if (node && !node.type) node.type = localName(row.type);
+    }
+
+    const edges = new Map<string, NetworkEdge>();
+    for (const row of propertyRows) {
+      if (!row.entity || !row.p || row.o === undefined) continue;
+      const node = nodes.get(row.entity);
+      if (!node) continue;
+      if (row.isIri === 'true') {
+        if (row.p === RDF_TYPE) continue;
+        if (!nodes.has(row.o)) continue;
+        const key = `${row.entity}|${row.p}|${row.o}`;
+        if (!edges.has(key)) {
+          edges.set(key, {
+            id: key,
+            from: row.entity,
+            to: row.o,
+            predicate: localName(row.p),
+            label: localName(row.p),
+          });
+        }
+      } else {
+        node.properties[localName(row.p)] = row.o;
+      }
+    }
+
+    return {
+      nodes: [...nodes.values()],
       edges: [...edges.values()].sort((a, b) =>
         a.from === b.from
           ? a.to === b.to

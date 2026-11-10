@@ -48,6 +48,7 @@ export interface ValidateExpenseInput {
 
 export interface ValidateExpenseResult {
   valid: boolean;
+  category: { id: string; name: string } | null;
   matched_rule: MatchedRuleView | null;
   issues: ValidationIssue[];
   suggestions: string[];
@@ -134,11 +135,13 @@ async function validateReportInvoices(
 
 function dbResult(
   matched: any,
+  category: { id: string; name: string } | null,
   issues: ValidationIssue[],
   suggestions: string[],
 ): ValidateExpenseResult {
   return {
     valid: issues.length === 0,
+    category,
     matched_rule: matched
       ? {
         id: String(matched.id ?? ''),
@@ -241,7 +244,12 @@ async function validateFromDb(
     );
   }
 
-  return dbResult(matchedRule, issues, suggestions);
+  return dbResult(
+    matchedRule,
+    categoryMatch ? { id: categoryMatch.id, name: categoryMatch.name } : null,
+    issues,
+    suggestions,
+  );
 }
 
 export async function validateExpense(
@@ -274,6 +282,7 @@ export async function validateExpense(
     if (pool) return validateFromDb(store, pool, input, scope);
     return {
       valid: false,
+      category: category ? { id: category.id, name: category.name } : null,
       matched_rule: null,
       issues: [
         ...issues,
@@ -319,6 +328,7 @@ export async function validateExpense(
 
   return {
     valid: issues.length === 0,
+    category: category ? { id: category.id, name: category.name } : null,
     matched_rule: matched ? matchedRuleView(matched) : null,
     issues,
     suggestions: [...new Set(suggestions)],

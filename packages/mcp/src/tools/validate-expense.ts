@@ -18,6 +18,73 @@ export const definition: ToolDefinition = {
   },
 };
 
+interface LegacyValidationIssue {
+  code: string;
+  message: string;
+  evidence: string[];
+}
+
+interface LegacyValidation {
+  valid: boolean;
+  amount: number;
+  category: { id: string; name: string } | null;
+  matched_rule: { name: string; amount_range: string; approval_steps: number } | null;
+  issues: string[];
+  issue_details: LegacyValidationIssue[];
+  suggestions: string[];
+}
+
+/**
+ * Maps the ontology v2 validate payload onto the legacy MCP contract:
+ * `issues` stays a string array, while `issue_details` keeps the structured
+ * code/evidence so newer clients can still reason about failures.
+ */
+function toLegacyValidation(data: any, amount: number): LegacyValidation {
+  const rawIssues = Array.isArray(data?.issues) ? data.issues : [];
+  const issueDetails: LegacyValidationIssue[] = rawIssues.map((issue: any) => {
+    if (typeof issue === "string") {
+      return { code: "", message: issue, evidence: [] };
+    }
+    return {
+      code: typeof issue?.code === "string" ? issue.code : "",
+      message: typeof issue?.message === "string" ? issue.message : "",
+      evidence: Array.isArray(issue?.evidence) ? issue.evidence : [],
+    };
+  });
+
+  const rule = data?.matched_rule ?? null;
+  const matchedRule = rule
+    ? {
+        name: typeof rule.name === "string" ? rule.name : "",
+        amount_range:
+          typeof rule.amount_range === "string"
+            ? rule.amount_range
+            : `${rule.min_amount ?? ""} - ${rule.max_amount ?? ""}`,
+        approval_steps:
+          typeof rule.approval_steps === "number"
+            ? rule.approval_steps
+            : Array.isArray(rule.approval_chain)
+              ? rule.approval_chain.length
+              : 0,
+      }
+    : null;
+
+  const category = data?.category ?? null;
+
+  return {
+    valid: !!data?.valid,
+    amount,
+    category:
+      category && typeof category.id === "string" && typeof category.name === "string"
+        ? { id: category.id, name: category.name }
+        : null,
+    matched_rule: matchedRule,
+    issues: issueDetails.map((issue) => issue.message),
+    issue_details: issueDetails,
+    suggestions: Array.isArray(data?.suggestions) ? data.suggestions : [],
+  };
+}
+
 /**
  * Legacy DB-backed validation kept as a fallback for API deployments that do
  * not expose the ontology v2 `/ontology/validate` endpoint.
@@ -95,8 +162,12 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
       category_name: categoryName,
     });
 
-    if (res.ok) return successResult(res.data);
-    if (res.status === 404 || res.status === 501) {
+    if (res.ok) return successResult(toLegacyValidation(res.data, amount));
+    if (
+      res.status === 404 ||
+      res.status === 501 ||
+      (res.status === 503 && res.data?.error?.code === "ONTOLOGY_V2_UNAVAILABLE")
+    ) {
       return await validateFromDb(amount, categoryId, categoryName);
     }
 

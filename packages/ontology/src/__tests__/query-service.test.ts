@@ -386,6 +386,41 @@ describe('OntologyQueryService', () => {
     expect(denied).toEqual({ nodes: [], edges: [] });
   });
 
+  it('returns a role-scoped graph with legacy node ids', async () => {
+    const svc = await makeService();
+    const all = await svc.graph({ kind: 'all' });
+    const uris = all.nodes.map((node) => node.uri);
+
+    expect(uris).toContain('https://sse.local/report/r1');
+    expect(uris).toContain('https://sse.local/person/p1');
+    for (const node of all.nodes) {
+      expect(node.id).toBe(node.uri);
+      expect(typeof node.label).toBe('string');
+    }
+    expect(all.edges.every((edge) => uris.includes(edge.from) && uris.includes(edge.to))).toBe(true);
+
+    const self = await svc.graph({ kind: 'self', userId: 'p1' });
+    const selfUris = self.nodes.map((node) => node.uri);
+    expect(selfUris).toContain('https://sse.local/report/r1');
+    expect(selfUris).not.toContain('https://sse.local/report/r2');
+    expect(selfUris).not.toContain('https://sse.local/person/p2');
+  });
+
+  it('excludes the history named graph from the scoped snapshot', async () => {
+    const store = new MemoryGraphStore();
+    await loadTBox(store);
+    await store.load(
+      `${NQ}
+<https://sse.local/report/deleted> <${RDF}type> <${SSE}ExpenseReport> <urn:sse:history> .
+<https://sse.local/report/deleted> <${SSE}deletedAt> "2026-11-01T00:00:00Z" <urn:sse:history> .`,
+    );
+    const svc = new OntologyQueryService(store);
+
+    const graph = await svc.graph({ kind: 'all' });
+    const uris = graph.nodes.map((node) => node.uri);
+    expect(uris).not.toContain('https://sse.local/report/deleted');
+  });
+
   it('drops out-of-scope neighbors during network traversal', async () => {
     const svc = await makeService();
     const self = await svc.network('https://sse.local/report/r1', {

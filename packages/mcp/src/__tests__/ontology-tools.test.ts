@@ -68,6 +68,56 @@ describe("query_ontology", () => {
     expect(payload(res)).toEqual({ type: "Person", count: 1, entities });
   });
 
+  it("returns the legacy summary graph when called without filters", async () => {
+    const data = {
+      summary: {
+        total_nodes: 2,
+        total_edges: 1,
+        type_counts: { Person: 1, ExpenseReport: 1 },
+      },
+      graph: {
+        nodes: [
+          { id: "https://sse.local/person/p1", uri: "https://sse.local/person/p1", type: "Person", properties: {} },
+          { id: "https://sse.local/report/r1", uri: "https://sse.local/report/r1", type: "ExpenseReport", properties: {} },
+        ],
+        edges: [
+          {
+            id: "https://sse.local/report/r1|submittedBy|https://sse.local/person/p1",
+            from: "https://sse.local/report/r1",
+            to: "https://sse.local/person/p1",
+            predicate: "submittedBy",
+            label: "submittedBy",
+          },
+        ],
+      },
+    };
+    const fetchMock = mockFetch(200, data);
+
+    const res = await queryOntology({ api_key: EMPLOYEE_KEY });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/ontology/graph");
+    expect(init).toMatchObject({ method: "GET" });
+    expect(payload(res)).toEqual(data);
+  });
+
+  it("derives the summary from the legacy flag-off graph payload", async () => {
+    const data = {
+      nodes: [
+        { id: "https://sse.local/person/p1", uri: "https://sse.local/person/p1", type: "Person", properties: {} },
+      ],
+      edges: [],
+    };
+    mockFetch(200, data);
+
+    const res = await queryOntology({ api_key: EMPLOYEE_KEY });
+
+    expect(payload(res)).toEqual({
+      summary: { total_nodes: 1, total_edges: 0, type_counts: { Person: 1 } },
+      graph: data,
+    });
+  });
+
   it("posts richer filters to /ontology/query", async () => {
     const data = { results: [{ uri: "x" }], total: 1 };
     const fetchMock = mockFetch(200, data);
@@ -125,9 +175,22 @@ describe("query_ontology", () => {
 });
 
 describe("get_entity_network", () => {
-  it("normalizes bare ids and forwards default depth/direction", async () => {
-    const data = { nodes: [], edges: [] };
-    const fetchMock = mockFetch(200, data);
+  it("restores the legacy envelope and adds id to each node", async () => {
+    const edge = {
+      id: "https://sse.local/report/r1|submittedBy|https://sse.local/person/p1",
+      from: "https://sse.local/report/r1",
+      to: "https://sse.local/person/p1",
+      predicate: "submittedBy",
+      label: "submittedBy",
+    };
+    const apiData = {
+      nodes: [
+        { uri: "https://sse.local/report/r1", type: "ExpenseReport", properties: { serialNo: "RE-1" } },
+        { uri: "https://sse.local/person/p1", type: "Person", properties: { name: "张三" } },
+      ],
+      edges: [edge],
+    };
+    const fetchMock = mockFetch(200, apiData);
 
     const res = await getEntityNetwork({ api_key: EMPLOYEE_KEY, entity_id: "report/r1" });
 
@@ -137,11 +200,34 @@ describe("get_entity_network", () => {
     );
     expect(url).toContain("depth=2");
     expect(url).toContain("direction=both");
-    expect(payload(res)).toEqual(data);
+    expect(payload(res)).toEqual({
+      center: "https://sse.local/report/r1",
+      depth: 2,
+      nodes: [
+        {
+          id: "https://sse.local/report/r1",
+          uri: "https://sse.local/report/r1",
+          type: "ExpenseReport",
+          properties: { serialNo: "RE-1" },
+        },
+        {
+          id: "https://sse.local/person/p1",
+          uri: "https://sse.local/person/p1",
+          type: "Person",
+          properties: { name: "张三" },
+        },
+      ],
+      edges: [edge],
+      node_count: 2,
+      edge_count: 1,
+    });
   });
 
   it("clamps depth to 5 and honors direction=in", async () => {
-    const fetchMock = mockFetch(200, { nodes: [], edges: [] });
+    const fetchMock = mockFetch(200, {
+      nodes: [{ uri: "https://sse.local/report/r1", type: "ExpenseReport", properties: {} }],
+      edges: [],
+    });
 
     await getEntityNetwork({
       api_key: EMPLOYEE_KEY,
@@ -155,13 +241,31 @@ describe("get_entity_network", () => {
     expect(url).toContain("direction=in");
   });
 
-  it("maps API errors", async () => {
+  it("maps a 404 root to FORBIDDEN like the legacy scope check", async () => {
     mockFetch(404, { error: { code: "NOT_FOUND", message: "missing" } });
 
     const res = await getEntityNetwork({ api_key: EMPLOYEE_KEY, entity_id: "report/x" });
 
     expect(res.isError).toBe(true);
-    expect(payload(res).error.code).toBe("NOT_FOUND");
+    expect(payload(res).error.code).toBe("FORBIDDEN");
+  });
+
+  it("maps an empty network to FORBIDDEN", async () => {
+    mockFetch(200, { nodes: [], edges: [] });
+
+    const res = await getEntityNetwork({ api_key: EMPLOYEE_KEY, entity_id: "report/x" });
+
+    expect(res.isError).toBe(true);
+    expect(payload(res).error.code).toBe("FORBIDDEN");
+  });
+
+  it("maps other API errors", async () => {
+    mockFetch(500, { error: { code: "INTERNAL_ERROR", message: "boom" } });
+
+    const res = await getEntityNetwork({ api_key: EMPLOYEE_KEY, entity_id: "report/x" });
+
+    expect(res.isError).toBe(true);
+    expect(payload(res).error.code).toBe("INTERNAL_ERROR");
   });
 
   it("keeps its name/required args and adds direction", () => {
@@ -187,9 +291,9 @@ describe("query_sparql", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("posts the query to /ontology/sparql for admins", async () => {
-    const data = { results: [], count: 0 };
-    const fetchMock = mockFetch(200, data);
+  it("posts the query to /ontology/sparql and unwraps SELECT rows", async () => {
+    const rows = [{ s: "https://sse.local/person/p1" }];
+    const fetchMock = mockFetch(200, { results: rows, count: 1 });
 
     const res = await querySparql({
       api_key: ADMIN_KEY,
@@ -200,8 +304,17 @@ describe("query_sparql", () => {
     expect(url).toContain("/ontology/sparql");
     expect(init).toMatchObject({ method: "POST" });
     expect(JSON.parse(init.body)).toEqual({ query: "SELECT ?s WHERE { ?s ?p ?o }" });
-    expect(payload(res)).toEqual(data);
+    expect(payload(res)).toEqual(rows);
     expect(querySparqlDef.name).toBe("query_sparql");
+  });
+
+  it("returns a raw array payload unchanged", async () => {
+    const rows = [{ s: "https://sse.local/person/p1" }];
+    mockFetch(200, rows);
+
+    const res = await querySparql({ api_key: ADMIN_KEY, query: "SELECT ?s WHERE { ?s ?p ?o }" });
+
+    expect(payload(res)).toEqual(rows);
   });
 
   it("maps API errors", async () => {
@@ -215,8 +328,30 @@ describe("query_sparql", () => {
 });
 
 describe("validate_expense", () => {
-  it("posts to /ontology/validate", async () => {
-    const data = { valid: true, issues: [] };
+  it("maps the API payload to the legacy output shape", async () => {
+    const data = {
+      valid: false,
+      category: { id: "c1", name: "差旅" },
+      matched_rule: {
+        id: "ar1",
+        uri: "https://sse.local/rule/ar1",
+        name: "差旅规则",
+        min_amount: 0,
+        max_amount: 1000,
+        amount_range: "0 - 1000",
+        approval_steps: 2,
+        approval_chain: [{ step: 1, role: "finance" }],
+      },
+      issues: [
+        {
+          code: "missing_approver",
+          message: "审批步骤 2（财务审批）没有在职审批人",
+          evidence: ["https://sse.local/rule/ar1"],
+        },
+      ],
+      suggestions: ["请为角色\"finance\"添加在职用户"],
+      source: "graph",
+    };
     const fetchMock = mockFetch(200, data);
 
     const res = await validateExpense({
@@ -229,7 +364,25 @@ describe("validate_expense", () => {
     expect(url).toContain("/ontology/validate");
     expect(init).toMatchObject({ method: "POST" });
     expect(JSON.parse(init.body)).toEqual({ amount: 100, category_id: "c1" });
-    expect(payload(res)).toEqual(data);
+    expect(payload(res)).toEqual({
+      valid: false,
+      amount: 100,
+      category: { id: "c1", name: "差旅" },
+      matched_rule: {
+        name: "差旅规则",
+        amount_range: "0 - 1000",
+        approval_steps: 2,
+      },
+      issues: ["审批步骤 2（财务审批）没有在职审批人"],
+      issue_details: [
+        {
+          code: "missing_approver",
+          message: "审批步骤 2（财务审批）没有在职审批人",
+          evidence: ["https://sse.local/rule/ar1"],
+        },
+      ],
+      suggestions: ["请为角色\"finance\"添加在职用户"],
+    });
     expect(validateExpenseDef.name).toBe("validate_expense");
   });
 
@@ -268,6 +421,56 @@ describe("validate_expense", () => {
     expect(body.valid).toBe(true);
     expect(body.matched_rule.name).toBe("差旅规则");
     expect(dbQuery).toHaveBeenCalled();
+  });
+
+  it("falls back to the DB when ONTOLOGY_V2 is off (503)", async () => {
+    mockFetch(503, {
+      error: { code: "ONTOLOGY_V2_UNAVAILABLE", message: "本体查询服务未启用" },
+    });
+    dbQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM expense_categories")) {
+        return { rows: [{ id: "c1", name: "差旅" }] };
+      }
+      if (sql.includes("FROM approval_rules")) {
+        return {
+          rows: [
+            {
+              id: "r1",
+              name: "差旅规则",
+              min_amount: 0,
+              max_amount: 1000,
+              category_ids: [],
+              approval_chain: [{ step: 1, role: "admin" }],
+            },
+          ],
+        };
+      }
+      if (sql.includes("FROM users")) return { rows: [{ cnt: "1" }] };
+      return { rows: [] };
+    });
+
+    const res = await validateExpense({
+      api_key: EMPLOYEE_KEY,
+      amount: 100,
+      category_id: "c1",
+    });
+
+    const body = payload(res);
+    expect(res.isError).toBeFalsy();
+    expect(body.valid).toBe(true);
+    expect(body.amount).toBe(100);
+    expect(body.matched_rule.name).toBe("差旅规则");
+    expect(dbQuery).toHaveBeenCalled();
+  });
+
+  it("does not fall back on an unrelated 503", async () => {
+    mockFetch(503, { error: { code: "UPSTREAM_DOWN", message: "outage" } });
+
+    const res = await validateExpense({ api_key: EMPLOYEE_KEY, amount: 100 });
+
+    expect(res.isError).toBe(true);
+    expect(payload(res).error.code).toBe("UPSTREAM_DOWN");
+    expect(dbQuery).not.toHaveBeenCalled();
   });
 
   it("rejects invalid amounts before calling the API", async () => {

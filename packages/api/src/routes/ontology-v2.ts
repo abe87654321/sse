@@ -75,6 +75,20 @@ function queryParam(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+/**
+ * `codes` accepts either repeated query params (`?codes=a&codes=b`) or a single
+ * comma-separated value (`?codes=a,b`).
+ */
+function parseCodes(value: unknown): string[] | undefined {
+  const raw = Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
+  const codes = raw
+    .filter((item): item is string => typeof item === 'string')
+    .flatMap((item) => item.split(','))
+    .map((item) => item.trim())
+    .filter((item) => item !== '');
+  return codes.length > 0 ? [...new Set(codes)] : undefined;
+}
+
 function pageNumber(value: unknown): number {
   const page = Math.floor(Number(value));
   return Number.isFinite(page) && page > 0 ? page : 1;
@@ -109,6 +123,22 @@ router.get('/schema', asyncWrap(async (_req, res) => {
   res.json(await queryService().schema());
 }));
 
+router.get('/graph', asyncWrap(async (req, res) => {
+  const { nodes, edges } = await queryService().graph(toScope(req));
+  const typeCounts: Record<string, number> = {};
+  for (const node of nodes) {
+    typeCounts[node.type] = (typeCounts[node.type] || 0) + 1;
+  }
+  res.json({
+    summary: {
+      total_nodes: nodes.length,
+      total_edges: edges.length,
+      type_counts: typeCounts,
+    },
+    graph: { nodes, edges },
+  });
+}));
+
 router.get('/entities', asyncWrap(async (req, res) => {
   const type = queryParam(req.query.type);
   const result = await queryService().listEntities({
@@ -129,12 +159,19 @@ router.get('/entities', asyncWrap(async (req, res) => {
 }));
 
 router.get('/entities/:uri(*)/network', asyncWrap(async (req, res) => {
+  const uri = entityUri(req);
   const rawDepth = Number(req.query.depth);
   const depth = Number.isFinite(rawDepth) ? rawDepth : 2;
-  res.json(await queryService().network(entityUri(req), {
+  const scope = toScope(req);
+  // Out-of-scope roots are indistinguishable from missing entities, mirroring
+  // the legacy graph scope behavior instead of returning an empty network.
+  if (!(await queryService().isInScope(uri, scope))) {
+    throw new AppError(404, 'NOT_FOUND', '实体不存在或无权访问');
+  }
+  res.json(await queryService().network(uri, {
     depth,
     direction: direction(req.query.direction),
-    scope: toScope(req),
+    scope,
   }));
 }));
 
@@ -227,6 +264,7 @@ router.get('/anomalies', asyncWrap(async (req, res) => {
   const limit = optionalNumber(req.query.limit) ?? 500;
   res.json(await findAnomalies(graphStore(), {
     limit,
+    codes: parseCodes(req.query.codes),
     scope: toScope(req),
   }));
 }));

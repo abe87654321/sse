@@ -38,6 +38,14 @@ const NQ = `
 
 <https://sse.local/item/i1> <${RDF}type> <${SSE}ExpenseItem> <${DATA}> .
 <https://sse.local/item/i1> <${SSE}amount> "10" <${DATA}> .
+
+<https://sse.local/invoice/v1> <${RDF}type> <${SSE}Invoice> <${DATA}> .
+<https://sse.local/invoice/v1> <${SSE}invoiceNo> "INV-DUP" <${DATA}> .
+<https://sse.local/invoice/v2> <${RDF}type> <${SSE}Invoice> <${DATA}> .
+<https://sse.local/invoice/v2> <${SSE}invoiceNo> "INV-DUP" <${DATA}> .
+
+<https://sse.local/report/deleted> <${RDF}type> <${SSE}ExpenseReport> <urn:sse:history> .
+<https://sse.local/report/deleted> <${SSE}deletedAt> "2026-11-01T00:00:00Z" <urn:sse:history> .
 `;
 
 const adminToken = signToken({ userId: 'admin', role: 'admin', department: '管理部' });
@@ -146,6 +154,36 @@ describe('ontology v2 routes', () => {
     });
   });
 
+  it('returns the scoped graph snapshot with a legacy summary', async () => {
+    const res = await get('/ontology/graph', adminToken);
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+
+    expect(body.summary.total_nodes).toBe(body.graph.nodes.length);
+    expect(body.summary.total_edges).toBe(body.graph.edges.length);
+    expect(body.summary.type_counts.ExpenseReport).toBe(2);
+    expect(body.summary.type_counts.Invoice).toBe(2);
+    for (const node of body.graph.nodes) {
+      expect(node.id).toBe(node.uri);
+      expect(node).toHaveProperty('type');
+      expect(node).toHaveProperty('properties');
+    }
+    expect(body.graph.nodes.map((node: any) => node.uri)).not.toContain(
+      'https://sse.local/report/deleted',
+    );
+  });
+
+  it('scopes the graph snapshot to the caller', async () => {
+    const res = await get('/ontology/graph', employeeToken);
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    const uris = body.graph.nodes.map((node: any) => node.uri);
+
+    expect(uris).toContain('https://sse.local/report/r1');
+    expect(uris).not.toContain('https://sse.local/report/r2');
+    expect(uris).not.toContain('https://sse.local/person/p2');
+  });
+
   it('keeps the legacy array shape when type is supplied', async () => {
     const res = await get('/ontology/entities?type=ExpenseReport', adminToken);
     expect(res.status).toBe(200);
@@ -183,6 +221,26 @@ describe('ontology v2 routes', () => {
       uri: 'https://sse.local/item/i1',
       type: 'ExpenseItem',
     });
+  });
+
+  it('returns 404 when a network root is out of scope', async () => {
+    const res = await get(
+      `/ontology/entities/${encodeURIComponent('https://sse.local/report/r2')}/network`,
+      employeeToken,
+    );
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as any).error.code).toBe('NOT_FOUND');
+  });
+
+  it('walks an in-scope network', async () => {
+    const res = await get(
+      `/ontology/entities/${encodeURIComponent('https://sse.local/report/r1')}/network`,
+      employeeToken,
+    );
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    expect(body.nodes.map((node: any) => node.uri)).toContain('https://sse.local/report/r1');
+    expect(body.nodes.map((node: any) => node.uri)).toContain('https://sse.local/item/i1');
   });
 
   it('maps invalid types to INVALID_PARAMS', async () => {
@@ -230,7 +288,29 @@ describe('ontology v2 routes', () => {
     const body: any = await res.json();
     const codes = body.anomalies.map((anomaly: any) => anomaly.code);
     expect(codes).toContain('amount_mismatch');
+    expect(codes).toContain('duplicate_invoice_no');
     expect(body.summary.total).toBe(body.anomalies.length);
+  });
+
+  it('filters anomalies by codes and recomputes the summary', async () => {
+    const res = await get('/ontology/anomalies?codes=amount_mismatch', adminToken);
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    expect(body.anomalies.map((anomaly: any) => anomaly.code)).toEqual(['amount_mismatch']);
+    expect(body.summary.total).toBe(1);
+    expect(body.summary.byCode).toEqual({ amount_mismatch: 1 });
+  });
+
+  it('accepts repeated codes query params', async () => {
+    const res = await get(
+      '/ontology/anomalies?codes=amount_mismatch&codes=duplicate_invoice_no',
+      adminToken,
+    );
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    expect(new Set(body.anomalies.map((anomaly: any) => anomaly.code))).toEqual(
+      new Set(['amount_mismatch', 'duplicate_invoice_no']),
+    );
   });
 
   it('returns 503 for v2 routes when the platform is disabled', async () => {

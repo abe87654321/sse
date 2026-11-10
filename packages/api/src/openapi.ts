@@ -289,6 +289,40 @@ export function buildOpenApiDocument(): Record<string, unknown> {
             edges: { type: "array", items: ref("OntologyNetworkEdge") },
           },
         },
+        OntologyGraphNode: {
+          type: "object",
+          required: ["id", "uri", "type", "properties"],
+          properties: {
+            id: { type: "string", description: "Same value as uri (legacy field)" },
+            uri: { type: "string" },
+            type: { type: "string" },
+            properties: { type: "object", additionalProperties: { type: "string" } },
+          },
+        },
+        OntologyGraphSummary: {
+          type: "object",
+          required: ["total_nodes", "total_edges", "type_counts"],
+          properties: {
+            total_nodes: { type: "integer" },
+            total_edges: { type: "integer" },
+            type_counts: { type: "object", additionalProperties: { type: "integer" } },
+          },
+        },
+        OntologyScopedGraph: {
+          type: "object",
+          required: ["summary", "graph"],
+          properties: {
+            summary: ref("OntologyGraphSummary"),
+            graph: {
+              type: "object",
+              required: ["nodes", "edges"],
+              properties: {
+                nodes: { type: "array", items: ref("OntologyGraphNode") },
+                edges: { type: "array", items: ref("OntologyNetworkEdge") },
+              },
+            },
+          },
+        },
         OntologySchema: {
           type: "object",
           required: ["classes", "properties"],
@@ -355,9 +389,22 @@ export function buildOpenApiDocument(): Record<string, unknown> {
         },
         OntologyValidateResult: {
           type: "object",
-          required: ["valid", "matched_rule", "issues", "suggestions", "source"],
+          required: ["valid", "category", "matched_rule", "issues", "suggestions", "source"],
           properties: {
             valid: { type: "boolean" },
+            category: {
+              oneOf: [
+                {
+                  type: "object",
+                  required: ["id", "name"],
+                  properties: {
+                    id: { type: "string" },
+                    name: { type: "string" },
+                  },
+                },
+                { type: "null" },
+              ],
+            },
             matched_rule: {
               oneOf: [ref("OntologyMatchedRule"), { type: "null" }],
             },
@@ -741,8 +788,14 @@ export function buildOpenApiDocument(): Record<string, unknown> {
         get: {
           tags: ["Ontology"],
           operationId: "getOntologyGraph",
-          summary: "Get the ontology graph (role-scoped)",
-          responses: { "200": ok("Graph nodes and edges") },
+          summary:
+            "Get the role-scoped ontology graph. With ONTOLOGY_V2 enabled the v2 snapshot (summary + graph) is returned; otherwise the legacy {nodes, edges} shape is kept.",
+          responses: {
+            "200": ok("Scoped graph", {
+              oneOf: [ref("OntologyScopedGraph"), ref("OntologyNetwork")],
+            }),
+            "401": error("Unauthorized"),
+          },
         },
       },
       "/ontology/query": {
@@ -897,6 +950,15 @@ export function buildOpenApiDocument(): Record<string, unknown> {
           operationId: "listOntologyAnomalies",
           summary: "List amount, duplicate-invoice and missing-approver anomalies",
           parameters: [
+            {
+              name: "codes",
+              in: "query",
+              description:
+                "Comma-separated or repeated anomaly codes to include (amount_mismatch, duplicate_invoice_no, missing_approver)",
+              schema: { type: "array", items: { type: "string" } },
+              style: "form",
+              explode: false,
+            },
             { name: "limit", in: "query", schema: { type: "integer", default: 500, maximum: 2000 } },
           ],
           responses: {

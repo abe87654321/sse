@@ -39,11 +39,40 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
 
   try {
     const res = await ontologyClient(auth).network(targetUri, depth, direction);
+    if (res.status === 404) {
+      return errorResult("FORBIDDEN", "无权访问该实体");
+    }
     if (!res.ok) {
       const err = apiError(res);
       return errorResult(err.code, err.message);
     }
-    return successResult(res.data);
+
+    const rawNodes = Array.isArray(res.data?.nodes) ? res.data.nodes : [];
+    // The legacy tool treated an out-of-scope root as forbidden; the API now
+    // returns 404 for that case, but keep the empty-network guard as a fallback.
+    if (rawNodes.length === 0) {
+      return errorResult("FORBIDDEN", "无权访问该实体");
+    }
+
+    const nodes = rawNodes.map((node: any) => {
+      const uri = typeof node?.uri === "string" ? node.uri : "";
+      return {
+        id: uri,
+        uri,
+        type: typeof node?.type === "string" ? node.type : "",
+        properties: node?.properties && typeof node.properties === "object" ? node.properties : {},
+      };
+    });
+    const edges = Array.isArray(res.data?.edges) ? res.data.edges : [];
+
+    return successResult({
+      center: targetUri,
+      depth,
+      nodes,
+      edges,
+      node_count: nodes.length,
+      edge_count: edges.length,
+    });
   } catch (err: any) {
     return errorResult("INTERNAL_ERROR", err?.message || "内部错误");
   }

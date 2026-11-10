@@ -28,6 +28,31 @@ function hasFilters(args: Record<string, unknown>): boolean {
   });
 }
 
+/**
+ * Normalizes the `/ontology/graph` payload to the legacy summary envelope. The
+ * v2 API already returns `{summary, graph}`; the flag-off legacy route only
+ * returns `{nodes, edges}`, so derive the same summary there.
+ */
+function toLegacyGraph(data: any) {
+  if (data?.summary && data?.graph) return data;
+
+  const nodes = Array.isArray(data?.nodes) ? data.nodes : [];
+  const edges = Array.isArray(data?.edges) ? data.edges : [];
+  const typeCounts: Record<string, number> = {};
+  for (const node of nodes) {
+    const type = typeof node?.type === "string" ? node.type : "";
+    typeCounts[type] = (typeCounts[type] || 0) + 1;
+  }
+  return {
+    summary: {
+      total_nodes: nodes.length,
+      total_edges: edges.length,
+      type_counts: typeCounts,
+    },
+    graph: { nodes, edges },
+  };
+}
+
 export async function handler(args: Record<string, unknown>): Promise<ToolResult> {
   const auth = resolveAuthContext(args);
   if (!auth) return errorResult("UNAUTHORIZED", "无效或缺失 API key");
@@ -50,6 +75,16 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
           ? res.data.results
           : [];
       return successResult({ type, count: entities.length, entities });
+    }
+
+    // No type and no filters: preserve the legacy whole-graph summary contract.
+    if (!type && !hasFilters(args)) {
+      const res = await client.graph();
+      if (!res.ok) {
+        const err = apiError(res);
+        return errorResult(err.code, err.message);
+      }
+      return successResult(toLegacyGraph(res.data));
     }
 
     const body: Record<string, unknown> = {};

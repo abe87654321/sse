@@ -30,6 +30,8 @@ export interface AnomalyResult {
 export interface FindAnomaliesOptions {
   limit?: number;
   scope?: Scope;
+  /** Restrict the scan to these anomaly codes. Unknown codes match nothing. */
+  codes?: string[];
 }
 
 const AMOUNT_TOLERANCE = 0.005;
@@ -189,12 +191,17 @@ export async function findAnomalies(
 ): Promise<AnomalyResult> {
   const scope: Scope = opts.scope ?? { kind: 'all' };
   const limit = Math.max(1, Math.min(2000, Math.floor(opts.limit ?? 500)));
+  const codes =
+    Array.isArray(opts.codes) && opts.codes.length > 0
+      ? new Set(opts.codes.filter((code): code is string => typeof code === 'string' && code !== ''))
+      : null;
 
-  const anomalies = [
+  const all = [
     ...(await amountMismatches(store, scope)),
     ...(await duplicateInvoiceNumbers(store, scope)),
     ...(await missingApprovers(store, scope)),
-  ].slice(0, limit);
+  ];
+  const anomalies = (codes ? all.filter((anomaly) => codes.has(anomaly.code)) : all).slice(0, limit);
 
   return { anomalies, summary: summarize(anomalies) };
 }

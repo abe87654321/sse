@@ -1,4 +1,5 @@
 import { ontologyClient } from "../tools/ontology-client";
+import { apiJson } from "../tools/api-client";
 import type { AuthContext } from "../auth";
 
 const auth: AuthContext = { userId: "u1", role: "employee", department: "D" };
@@ -134,6 +135,31 @@ describe("ontologyClient", () => {
       method: "POST",
       body: JSON.stringify({ department: "研发" }),
     });
+  });
+
+  it("aborts requests after the configured timeout", async () => {
+    const fetchMock = jest.fn(
+      (_url: string, init: any) =>
+        new Promise((_resolve, reject) => {
+          const signal: AbortSignal | undefined = init?.signal;
+          if (!signal) {
+            reject(new Error("missing abort signal"));
+            return;
+          }
+          if (signal.aborted) {
+            reject(new Error("aborted"));
+            return;
+          }
+          signal.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    );
+    (global as any).fetch = fetchMock;
+
+    await expect(
+      apiJson(auth, "GET", "/ontology/status", undefined, { timeoutMs: 5 }),
+    ).rejects.toThrow(/aborted/);
+
+    expect(fetchMock.mock.calls[0][1].signal).toBeDefined();
   });
 
   it("serializes anomaly codes and limit into the query string", async () => {

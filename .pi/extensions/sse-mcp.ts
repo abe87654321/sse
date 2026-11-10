@@ -69,6 +69,26 @@ function deepSnake(obj: any): any {
   return obj;
 }
 
+/**
+ * The v2 `/ontology/graph` route returns `{summary, graph}`; the legacy
+ * flag-off route returns `{nodes, edges}`. Derive the summary in the latter
+ * case so `query_ontology` keeps one shape in both modes.
+ */
+function legacyGraphPayload(data: any): any {
+  if (data?.summary && data?.graph) return deepSnake(data);
+  const nodes = Array.isArray(data?.nodes) ? data.nodes : [];
+  const edges = Array.isArray(data?.edges) ? data.edges : [];
+  const typeCounts: Record<string, number> = {};
+  for (const node of nodes) {
+    const type = typeof node?.type === "string" ? node.type : "";
+    typeCounts[type] = (typeCounts[type] || 0) + 1;
+  }
+  return deepSnake({
+    summary: { total_nodes: nodes.length, total_edges: edges.length, type_counts: typeCounts },
+    graph: { nodes, edges },
+  });
+}
+
 function toPaginated(data: any): any {
   const body = deepSnake(data);
   const page = body.page ?? 1;
@@ -449,7 +469,8 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
 
     {
       name: "validate_expense",
-      description: "合规检查：验证费用项是否符合审批规则（需要 API 开启 ONTOLOGY_V2）",
+      description:
+        "合规检查：验证费用项是否符合审批规则。需 API 设置 ONTOLOGY_V2=on/shadow；关闭时返回 ONTOLOGY_V2_UNAVAILABLE（MCP server 会回退到数据库，Pi 瘦客户端不做本地回退）",
       properties: {
         amount: numReq("报销金额"),
         category_id: str("费用类别 UUID（可选）"),
@@ -486,6 +507,9 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
             entities: deepSnake(r.data || []),
           }));
         }
+        if (!a.type && !hasFilters) {
+          return api("GET", "/ontology/graph").then((r) => legacyGraphPayload(r.data));
+        }
         return api("POST", "/ontology/query", a).then((r) => deepSnake(r.data));
       },
     },
@@ -508,7 +532,25 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
         return api(
           "GET",
           `/ontology/entities/${encodeURIComponent(uri)}/network?depth=${depth}&direction=${direction}`,
-        ).then((r) => deepSnake(r.data));
+        ).then((r) => {
+          const apiNodes = Array.isArray(r.data?.nodes) ? r.data.nodes : [];
+          if (apiNodes.length === 0) throw new Error("无权访问该实体");
+          const nodes = apiNodes.map((node: any) => ({
+            id: node?.uri,
+            uri: node?.uri,
+            type: node?.type ?? "",
+            properties: node?.properties ?? {},
+          }));
+          const edges = Array.isArray(r.data?.edges) ? r.data.edges : [];
+          return deepSnake({
+            center: uri,
+            depth,
+            nodes,
+            edges,
+            node_count: nodes.length,
+            edge_count: edges.length,
+          });
+        });
       },
     },
 
@@ -517,7 +559,13 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
       description: "Execute a SPARQL query against the SSE ontology knowledge graph for cross-domain queries.",
       properties: { query: strReq("SPARQL SELECT query string, e.g. SELECT ?s ?p ?o WHERE { ?s ?p ?o }") },
       required: ["query"],
-      call: (a) => api("POST", "/ontology/sparql", { query: a.query }).then((r) => deepSnake(r.data)),
+      call: (a) =>
+        api("POST", "/ontology/sparql", { query: a.query }).then((r) => {
+          const d = r.data;
+          if (Array.isArray(d)) return deepSnake(d);
+          if (Array.isArray(d?.results)) return deepSnake(d.results);
+          return deepSnake(d);
+        }),
     },
 
     {

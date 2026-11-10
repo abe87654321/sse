@@ -32,7 +32,14 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
       const err = apiError(res);
       return errorResult(err.code, err.message);
     }
-    return successResult(res.data);
+
+    // The legacy tool returned the raw row array. The API wraps SELECT rows in
+    // `{ results, count }`, so unwrap it when present and fall back to the
+    // payload for non-SELECT results.
+    const data = res.data;
+    if (Array.isArray(data)) return successResult(data);
+    if (Array.isArray(data?.results)) return successResult(data.results);
+    return successResult(data);
   } catch (err: any) {
     return errorResult("INTERNAL_ERROR", err?.message || "内部错误");
   }

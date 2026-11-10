@@ -356,6 +356,31 @@ describe('reasoning services', () => {
     expect(mismatch?.evidence).toContain(report('r2'));
   });
 
+  it('filters anomalies by code and recomputes the summary', async () => {
+    const store = await storeWithSeed();
+    const result = await findAnomalies(store, {
+      scope: { kind: 'all' },
+      codes: ['amount_mismatch'],
+    });
+
+    expect(result.anomalies.map((anomaly) => anomaly.code)).toEqual(['amount_mismatch']);
+    expect(result.summary).toEqual({
+      total: 1,
+      error: 0,
+      warning: 1,
+      info: 0,
+      byCode: { amount_mismatch: 1 },
+    });
+  });
+
+  it('matches nothing for unknown anomaly codes', async () => {
+    const store = await storeWithSeed();
+    const result = await findAnomalies(store, { scope: { kind: 'all' }, codes: ['nope'] });
+
+    expect(result.anomalies).toEqual([]);
+    expect(result.summary.total).toBe(0);
+  });
+
   it('does not leak out-of-scope approvers or payers when a self-scoped employee explains their report', async () => {
     const store = await storeWithSeed();
     const explanation = await explainReport(store, report('r1'), { kind: 'self', userId: 'p1' });
