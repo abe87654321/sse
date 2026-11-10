@@ -212,12 +212,33 @@ router.post('/reason', asyncWrap(async (req, res) => {
 
 router.post('/sparql', asyncWrap(async (req, res) => {
   assertOntologyManager(req.user!.role);
-  const { query } = req.body;
-  if (!query) throw new AppError(400, 'INVALID_PARAMS', '请提供 query');
-  const store = getEngine().store;
-  const { executeSparql } = await import('@sse/ontology');
-  const results = executeSparql(store.getStore(), query);
-  res.json({ results, count: results.length });
+  const { query } = req.body ?? {};
+  if (!query || typeof query !== 'string') throw new AppError(400, 'INVALID_PARAMS', '请提供 query');
+
+  if (process.env.ONTOLOGY_V2 !== 'on' && process.env.ONTOLOGY_V2 !== 'shadow') {
+    const store = getEngine().store;
+    const { executeSparql } = await import('@sse/ontology');
+    const results = executeSparql(store.getStore(), query);
+    res.json({ results, count: results.length });
+    return;
+  }
+
+  const { assertReadOnlySparql, capResults, getGraphStore } = await import('@sse/ontology');
+  try {
+    assertReadOnlySparql(query);
+  } catch (err: any) {
+    throw new AppError(400, 'INVALID_SPARQL', err?.message || 'SPARQL 查询无效');
+  }
+
+  const maxResults = Math.max(1, Number(process.env.ONTOLOGY_SPARQL_MAX_RESULTS) || 1000);
+  const timeoutMs = Math.max(1, Number(process.env.ONTOLOGY_SPARQL_TIMEOUT_MS) || 1500);
+  const result = await getGraphStore().query(capResults(query, maxResults), { timeoutMs });
+
+  if (result.kind === 'select') {
+    res.json({ results: result.rows, count: result.rows.length });
+    return;
+  }
+  res.json({ results: result });
 }));
 
 router.post('/query-expense-status', asyncWrap(async (req, res) => {

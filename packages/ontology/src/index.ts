@@ -21,6 +21,7 @@ export * from './projection/projector';
 export * from './projection/reconcile';
 export * from './projection/reconcile-jobs';
 export * from './query/query-service';
+export * from './query/sparql-guard';
 export * from './query/sparql-term';
 
 import { OwlStore } from './owl-store';

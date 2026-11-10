@@ -202,7 +202,12 @@ function selectRows(result: GraphQueryResult): Array<Record<string, string>> {
 }
 
 export class OntologyQueryService {
-  constructor(private readonly store: GraphStore, private readonly pool?: QueryPool) {}
+  constructor(public readonly store: GraphStore, private readonly poolRef?: QueryPool) {}
+
+  get pool(): QueryPool {
+    if (!this.poolRef) throw new Error('ontology pool is not initialized');
+    return this.poolRef;
+  }
 
   async listEntities(input: {
     type?: string;
@@ -482,7 +487,7 @@ ORDER BY ?property`);
   async status(): Promise<OntologyStatus> {
     const counts = await this.store.counts();
 
-    if (!this.pool) {
+    if (!this.poolRef) {
       return {
         engine: 'oxigraph',
         version: 0,
@@ -500,7 +505,7 @@ ORDER BY ?property`);
     }
 
     const [outboxResult, versionResult] = await Promise.all([
-      this.pool.query(
+      this.poolRef.query(
         `SELECT
            COUNT(*) FILTER (WHERE processed_at IS NULL AND dead_letter = false)::int AS pending,
            COUNT(*) FILTER (WHERE dead_letter = true)::int AS dead_lettered,
@@ -515,7 +520,7 @@ ORDER BY ?property`);
              ORDER BY id DESC LIMIT 1) AS last_error
          FROM ontology_outbox`,
       ),
-      this.pool.query(`SELECT last_snapshot_version FROM ontology_projector_state WHERE id = 'default'`),
+      this.poolRef.query(`SELECT last_snapshot_version FROM ontology_projector_state WHERE id = 'default'`),
     ]);
 
     const row = outboxResult.rows[0] ?? {};
