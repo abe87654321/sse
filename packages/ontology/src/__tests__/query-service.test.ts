@@ -1,6 +1,6 @@
 import { MemoryGraphStore } from '../graph/memory-store';
 import { loadTBox } from '../graph/ontology-loader';
-import { OntologyQueryService } from '../query/query-service';
+import { InvalidQueryError, OntologyQueryService } from '../query/query-service';
 
 const SSE = 'https://sse.local/ontology#';
 const RDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
@@ -59,6 +59,11 @@ const NQ = `
 <https://sse.local/item/i5> <${SSE}amount> "1"^^<${XSD}decimal> <${DATA}> .
 <https://sse.local/item/i5> <${SSE}hasCategory> <https://sse.local/category/c1> <${DATA}> .
 
+<https://sse.local/invoice/inv1> <${RDF}type> <${SSE}Invoice> <${DATA}> .
+<https://sse.local/item/i1> <${SSE}hasInvoice> <https://sse.local/invoice/inv1> <${DATA}> .
+<https://sse.local/invoice/inv2> <${RDF}type> <${SSE}Invoice> <${DATA}> .
+<https://sse.local/item/i2> <${SSE}hasInvoice> <https://sse.local/invoice/inv2> <${DATA}> .
+
 <https://sse.local/category/c1> <${RDF}type> <${SSE}ExpenseCategory> <${DATA}> .
 <https://sse.local/category/c1> <${SSE}name> "差旅" <${DATA}> .
 <https://sse.local/category/c2> <${RDF}type> <${SSE}ExpenseCategory> <${DATA}> .
@@ -71,6 +76,51 @@ async function makeService(): Promise<OntologyQueryService> {
   await store.load(NQ);
   return new OntologyQueryService(store);
 }
+
+async function makeServiceWith(nquads: string): Promise<OntologyQueryService> {
+  const store = new MemoryGraphStore();
+  await loadTBox(store);
+  await store.load(nquads);
+  return new OntologyQueryService(store);
+}
+
+function pagingNq(ids: string[]): string {
+  return ids
+    .map(
+      (id) => `
+<https://sse.local/report/${id}> <${RDF}type> <${SSE}ExpenseReport> <${DATA}> .
+<https://sse.local/report/${id}> <${SSE}title> "Report ${id}" <${DATA}> .
+<https://sse.local/report/${id}> <${SSE}status> "pending" <${DATA}> .
+<https://sse.local/report/${id}> <${SSE}amount> "10"^^<${XSD}decimal> <${DATA}> .
+`,
+    )
+    .join('');
+}
+
+const CROSS_DEPT_NQ = `
+<https://sse.local/person/t1> <${RDF}type> <${SSE}Person> <${DATA}> .
+<https://sse.local/person/t1> <${SSE}name> "技术员工" <${DATA}> .
+<https://sse.local/person/t1> <${SSE}belongsTo> <https://sse.local/dept/tech> <${DATA}> .
+<https://sse.local/person/s1> <${RDF}type> <${SSE}Person> <${DATA}> .
+<https://sse.local/person/s1> <${SSE}name> "销售员工" <${DATA}> .
+<https://sse.local/person/s1> <${SSE}belongsTo> <https://sse.local/dept/sales> <${DATA}> .
+
+<https://sse.local/dept/tech> <${RDF}type> <${SSE}Department> <${DATA}> .
+<https://sse.local/dept/tech> <${SSE}name> "技术部" <${DATA}> .
+<https://sse.local/dept/sales> <${RDF}type> <${SSE}Department> <${DATA}> .
+<https://sse.local/dept/sales> <${SSE}name> "销售部" <${DATA}> .
+
+<https://sse.local/report/t1> <${RDF}type> <${SSE}ExpenseReport> <${DATA}> .
+<https://sse.local/report/t1> <${SSE}status> "pending" <${DATA}> .
+<https://sse.local/report/t1> <${SSE}submittedBy> <https://sse.local/person/t1> <${DATA}> .
+<https://sse.local/report/s1> <${RDF}type> <${SSE}ExpenseReport> <${DATA}> .
+<https://sse.local/report/s1> <${SSE}status> "pending" <${DATA}> .
+<https://sse.local/report/s1> <${SSE}submittedBy> <https://sse.local/person/s1> <${DATA}> .
+
+<https://sse.local/report/s1> <${SSE}hasApproval> <https://sse.local/approval/x> <${DATA}> .
+<https://sse.local/approval/x> <${RDF}type> <${SSE}ApprovalRecord> <${DATA}> .
+<https://sse.local/approval/x> <${SSE}approvedBy> <https://sse.local/person/t1> <${DATA}> .
+`;
 
 describe('OntologyQueryService', () => {
   it('filters reports by status and department', async () => {
@@ -151,6 +201,69 @@ describe('OntologyQueryService', () => {
 
     const denied = await svc.searchReports({ scope: { kind: 'deny' } });
     expect(denied).toEqual({ results: [], total: 0 });
+  });
+
+  it('lists every data entity when no filters are supplied', async () => {
+    const svc = await makeService();
+    const res = await svc.listEntities({ scope: { kind: 'all' } });
+
+    expect(res.total).toBeGreaterThan(0);
+    expect(res.results.length).toBeGreaterThan(0);
+    expect(res.results.some((entity) => entity.uri === 'https://sse.local/report/r1')).toBe(true);
+    expect(res.results.some((entity) => entity.uri.startsWith(`${SSE}`))).toBe(false);
+  });
+
+  it('paginates distinct entities before loading property rows', async () => {
+    const two = await makeServiceWith(pagingNq(['a', 'b']));
+    const first = await two.listEntities({
+      type: 'ExpenseReport',
+      page: 1,
+      pageSize: 2,
+      scope: { kind: 'all' },
+    });
+    expect(first.total).toBe(2);
+    expect(first.results.map((entity) => entity.uri)).toEqual([
+      'https://sse.local/report/a',
+      'https://sse.local/report/b',
+    ]);
+    expect(first.results.every((entity) => Object.keys(entity.properties).length === 3)).toBe(true);
+
+    const second = await two.listEntities({
+      type: 'ExpenseReport',
+      page: 2,
+      pageSize: 2,
+      scope: { kind: 'all' },
+    });
+    expect(second).toEqual({ results: [], total: 2 });
+
+    const three = await makeServiceWith(pagingNq(['a', 'b', 'c']));
+    const pageOne = await three.listEntities({
+      type: 'ExpenseReport',
+      page: 1,
+      pageSize: 2,
+      scope: { kind: 'all' },
+    });
+    expect(pageOne.total).toBe(3);
+    expect(pageOne.results.map((entity) => entity.uri)).toEqual([
+      'https://sse.local/report/a',
+      'https://sse.local/report/b',
+    ]);
+
+    const pageTwo = await three.listEntities({
+      type: 'ExpenseReport',
+      page: 2,
+      pageSize: 2,
+      scope: { kind: 'all' },
+    });
+    expect(pageTwo.total).toBe(3);
+    expect(pageTwo.results.map((entity) => entity.uri)).toEqual(['https://sse.local/report/c']);
+  });
+
+  it('rejects invalid types instead of returning a server error', async () => {
+    const svc = await makeService();
+    await expect(
+      svc.listEntities({ type: 'bad-type!', scope: { kind: 'all' } }),
+    ).rejects.toBeInstanceOf(InvalidQueryError);
   });
 
   it('supports legacy report class filters without inferred graph triples', async () => {
@@ -258,6 +371,73 @@ describe('OntologyQueryService', () => {
       scope: { kind: 'self', userId: 'p1' },
     });
     expect(denied).toEqual({ nodes: [], edges: [] });
+  });
+
+  it('drops out-of-scope neighbors during network traversal', async () => {
+    const svc = await makeService();
+    const self = await svc.network('https://sse.local/report/r1', {
+      depth: 5,
+      direction: 'both',
+      scope: { kind: 'self', userId: 'p1' },
+    });
+
+    const uris = self.nodes.map((node) => node.uri);
+    expect(uris).toContain('https://sse.local/report/r1');
+    expect(uris).toContain('https://sse.local/person/p1');
+    expect(uris).toContain('https://sse.local/item/i1');
+    expect(uris).not.toContain('https://sse.local/person/p2');
+    expect(uris).not.toContain('https://sse.local/report/r2');
+    expect(self.edges.some((edge) => edge.from.includes('/r2') || edge.to.includes('/r2'))).toBe(false);
+    expect(self.edges.some((edge) => edge.from.includes('/p2') || edge.to.includes('/p2'))).toBe(false);
+  });
+
+  it('drops cross-department neighbors during network traversal', async () => {
+    const svc = await makeServiceWith(CROSS_DEPT_NQ);
+    const network = await svc.network('https://sse.local/person/t1', {
+      depth: 1,
+      direction: 'both',
+      scope: { kind: 'department', department: '技术部' },
+    });
+
+    const uris = network.nodes.map((node) => node.uri);
+    expect(uris).toContain('https://sse.local/person/t1');
+    expect(uris).toContain('https://sse.local/report/t1');
+    expect(uris).toContain('https://sse.local/dept/tech');
+    expect(uris).not.toContain('https://sse.local/approval/x');
+    expect(uris).not.toContain('https://sse.local/report/s1');
+    expect(uris).not.toContain('https://sse.local/person/s1');
+
+    const crossDepartment = await svc.network('https://sse.local/report/s1', {
+      depth: 2,
+      scope: { kind: 'department', department: '技术部' },
+    });
+    expect(crossDepartment).toEqual({ nodes: [], edges: [] });
+  });
+
+  it('lets employees read their own items and invoices through the parent report', async () => {
+    const svc = await makeService();
+    const self = { kind: 'self', userId: 'p1' } as const;
+
+    expect(await svc.getEntity('https://sse.local/item/i1', self)).not.toBeNull();
+    expect(await svc.getEntity('https://sse.local/invoice/inv1', self)).not.toBeNull();
+    expect(await svc.getEntity('https://sse.local/item/i2', self)).toBeNull();
+    expect(await svc.getEntity('https://sse.local/invoice/inv2', self)).toBeNull();
+  });
+
+  it('rejects malformed IRIs but treats foreign IRIs as missing', async () => {
+    const svc = await makeService();
+
+    await expect(
+      svc.network('not an iri', { depth: 1, scope: { kind: 'all' } }),
+    ).rejects.toBeInstanceOf(InvalidQueryError);
+    await expect(
+      svc.getEntity('not an iri', { kind: 'all' }),
+    ).rejects.toBeInstanceOf(InvalidQueryError);
+
+    expect(
+      await svc.network('https://evil.example/report/r1', { depth: 1, scope: { kind: 'all' } }),
+    ).toEqual({ nodes: [], edges: [] });
+    expect(await svc.getEntity('https://evil.example/report/r1', { kind: 'all' })).toBeNull();
   });
 
   it('reads classes and properties from the TBox', async () => {

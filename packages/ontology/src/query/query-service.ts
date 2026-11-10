@@ -1,4 +1,4 @@
-import { GRAPH, RDF_TYPE, SSE, XSD, sse, uri } from '../graph/namespaces';
+import { GRAPH, INST, RDF_TYPE, SSE, XSD, sse, uri } from '../graph/namespaces';
 import type { GraphCounts, GraphQueryResult, GraphStore } from '../graph/types';
 import { sparqlIri, sparqlString } from './sparql-term';
 
@@ -27,6 +27,17 @@ const LEGACY_REPORT_TYPES: Record<string, string> = {
   RejectedReport: 'rejected',
   PaidReport: 'paid',
 };
+
+/** Only data entities live outside the ontology namespace. */
+const DATA_ENTITY_FILTER =
+  `FILTER(STRSTARTS(STR(?entity), "${INST}") && !STRSTARTS(STR(?entity), "${SSE}"))`;
+
+export class InvalidQueryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidQueryError';
+  }
+}
 
 export type Scope =
   | { kind: 'all' }
@@ -115,16 +126,26 @@ function safeIri(value: string): string | null {
   }
 }
 
+/** A syntactically valid absolute IRI that is not inside the SSE namespace. */
+function isAbsoluteIri(value: string): boolean {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function assertTypeName(type: string): string {
   if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(type)) {
-    throw new Error('invalid ontology type');
+    throw new InvalidQueryError('invalid ontology type');
   }
   return type;
 }
 
 function dateLiteral(value: string, field: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    throw new Error(`invalid ${field} date`);
+    throw new InvalidQueryError(`invalid ${field} date`);
   }
   return `"${value}"^^<${XSD}date>`;
 }
@@ -194,6 +215,11 @@ function entityPatterns(filters: EntityFilters): EntityPatterns {
 
   patterns.push(...scopePatterns(filters.scope, '?entity'));
 
+  // With no filters at all, ?entity is never bound and COUNT would return 0.
+  if (patterns.length === 0) {
+    patterns.push(`?entity a ?type .`, DATA_ENTITY_FILTER);
+  }
+
   return { patterns, legacyType };
 }
 
@@ -221,47 +247,64 @@ export class OntologyQueryService {
     const page = Math.max(1, Math.floor(Number(input.page) || 1));
     const pageSize = Math.max(1, Math.min(100, Math.floor(Number(input.pageSize) || 20)));
     const { patterns, legacyType } = entityPatterns(input);
+    const where = patterns.join('\n  ');
 
     const countResult = await this.store.query(`${PROLOGUE}
 SELECT (COUNT(DISTINCT ?entity) AS ?total) ${DATASET}
 WHERE {
-  ${patterns.join('\n  ')}
+  ${where}
 }`);
     const total = Number(selectRows(countResult)[0]?.total ?? 0);
 
-    if (total === 0 || (page - 1) * pageSize >= total) {
+    const offset = (page - 1) * pageSize;
+    if (total === 0 || offset >= total) {
       return { results: [], total };
     }
 
-    const offset = (page - 1) * pageSize;
+    // Paginate distinct entity URIs before loading their properties, otherwise
+    // LIMIT/OFFSET would slice property rows instead of entities.
+    const pageResult = await this.store.query(`${PROLOGUE}
+SELECT DISTINCT ?entity ${DATASET}
+WHERE {
+  ${where}
+}
+ORDER BY ?entity
+LIMIT ${pageSize} OFFSET ${offset}`);
+    const pageUris = selectRows(pageResult)
+      .map((row) => row.entity)
+      .filter((entity): entity is string => typeof entity === 'string' && entity.length > 0);
+    if (pageUris.length === 0) {
+      return { results: [], total };
+    }
+
+    const values = pageUris.map((entity) => sparqlIri(entity)).join(' ');
     const result = await this.store.query(`${PROLOGUE}
 SELECT DISTINCT ?entity ?actualType ?p ?o ${DATASET}
 WHERE {
-  ${patterns.join('\n  ')}
+  VALUES ?entity { ${values} }
   OPTIONAL { ?entity a ?actualType }
   OPTIONAL { ?entity ?p ?o . FILTER(?p != rdf:type && isLiteral(?o)) }
 }
-ORDER BY ?entity ?p ?o
-LIMIT ${pageSize} OFFSET ${offset}`);
+ORDER BY ?entity ?p ?o`);
 
     const entities = new Map<string, EntitySummary>();
+    for (const entity of pageUris) {
+      entities.set(entity, {
+        uri: entity,
+        type: legacyType ?? '',
+        properties: {},
+      });
+    }
     for (const row of selectRows(result)) {
       const entity = row.entity;
       if (!entity) continue;
-      let summary = entities.get(entity);
-      if (!summary) {
-        summary = {
-          uri: entity,
-          type: legacyType ?? (row.actualType ? localName(row.actualType) : ''),
-          properties: {},
-        };
-        entities.set(entity, summary);
-      }
+      const summary = entities.get(entity);
+      if (!summary) continue;
       if (!summary.type && row.actualType) summary.type = localName(row.actualType);
       if (row.p && row.o !== undefined) summary.properties[localName(row.p)] = row.o;
     }
 
-    return { results: [...entities.values()], total };
+    return { results: pageUris.map((entity) => entities.get(entity)!), total };
   }
 
   async searchReports(input: {
@@ -287,7 +330,12 @@ LIMIT ${pageSize} OFFSET ${offset}`);
 
   async getEntity(uriValue: string, scope: Scope): Promise<EntityDetail | null> {
     const subject = safeIri(uriValue);
-    if (!subject) return null;
+    if (!subject) {
+      // Well-formed IRIs outside the SSE namespace simply do not exist here;
+      // malformed values are a caller error instead of a missing entity.
+      if (!isAbsoluteIri(uriValue)) throw new InvalidQueryError('invalid entity IRI');
+      return null;
+    }
     if (!(await this.entityInScope(uriValue, scope))) return null;
 
     const propertyResult = await this.store.query(`${PROLOGUE}
@@ -357,9 +405,21 @@ ORDER BY ?p ?s`);
     const rawDepth = Number(opts.depth);
     const depth = Number.isFinite(rawDepth) ? Math.min(5, Math.max(0, Math.floor(rawDepth))) : 2;
 
+    if (!isAbsoluteIri(uriValue)) throw new InvalidQueryError('invalid entity IRI');
     if (!(await this.entityInScope(uriValue, opts.scope))) {
       return { nodes: [], edges: [] };
     }
+    // A well-formed IRI outside the SSE namespace has no graph data to walk.
+    if (!safeIri(uriValue)) return { nodes: [], edges: [] };
+
+    const scopeCache = new Map<string, boolean>();
+    const inScope = async (candidate: string): Promise<boolean> => {
+      const cached = scopeCache.get(candidate);
+      if (cached !== undefined) return cached;
+      const allowed = await this.entityInScope(candidate, opts.scope);
+      scopeCache.set(candidate, allowed);
+      return allowed;
+    };
 
     const visited = new Set<string>([uriValue]);
     let frontier = [uriValue];
@@ -394,6 +454,9 @@ WHERE {
       const next: string[] = [];
       for (const row of rows) {
         if (!row.from || !row.p || !row.to) continue;
+        if (!safeIri(row.from) || !safeIri(row.to)) continue;
+        // Never traverse or surface an edge that leaves the caller's scope.
+        if (!(await inScope(row.from)) || !(await inScope(row.to))) continue;
         const key = `${row.from}|${row.p}|${row.to}`;
         if (!edges.has(key)) {
           edges.set(key, {
@@ -405,7 +468,7 @@ WHERE {
           });
         }
         for (const candidate of [row.from, row.to]) {
-          if (visited.has(candidate) || !safeIri(candidate)) continue;
+          if (visited.has(candidate)) continue;
           visited.add(candidate);
           next.push(candidate);
         }
@@ -552,25 +615,45 @@ ORDER BY ?property`);
     const subject = safeIri(entity);
     if (!subject) return false;
 
+    const childPatterns = (reportOwner: string): string[] => [
+      // ExpenseItem is linked from its report via containsItem.
+      `{ ?scopeReport <${sse('containsItem')}> ${subject} . ${reportOwner} }`,
+      // Invoice is linked from its item, whose report is the actual parent.
+      `{ ?scopeItem <${sse('hasInvoice')}> ${subject} . ?scopeReport <${sse('containsItem')}> ?scopeItem . ${reportOwner} }`,
+      // ApprovalRecord / PaymentReceipt are linked directly from the report.
+      `{ ?scopeReport <${sse('hasApproval')}> ${subject} . ${reportOwner} }`,
+      `{ ?scopeReport <${sse('hasPaymentReceipt')}> ${subject} . ${reportOwner} }`,
+    ];
+
     let body: string;
     if (scope.kind === 'self') {
       if (!scope.userId) return false;
       const person = safeIri(uri.person(scope.userId));
       if (!person) return false;
+      const reportOwner = `?scopeReport <${sse('submittedBy')}> ${person}`;
       body = `{
+        { FILTER(${subject} = ${person}) }
+        UNION
+        { ${subject} <${sse('belongsTo')}> ?scopeDept . ${person} <${sse('belongsTo')}> ?scopeDept }
+        UNION
         { ${subject} <${sse('submittedBy')}> ${person} }
         UNION
-        { FILTER(${subject} = ${person}) }
+        ${childPatterns(reportOwner).join('\n        UNION\n        ')}
       }`;
     } else {
       if (!scope.department) return false;
       const name = sparqlString(scope.department);
+      const personInDept =
+        `?scopePerson <${sse('belongsTo')}> ?scopeDept . ?scopeDept <${sse('name')}> ${name}`;
+      const reportOwner = `?scopeReport <${sse('submittedBy')}> ?scopePerson . ${personInDept}`;
       body = `{
-        { ${subject} <${sse('submittedBy')}> ?scopePerson . ?scopePerson <${sse('belongsTo')}> ?scopeDept . ?scopeDept <${sse('name')}> ${name} }
+        { ${subject} <${sse('submittedBy')}> ?scopePerson . ${personInDept} }
         UNION
         { ${subject} <${sse('belongsTo')}> ?scopeDept . ?scopeDept <${sse('name')}> ${name} }
         UNION
         { ${subject} a <${sse('Department')}> . ${subject} <${sse('name')}> ${name} }
+        UNION
+        ${childPatterns(reportOwner).join('\n        UNION\n        ')}
       }`;
     }
 

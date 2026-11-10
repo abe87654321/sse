@@ -1,0 +1,186 @@
+import express from 'express';
+import type { AddressInfo } from 'net';
+import type { Server } from 'http';
+import { signToken } from '@sse/auth';
+import { MemoryGraphStore, loadTBox, setGraphContext } from '@sse/ontology';
+import {
+  ontologyV2Routes,
+  ontologyV2UnavailableRoutes,
+} from '../routes/ontology-v2';
+import { errorHandler } from '../middleware/error';
+
+const SSE = 'https://sse.local/ontology#';
+const RDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
+const DATA = 'urn:sse:data';
+
+const NQ = `
+<https://sse.local/report/r1> <${RDF}type> <${SSE}ExpenseReport> <${DATA}> .
+<https://sse.local/report/r1> <${SSE}status> "pending" <${DATA}> .
+<https://sse.local/report/r1> <${SSE}submittedBy> <https://sse.local/person/p1> <${DATA}> .
+<https://sse.local/report/r1> <${SSE}containsItem> <https://sse.local/item/i1> <${DATA}> .
+
+<https://sse.local/report/r2> <${RDF}type> <${SSE}ExpenseReport> <${DATA}> .
+<https://sse.local/report/r2> <${SSE}status> "pending" <${DATA}> .
+<https://sse.local/report/r2> <${SSE}submittedBy> <https://sse.local/person/p2> <${DATA}> .
+
+<https://sse.local/person/p1> <${RDF}type> <${SSE}Person> <${DATA}> .
+<https://sse.local/person/p1> <${SSE}name> "张三" <${DATA}> .
+<https://sse.local/person/p1> <${SSE}belongsTo> <https://sse.local/dept/tech> <${DATA}> .
+<https://sse.local/person/p2> <${RDF}type> <${SSE}Person> <${DATA}> .
+<https://sse.local/person/p2> <${SSE}name> "李四" <${DATA}> .
+<https://sse.local/person/p2> <${SSE}belongsTo> <https://sse.local/dept/sales> <${DATA}> .
+
+<https://sse.local/dept/tech> <${RDF}type> <${SSE}Department> <${DATA}> .
+<https://sse.local/dept/tech> <${SSE}name> "技术部" <${DATA}> .
+<https://sse.local/dept/sales> <${RDF}type> <${SSE}Department> <${DATA}> .
+<https://sse.local/dept/sales> <${SSE}name> "销售部" <${DATA}> .
+
+<https://sse.local/item/i1> <${RDF}type> <${SSE}ExpenseItem> <${DATA}> .
+<https://sse.local/item/i1> <${SSE}amount> "10" <${DATA}> .
+`;
+
+const adminToken = signToken({ userId: 'admin', role: 'admin', department: '管理部' });
+const employeeToken = signToken({ userId: 'p1', role: 'employee', department: '技术部' });
+
+function listen(app: express.Express): Promise<{ url: string; server: Server }> {
+  return new Promise((resolve) => {
+    const server = app.listen(0, '127.0.0.1', () => {
+      const { port } = server.address() as AddressInfo;
+      resolve({ url: `http://127.0.0.1:${port}`, server });
+    });
+  });
+}
+
+function close(server: Server): Promise<void> {
+  return new Promise((resolve) => server.close(() => resolve()));
+}
+
+describe('ontology v2 routes', () => {
+  let url: string;
+  let server: Server;
+
+  beforeAll(async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const store = new MemoryGraphStore();
+    await loadTBox(store);
+    await store.load(NQ);
+    const pool = {
+      query: async (sql: string) => {
+        if (sql.includes('ontology_projector_state')) {
+          return { rows: [{ last_snapshot_version: '3' }] };
+        }
+        return {
+          rows: [{ pending: '1', dead_lettered: '0', lag_seconds: '2', last_error: null }],
+        };
+      },
+    };
+    setGraphContext(store, pool);
+
+    const app = express();
+    app.use(express.json());
+    app.use('/ontology', ontologyV2Routes);
+    app.use(errorHandler);
+    ({ url, server } = await listen(app));
+  });
+
+  afterAll(async () => {
+    await close(server);
+    (console.error as jest.Mock).mockRestore();
+  });
+
+  function get(path: string, token?: string) {
+    return fetch(`${url}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  }
+
+  function post(path: string, body: unknown, token?: string) {
+    return fetch(`${url}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('rejects unauthenticated requests', async () => {
+    const res = await get('/ontology/status');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns the shared status shape', async () => {
+    const res = await get('/ontology/status', adminToken);
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    expect(body.engine).toBe('oxigraph');
+    expect(body.version).toBe(3);
+    expect(body.counts.quads).toBeGreaterThan(0);
+    expect(body.outbox).toEqual({
+      pending: 1,
+      deadLettered: 0,
+      oldestPendingAgeSeconds: 2,
+      lastError: null,
+    });
+  });
+
+  it('keeps the legacy array shape when type is supplied', async () => {
+    const res = await get('/ontology/entities?type=ExpenseReport', adminToken);
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.map((entity: any) => entity.uri)).toEqual([
+      'https://sse.local/report/r1',
+      'https://sse.local/report/r2',
+    ]);
+    expect(body[0]).toHaveProperty('properties');
+    expect(body[0]).not.toHaveProperty('total');
+  });
+
+  it('returns paged reports without a legacy type filter', async () => {
+    const res = await post('/ontology/query', { page: 2, pageSize: 2 }, adminToken);
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    expect(body.total).toBe(2);
+    expect(body.results).toEqual([]);
+  });
+
+  it('applies scope to entity reads', async () => {
+    const outOfScope = await get(
+      `/ontology/entities/${encodeURIComponent('https://sse.local/report/r2')}`,
+      employeeToken,
+    );
+    expect(outOfScope.status).toBe(404);
+
+    const ownItem = await get(
+      `/ontology/entities/${encodeURIComponent('https://sse.local/item/i1')}`,
+      employeeToken,
+    );
+    expect(ownItem.status).toBe(200);
+    expect((await ownItem.json()) as any).toMatchObject({
+      uri: 'https://sse.local/item/i1',
+      type: 'ExpenseItem',
+    });
+  });
+
+  it('maps invalid types to INVALID_PARAMS', async () => {
+    const res = await get('/ontology/entities?type=bad-type!', adminToken);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as any).error.code).toBe('INVALID_PARAMS');
+  });
+
+  it('returns 503 for v2 routes when the platform is disabled', async () => {
+    const app = express();
+    app.use('/ontology', ontologyV2UnavailableRoutes);
+    const offline = await listen(app);
+    try {
+      const res = await fetch(`${offline.url}/ontology/status`);
+      expect(res.status).toBe(503);
+      expect(((await res.json()) as any).error.code).toBe('ONTOLOGY_V2_UNAVAILABLE');
+    } finally {
+      await close(offline.server);
+    }
+  });
+});

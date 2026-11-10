@@ -50,4 +50,21 @@ describe('capResults', () => {
     );
     expect(capped).toMatch(/LIMIT 1000\s*$/);
   });
+
+  it('ignores a LIMIT hidden in a trailing comment', () => {
+    const capped = capResults('SELECT ?s WHERE { ?s ?p ?o } # LIMIT 5000', 1000);
+    expect(capped).toMatch(/LIMIT 1000\s*$/);
+    expect(capped).not.toContain('# LIMIT 5000');
+  });
+
+  it('handles a leading comment before SELECT', () => {
+    const capped = capResults('# leading comment\nSELECT ?s WHERE { ?s ?p ?o }', 1000);
+    expect(capped).toMatch(/LIMIT 1000\s*$/);
+  });
+
+  it('does not treat a LIMIT inside a string literal as a clause', () => {
+    const capped = capResults('SELECT ?s WHERE { ?s ?p "LIMIT 5000" }', 1000);
+    expect(capped).toContain('"LIMIT 5000"');
+    expect(capped).toMatch(/LIMIT 1000\s*$/);
+  });
 });

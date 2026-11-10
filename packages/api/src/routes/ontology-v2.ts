@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { authMiddleware, resolveDataScope } from '@sse/auth';
+import { getQueryService, InvalidQueryError } from '@sse/ontology';
 import { requireRole } from '../middleware/rbac';
 import { AppError } from '../middleware/error';
 
@@ -7,8 +8,22 @@ const router = Router();
 
 function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
+    Promise.resolve(fn(req, res, next)).catch((err) => {
+      if (err instanceof InvalidQueryError) {
+        next(new AppError(400, 'INVALID_PARAMS', err.message));
+        return;
+      }
+      next(err);
+    });
   };
+}
+
+function queryService() {
+  try {
+    return getQueryService();
+  } catch {
+    throw new AppError(503, 'ONTOLOGY_V2_UNAVAILABLE', '本体查询服务尚未初始化');
+  }
 }
 
 function toScope(req: Request) {
@@ -51,19 +66,16 @@ function entityUri(req: Request): string {
 router.use(authMiddleware);
 
 router.get('/status', asyncWrap(async (_req, res) => {
-  const { getQueryService } = await import('@sse/ontology');
-  res.json(await getQueryService().status());
+  res.json(await queryService().status());
 }));
 
 router.get('/schema', asyncWrap(async (_req, res) => {
-  const { getQueryService } = await import('@sse/ontology');
-  res.json(await getQueryService().schema());
+  res.json(await queryService().schema());
 }));
 
 router.get('/entities', asyncWrap(async (req, res) => {
-  const { getQueryService } = await import('@sse/ontology');
   const type = queryParam(req.query.type);
-  const result = await getQueryService().listEntities({
+  const result = await queryService().listEntities({
     type,
     status: queryParam(req.query.status),
     department: queryParam(req.query.department),
@@ -81,10 +93,9 @@ router.get('/entities', asyncWrap(async (req, res) => {
 }));
 
 router.get('/entities/:uri(*)/network', asyncWrap(async (req, res) => {
-  const { getQueryService } = await import('@sse/ontology');
   const rawDepth = Number(req.query.depth);
   const depth = Number.isFinite(rawDepth) ? rawDepth : 2;
-  res.json(await getQueryService().network(entityUri(req), {
+  res.json(await queryService().network(entityUri(req), {
     depth,
     direction: direction(req.query.direction),
     scope: toScope(req),
@@ -92,14 +103,12 @@ router.get('/entities/:uri(*)/network', asyncWrap(async (req, res) => {
 }));
 
 router.get('/entities/:uri(*)', asyncWrap(async (req, res) => {
-  const { getQueryService } = await import('@sse/ontology');
-  const entity = await getQueryService().getEntity(entityUri(req), toScope(req));
+  const entity = await queryService().getEntity(entityUri(req), toScope(req));
   if (!entity) throw new AppError(404, 'NOT_FOUND', '实体不存在或无权访问');
   res.json(entity);
 }));
 
 router.post('/query', asyncWrap(async (req, res) => {
-  const { getQueryService } = await import('@sse/ontology');
   const body = req.body ?? {};
   const scope = toScope(req);
   const type = typeof body.type === 'string' ? body.type : undefined;
@@ -107,7 +116,7 @@ router.post('/query', asyncWrap(async (req, res) => {
   const size = pageSize(body.pageSize ?? body.page_size);
 
   if (type) {
-    res.json(await getQueryService().listEntities({
+    res.json(await queryService().listEntities({
       type,
       status: typeof body.status === 'string' ? body.status : undefined,
       department: typeof body.department === 'string' ? body.department : undefined,
@@ -119,7 +128,7 @@ router.post('/query', asyncWrap(async (req, res) => {
     return;
   }
 
-  res.json(await getQueryService().searchReports({
+  res.json(await queryService().searchReports({
     status: typeof body.status === 'string' ? body.status : undefined,
     department: typeof body.department === 'string' ? body.department : undefined,
     q: typeof body.q === 'string' ? body.q : undefined,
@@ -157,5 +166,36 @@ router.get('/reconcile/:jobId', requireRole('admin'), asyncWrap(async (req, res)
   if (!job) throw new AppError(404, 'NOT_FOUND', '任务不存在');
   res.json(job);
 }));
+
+/**
+ * Mounted after the legacy routes when ONTOLOGY_V2 is disabled so that v2-only
+ * endpoints fail with a clear 503 instead of falling through to a 404/500.
+ */
+const V2_ROUTES: Array<[string, RegExp]> = [
+  ['GET', /^\/status\/?$/],
+  ['GET', /^\/schema\/?$/],
+  ['GET', /^\/entities(?:\/.*)?\/?$/],
+  ['GET', /^\/anomalies\/?$/],
+  ['POST', /^\/query\/?$/],
+  ['POST', /^\/(?:validate|explain|impact)\/?$/],
+  ['POST', /^\/reconcile\/?$/],
+  ['GET', /^\/reconcile\/[^/]+\/?$/],
+];
+
+export const ontologyV2UnavailableRoutes = Router();
+
+ontologyV2UnavailableRoutes.use((req, res, next) => {
+  const matches = V2_ROUTES.some(([method, pattern]) => req.method === method && pattern.test(req.path));
+  if (!matches) {
+    next();
+    return;
+  }
+  res.status(503).json({
+    error: {
+      code: 'ONTOLOGY_V2_UNAVAILABLE',
+      message: '本体查询服务未启用（设置 ONTOLOGY_V2=on|shadow）',
+    },
+  });
+});
 
 export { router as ontologyV2Routes };
