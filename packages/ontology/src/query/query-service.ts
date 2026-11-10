@@ -373,8 +373,21 @@ ORDER BY ?p ?s`);
     const seenOutgoing = new Set<string>();
     const seenIncoming = new Set<string>();
 
+    // An entity can be in scope while some of its neighbors are not (for
+    // example a self-scoped report linked to another department). Never leak
+    // relation endpoints the caller is not allowed to see.
+    const relationScope = new Map<string, boolean>();
+    const neighborInScope = async (candidate: string): Promise<boolean> => {
+      const cached = relationScope.get(candidate);
+      if (cached !== undefined) return cached;
+      const allowed = await this.entityInScope(candidate, scope);
+      relationScope.set(candidate, allowed);
+      return allowed;
+    };
+
     for (const row of selectRows(outgoingResult)) {
       if (!row.p || !row.o) continue;
+      if (!(await neighborInScope(row.o))) continue;
       const key = `${row.p}|${row.o}`;
       if (seenOutgoing.has(key)) continue;
       seenOutgoing.add(key);
@@ -383,6 +396,7 @@ ORDER BY ?p ?s`);
 
     for (const row of selectRows(incomingResult)) {
       if (!row.p || !row.s) continue;
+      if (!(await neighborInScope(row.s))) continue;
       const key = `${row.p}|${row.s}`;
       if (seenIncoming.has(key)) continue;
       seenIncoming.add(key);
@@ -634,7 +648,7 @@ ORDER BY ?property`);
       body = `{
         { FILTER(${subject} = ${person}) }
         UNION
-        { ${subject} <${sse('belongsTo')}> ?scopeDept . ${person} <${sse('belongsTo')}> ?scopeDept }
+        { ${subject} a <${sse('Department')}> . ${person} <${sse('belongsTo')}> ${subject} }
         UNION
         { ${subject} <${sse('submittedBy')}> ${person} }
         UNION

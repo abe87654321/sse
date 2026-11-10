@@ -122,6 +122,19 @@ const CROSS_DEPT_NQ = `
 <https://sse.local/approval/x> <${SSE}approvedBy> <https://sse.local/person/t1> <${DATA}> .
 `;
 
+const SELF_SCOPE_NQ = `${NQ}
+<https://sse.local/person/p3> <${RDF}type> <${SSE}Person> <${DATA}> .
+<https://sse.local/person/p3> <${SSE}name> "同部门同事" <${DATA}> .
+<https://sse.local/person/p3> <${SSE}belongsTo> <https://sse.local/dept/tech> <${DATA}> .
+
+<https://sse.local/report/r1> <${SSE}belongsTo> <https://sse.local/dept/sales> <${DATA}> .
+<https://sse.local/person/p2> <${SSE}commentedOn> <https://sse.local/report/r1> <${DATA}> .
+<https://sse.local/dept/tech> <${SSE}hasReport> <https://sse.local/report/r1> <${DATA}> .
+<https://sse.local/report/r1> <${SSE}hasApproval> <https://sse.local/approval/y> <${DATA}> .
+<https://sse.local/approval/y> <${RDF}type> <${SSE}ApprovalRecord> <${DATA}> .
+<https://sse.local/approval/y> <${SSE}approvedBy> <https://sse.local/person/p3> <${DATA}> .
+`;
+
 describe('OntologyQueryService', () => {
   it('filters reports by status and department', async () => {
     const svc = await makeService();
@@ -422,6 +435,81 @@ describe('OntologyQueryService', () => {
     expect(await svc.getEntity('https://sse.local/invoice/inv1', self)).not.toBeNull();
     expect(await svc.getEntity('https://sse.local/item/i2', self)).toBeNull();
     expect(await svc.getEntity('https://sse.local/invoice/inv2', self)).toBeNull();
+  });
+
+  it('restricts self scope to the own person and department node', async () => {
+    const svc = await makeServiceWith(SELF_SCOPE_NQ);
+    const self = { kind: 'self', userId: 'p1' } as const;
+
+    expect(await svc.getEntity('https://sse.local/person/p1', self)).not.toBeNull();
+    expect(await svc.getEntity('https://sse.local/dept/tech', self)).not.toBeNull();
+    expect(await svc.getEntity('https://sse.local/person/p3', self)).toBeNull();
+    expect(await svc.getEntity('https://sse.local/person/p2', self)).toBeNull();
+    expect(await svc.getEntity('https://sse.local/dept/sales', self)).toBeNull();
+  });
+
+  it('filters self-scoped entity relations to in-scope endpoints', async () => {
+    const svc = await makeServiceWith(SELF_SCOPE_NQ);
+    const report = await svc.getEntity('https://sse.local/report/r1', {
+      kind: 'self',
+      userId: 'p1',
+    });
+    expect(report).not.toBeNull();
+    if (!report) throw new Error('expected report');
+
+    const outgoingTargets = report.relations.outgoing.map((relation) => relation.target);
+    expect(outgoingTargets).toEqual(
+      expect.arrayContaining([
+        'https://sse.local/person/p1',
+        'https://sse.local/item/i1',
+        'https://sse.local/item/i5',
+        'https://sse.local/approval/y',
+      ]),
+    );
+    expect(outgoingTargets).not.toContain('https://sse.local/dept/sales');
+    expect(outgoingTargets).not.toContain('https://sse.local/person/p2');
+
+    const incomingSources = report.relations.incoming.map((relation) => relation.source);
+    expect(incomingSources).toContain('https://sse.local/dept/tech');
+    expect(incomingSources).not.toContain('https://sse.local/person/p2');
+  });
+
+  it('keeps department scope working for same-department colleagues', async () => {
+    const svc = await makeServiceWith(SELF_SCOPE_NQ);
+    const department = { kind: 'department', department: '技术部' } as const;
+
+    expect(await svc.getEntity('https://sse.local/person/p1', department)).not.toBeNull();
+    expect(await svc.getEntity('https://sse.local/person/p3', department)).not.toBeNull();
+    expect(await svc.getEntity('https://sse.local/dept/tech', department)).not.toBeNull();
+    expect(await svc.getEntity('https://sse.local/person/p2', department)).toBeNull();
+  });
+
+  it('keeps own children reachable in self-scoped network traversal', async () => {
+    const svc = await makeServiceWith(SELF_SCOPE_NQ);
+    const network = await svc.network('https://sse.local/report/r1', {
+      depth: 2,
+      direction: 'both',
+      scope: { kind: 'self', userId: 'p1' },
+    });
+
+    const uris = network.nodes.map((node) => node.uri);
+    expect(uris).toEqual(
+      expect.arrayContaining([
+        'https://sse.local/report/r1',
+        'https://sse.local/person/p1',
+        'https://sse.local/item/i1',
+        'https://sse.local/item/i5',
+        'https://sse.local/invoice/inv1',
+        'https://sse.local/approval/y',
+        'https://sse.local/dept/tech',
+      ]),
+    );
+    expect(uris).not.toContain('https://sse.local/person/p3');
+    expect(uris).not.toContain('https://sse.local/person/p2');
+    expect(uris).not.toContain('https://sse.local/dept/sales');
+    expect(
+      network.edges.some((edge) => edge.from.includes('/p3') || edge.to.includes('/p3')),
+    ).toBe(false);
   });
 
   it('rejects malformed IRIs but treats foreign IRIs as missing', async () => {
