@@ -146,6 +146,44 @@ describe('RuleEngine', () => {
     expect(res.rows).toEqual([{ copy: 'bonjour', lang: 'fr' }]);
   });
 
+  it('keeps the inferred graph consistent when one rule fails', async () => {
+    const store = new MemoryGraphStore();
+    await store.load(`
+<https://sse.local/report/r1> <${RDF_TYPE}> <${sse('ExpenseReport')}> <${DATA}> .
+<https://sse.local/report/r1> <${sse('status')}> "pending" <${DATA}> .
+`);
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const engine = new RuleEngine(
+      store,
+      poolWith([
+        {
+          id: 'broken-rule',
+          construct_query:
+            `CONSTRUCT { ?r a <${sse('BrokenReport')}> } WHERE { ` +
+            `GRAPH <${DATA}> { ?r a <${sse('ExpenseReport')}> . THIS IS NOT SPARQL`,
+        },
+        legacyRule('pending', 'PendingReport'),
+      ]) as any,
+    );
+
+    const total = await engine.materialize();
+    expect(total).toBe(1);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('broken-rule'));
+
+    const inferred = await store.query(
+      `SELECT ?r ?p ?o WHERE { GRAPH <${INFERRED}> { ?r ?p ?o } }`,
+    );
+    if (inferred.kind !== 'select') throw new Error('expected select');
+    expect(inferred.rows).toHaveLength(1);
+    expect(inferred.rows[0]).toMatchObject({
+      p: RDF_TYPE,
+      o: sse('PendingReport'),
+    });
+
+    errorSpy.mockRestore();
+  });
+
   it('escapes literal quotes and newlines when serializing', () => {
     const statement = serializeConstructQuad({
       subject: 'https://sse.local/report/r1',

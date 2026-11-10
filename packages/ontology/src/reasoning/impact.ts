@@ -1,6 +1,6 @@
 import { GRAPH, sse } from '../graph/namespaces';
 import type { GraphStore } from '../graph/types';
-import { OntologyQueryService, type Scope } from '../query/query-service';
+import { OntologyQueryService, InvalidQueryError, type Scope } from '../query/query-service';
 import { PROLOGUE, localName, num, selectRows } from './graph-read';
 import { loadRules, type RuleFacts } from './match-rule';
 
@@ -123,6 +123,9 @@ export async function impactAnalysis(
   const reportCategories = await loadReportCategories(store);
   const rules = input.rule_id ? await loadRules(store) : [];
   const rule = input.rule_id ? findRule(rules, input.rule_id) : undefined;
+  if (input.rule_id && !rule) {
+    throw new InvalidQueryError(`unknown rule_id: ${input.rule_id}`);
+  }
 
   const delta = input.amount_delta ?? 0;
   const hasBaseRange = input.min_amount !== undefined

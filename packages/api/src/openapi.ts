@@ -348,9 +348,9 @@ export function buildOpenApiDocument(): Record<string, unknown> {
           required: ["amount"],
           properties: {
             amount: { type: "number" },
-            category_id: { type: "string", format: "uuid" },
+            category_id: { type: "string", description: "Category id or URI" },
             category_name: { type: "string" },
-            report_id: { type: "string", format: "uuid" },
+            report_id: { type: "string", description: "Report id or URI" },
           },
         },
         OntologyValidateResult: {
@@ -368,9 +368,10 @@ export function buildOpenApiDocument(): Record<string, unknown> {
         },
         OntologyExplainRequest: {
           type: "object",
+          required: ["report_id"],
           properties: {
             report_uri: { type: "string" },
-            report_id: { type: "string", format: "uuid" },
+            report_id: { type: "string", description: "Report id or URI" },
           },
         },
         OntologyTimelineEntry: {
@@ -406,7 +407,7 @@ export function buildOpenApiDocument(): Record<string, unknown> {
           type: "object",
           properties: {
             rule_id: { type: "string" },
-            category_id: { type: "string", format: "uuid" },
+            category_id: { type: "string", description: "Category id or URI" },
             department: { type: "string" },
             min_amount: { type: "number" },
             max_amount: { type: "number" },

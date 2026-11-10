@@ -57,7 +57,17 @@ export async function explainReport(
   reportUri: string,
   scope: Scope,
 ): Promise<Explanation | null> {
-  if (!(await new OntologyQueryService(store).isInScope(reportUri, scope))) return null;
+  const scopeService = new OntologyQueryService(store);
+  const scopeCache = new Map<string, boolean>();
+  const inScope = async (entity: string): Promise<boolean> => {
+    const cached = scopeCache.get(entity);
+    if (cached !== undefined) return cached;
+    const allowed = await scopeService.isInScope(entity, scope);
+    scopeCache.set(entity, allowed);
+    return allowed;
+  };
+
+  if (!(await inScope(reportUri))) return null;
 
   const report = await loadFacts(store, reportUri);
   if (!hasType(report, 'ExpenseReport')) return null;
@@ -109,15 +119,18 @@ export async function explainReport(
     }
   }
 
-  // Approvals.
+  // Approvals. Approvers are only loaded when they are inside the caller's
+  // scope; otherwise their URI and display name must never reach the response.
   const approvals: EntityFacts[] = [];
   const approvers = new Map<string, EntityFacts>();
+  const visibleApprovers = new Set<string>();
   for (const approvalUri of iris(report, 'hasApproval')) {
     const approval = await loadFacts(store, approvalUri);
     approvals.push(approval);
     relevant.add(approvalUri);
     const approverUri = iris(approval, 'approvedBy')[0];
-    if (approverUri) {
+    if (approverUri && (await inScope(approverUri))) {
+      visibleApprovers.add(approverUri);
       relevant.add(approverUri);
       if (!approvers.has(approverUri)) approvers.set(approverUri, await loadFacts(store, approverUri));
     }
@@ -137,7 +150,7 @@ export async function explainReport(
   }
   const paidByUri = iris(report, 'paidBy')[0];
   let payer: EntityFacts | undefined;
-  if (paidByUri) {
+  if (paidByUri && (await inScope(paidByUri))) {
     payer = await loadFacts(store, paidByUri);
     relevant.add(paidByUri);
   }
@@ -254,10 +267,11 @@ export async function explainReport(
     const approverUri = iris(approval, 'approvedBy')[0];
     const result = literal(approval, 'result') ?? 'unknown';
     const step = literal(approval, 'step');
+    const visibleApprover = approverUri && visibleApprovers.has(approverUri) ? approverUri : undefined;
     why.push({
       code: result === 'rejected' ? 'approval_rejected' : `approval_${result}`,
       message: `第 ${step ?? '?'} 步审批结果为 ${result}`,
-      evidence: [approval.uri, ...(approverUri ? [approverUri] : [])],
+      evidence: [approval.uri, ...(visibleApprover ? [visibleApprover] : [])],
     });
   }
 
@@ -270,6 +284,9 @@ export async function explainReport(
   }
 
   // Constraint violations that touch this report's evidence chain.
+  // TODO(perf): this validates the whole graph (TBox + data + inferred + manual)
+  // on every explain request. Correct but expensive; consider validating only
+  // the report subgraph or caching compiled shapes if explain becomes hot.
   const violations = await validateGraph(store, loadShapes());
   for (const violation of violations) {
     if (!relevant.has(violation.focusNode)) continue;
@@ -284,11 +301,24 @@ export async function explainReport(
   for (const entry of why) for (const evidence of entry.evidence) evidenceUris.add(evidence);
   for (const entry of timeline) evidenceUris.add(entry.evidence);
 
+  // Global configuration (rules and categories) is readable regardless of the
+  // caller's data scope. Every other URI must pass the same scope check as the
+  // entity reads so an out-of-scope person can never leak through evidence.
+  const globalPrefixes = [uri.rule(''), uri.category('')];
+  const visibleEvidence: string[] = [];
+  for (const evidence of evidenceUris) {
+    if (globalPrefixes.some((prefix) => evidence.startsWith(prefix))) {
+      visibleEvidence.push(evidence);
+      continue;
+    }
+    if (await inScope(evidence)) visibleEvidence.push(evidence);
+  }
+
   return {
     report: reportUri,
     timeline,
     why,
-    evidenceUris: [...evidenceUris].sort(),
+    evidenceUris: visibleEvidence.sort(),
   };
 }
 

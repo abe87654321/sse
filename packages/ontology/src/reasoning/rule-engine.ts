@@ -50,8 +50,11 @@ export class RuleEngine {
   constructor(private readonly store: GraphStore, private readonly pool: RulePool) {}
 
   /**
-   * Recompute `urn:sse:inferred` from scratch. Idempotent: the graph is cleared
-   * before each run, so repeated calls converge on the same triples.
+   * Recompute `urn:sse:inferred` from scratch. Idempotent: all triples are
+   * buffered first, then the inferred graph is cleared and swapped in a single
+   * update. A failing rule is logged and skipped, but the previous inferred
+   * graph is only replaced once the whole cycle has finished, so a failed cycle
+   * can never expose a partially materialized graph.
    */
   async materialize(): Promise<number> {
     const { rows } = await this.pool.query(
@@ -61,20 +64,26 @@ export class RuleEngine {
         ORDER BY priority ASC, id ASC`,
     );
 
-    await this.store.update(`CLEAR SILENT GRAPH <${GRAPH.inferred}>`);
-
+    const triples: string[] = [];
     let total = 0;
     for (const rule of rows) {
       const query = typeof rule.construct_query === 'string' ? rule.construct_query.trim() : '';
       if (query === '') continue;
 
-      const result = await this.store.query(query);
-      if (result.kind !== 'construct' || result.quads.length === 0) continue;
-
-      const triples = result.quads.map(serializeConstructQuad).join('\n');
-      await this.store.update(`INSERT DATA { GRAPH <${GRAPH.inferred}> { ${triples} } }`);
-      total += result.quads.length;
+      try {
+        const result = await this.store.query(query);
+        if (result.kind !== 'construct' || result.quads.length === 0) continue;
+        triples.push(...result.quads.map(serializeConstructQuad));
+        total += result.quads.length;
+      } catch (err: any) {
+        console.error(`[ontology] rule ${rule.id} failed to materialize: ${err?.message ?? err}`);
+      }
     }
+
+    const insert = triples.length > 0
+      ? `; INSERT DATA { GRAPH <${GRAPH.inferred}> { ${triples.join('\n')} } }`
+      : '';
+    await this.store.update(`CLEAR SILENT GRAPH <${GRAPH.inferred}>${insert}`);
 
     return total;
   }

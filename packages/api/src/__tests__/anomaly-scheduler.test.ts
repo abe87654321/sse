@@ -1,6 +1,44 @@
-import { startAnomalyScheduler } from '../services/anomaly-scheduler';
+import {
+  DEFAULT_ANOMALY_INTERVAL_MS,
+  anomalyIntervalMs,
+  startAnomalyScheduler,
+} from '../services/anomaly-scheduler';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe('anomalyIntervalMs', () => {
+  const original = process.env.ONTOLOGY_ANOMALY_INTERVAL_MS;
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.ONTOLOGY_ANOMALY_INTERVAL_MS;
+    else process.env.ONTOLOGY_ANOMALY_INTERVAL_MS = original;
+  });
+
+  it('defaults to 24h when unset or non-numeric', () => {
+    delete process.env.ONTOLOGY_ANOMALY_INTERVAL_MS;
+    expect(anomalyIntervalMs()).toBe(DEFAULT_ANOMALY_INTERVAL_MS);
+
+    process.env.ONTOLOGY_ANOMALY_INTERVAL_MS = 'not-a-number';
+    expect(anomalyIntervalMs()).toBe(DEFAULT_ANOMALY_INTERVAL_MS);
+  });
+
+  it('returns a positive configured interval verbatim', () => {
+    process.env.ONTOLOGY_ANOMALY_INTERVAL_MS = '5000';
+    expect(anomalyIntervalMs()).toBe(5000);
+  });
+
+  it('returns explicit zero/negative values so scheduling is disabled', () => {
+    const scan = async () => ({ summary: { total: 0 } });
+
+    process.env.ONTOLOGY_ANOMALY_INTERVAL_MS = '0';
+    expect(anomalyIntervalMs()).toBe(0);
+    expect(startAnomalyScheduler(scan, anomalyIntervalMs())).toBeNull();
+
+    process.env.ONTOLOGY_ANOMALY_INTERVAL_MS = '-5000';
+    expect(anomalyIntervalMs()).toBe(-5000);
+    expect(startAnomalyScheduler(scan, anomalyIntervalMs())).toBeNull();
+  });
+});
 
 describe('anomaly scheduler', () => {
   it('scans on a fixed interval and logs counts to stderr', async () => {

@@ -220,6 +220,33 @@ describe('reconcile', () => {
     expect(job.lastOutboxId).toBe(42);
   });
 
+  it('materializes active rules returned by the pool during rebuild', async () => {
+    const store = new MemoryGraphStore();
+    const pool = new FakePool();
+    const baseQuery = pool.query.bind(pool);
+    (pool as any).query = async (sql: string, params: any[] = []) => {
+      if (sql.includes('FROM reasoning_rules')) {
+        return {
+          rows: [{
+            id: 'legacy-pending',
+            construct_query:
+              `CONSTRUCT { ?r a <${sse('PendingReport')}> } WHERE { ` +
+              `GRAPH <${GRAPH.data}> { ?r a <${sse('ExpenseReport')}> ; <${sse('status')}> "pending" } }`,
+          }],
+        };
+      }
+      return baseQuery(sql, params);
+    };
+
+    await rebuildGraph(store, pool as any);
+
+    const inferred = await store.query(
+      `SELECT ?r WHERE { GRAPH <${GRAPH.inferred}> { ?r a <${sse('PendingReport')}> } }`,
+    );
+    if (inferred.kind !== 'select') throw new Error('expected select');
+    expect(inferred.rows.map((row) => row.r)).toContain(uri.report('r1'));
+  });
+
   it('marks a reconcile job failed when the rebuild throws', async () => {
     const store = new MemoryGraphStore();
     setGraphContext(store, { query: async () => { throw new Error('db down'); } } as any);

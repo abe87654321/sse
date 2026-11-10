@@ -8,10 +8,17 @@ export type AnomalyScan = () => Promise<AnomalyScanResult>;
 
 export const DEFAULT_ANOMALY_INTERVAL_MS = 86_400_000;
 
-/** Fixed interval (no cron parser). 0/negative disables the scan. */
+/**
+ * Fixed interval (no cron parser). An unset or non-numeric value falls back to
+ * the 24h default, but an explicit finite value is returned verbatim so a
+ * configured 0/negative disables scheduling in `startAnomalyScheduler` instead
+ * of silently re-enabling the default cadence.
+ */
 export function anomalyIntervalMs(): number {
-  const configured = Number(process.env.ONTOLOGY_ANOMALY_INTERVAL_MS);
-  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_ANOMALY_INTERVAL_MS;
+  const raw = process.env.ONTOLOGY_ANOMALY_INTERVAL_MS;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_ANOMALY_INTERVAL_MS;
+  const configured = Number(raw);
+  return Number.isFinite(configured) ? configured : DEFAULT_ANOMALY_INTERVAL_MS;
 }
 
 /** Scan the live graph for the three v1 anomaly classes. */

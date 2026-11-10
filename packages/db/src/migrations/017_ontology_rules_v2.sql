@@ -7,6 +7,11 @@ ALTER TABLE reasoning_rules ADD COLUMN IF NOT EXISTS construct_query TEXT;
 ALTER TABLE reasoning_rules ADD COLUMN IF NOT EXISTS severity TEXT NOT NULL DEFAULT 'info';
 ALTER TABLE reasoning_rules ADD COLUMN IF NOT EXISTS message TEXT;
 
+-- Seed idempotency relies on a named unique constraint. Without it, re-running
+-- this migration (or any future seed touching the same name) would append
+-- duplicate legacy rules, which then match with the same priority.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_reasoning_rules_name ON reasoning_rules(name);
+
 -- Legacy report classes are inferred from the canonical sse:status literal.
 -- Do NOT seed a governedBy CONSTRUCT rule: amount/category matching has
 -- precedence rules that are implemented in the shared TypeScript matchRule
@@ -38,4 +43,4 @@ VALUES
  '{}'::jsonb, '{}'::jsonb, 50, true,
  'CONSTRUCT { ?r a <https://sse.local/ontology#PaidReport> } WHERE { GRAPH <urn:sse:data> { ?r a <https://sse.local/ontology#ExpenseReport> ; <https://sse.local/ontology#status> "paid" } }',
  'info', 'paid report')
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name) DO NOTHING;

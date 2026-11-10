@@ -1,4 +1,4 @@
-import { uri } from '../graph/namespaces';
+import { SSE, uri } from '../graph/namespaces';
 import type { GraphStore } from '../graph/types';
 import { OntologyQueryService, type Scope } from '../query/query-service';
 import {
@@ -19,7 +19,8 @@ import {
   type RuleFacts,
 } from './match-rule';
 
-const VALID_INVOICE_STATUSES = new Set(['pass', 'verified']);
+const VALID_INVOICE_STATUSES = new Set(['pass']);
+const RULE_SET_URI = `${SSE}RuleSet`;
 
 export interface ValidationIssue {
   code: string;
@@ -72,6 +73,15 @@ function matchedRuleView(rule: RuleFacts): MatchedRuleView {
 
 function reportUriFromId(id: string): string {
   return id.startsWith('http') ? id : uri.report(id);
+}
+
+/**
+ * Validation output must always carry evidence. When the failure is not tied to
+ * a concrete entity (unknown category name, no rules) fall back to the report or
+ * the synthetic rule-set URI.
+ */
+function fallbackEvidence(input: ValidateExpenseInput): string[] {
+  return input.report_id ? [reportUriFromId(input.report_id)] : [RULE_SET_URI];
 }
 
 async function validateReportInvoices(
@@ -150,8 +160,10 @@ function dbResult(
 }
 
 async function validateFromDb(
+  store: GraphStore,
   pool: ValidationPool,
   input: ValidateExpenseInput,
+  scope: Scope,
 ): Promise<ValidateExpenseResult> {
   const issues: ValidationIssue[] = [];
   const suggestions: string[] = [];
@@ -189,7 +201,7 @@ async function validateFromDb(
     issues.push({
       code: 'no_matching_rule',
       message: '未匹配到有效的审批规则',
-      evidence: [],
+      evidence: fallbackEvidence(input),
     });
     suggestions.push('请管理员检查审批规则配置');
   } else {
@@ -214,9 +226,19 @@ async function validateFromDb(
     issues.push({
       code: 'category_not_found',
       message: '指定费用类别不存在',
-      evidence: [],
+      evidence: input.category_id ? [uri.category(input.category_id)] : fallbackEvidence(input),
     });
     suggestions.push('请使用系统已知费用类别');
+  }
+
+  if (input.report_id) {
+    await validateReportInvoices(
+      store,
+      reportUriFromId(input.report_id),
+      scope,
+      issues,
+      suggestions,
+    );
   }
 
   return dbResult(matchedRule, issues, suggestions);
@@ -239,7 +261,9 @@ export async function validateExpense(
     issues.push({
       code: 'category_not_found',
       message: '指定费用类别不存在',
-      evidence: input.category_id ? [`https://sse.local/category/${input.category_id}`] : [],
+      evidence: input.category_id
+        ? [uri.category(input.category_id)]
+        : fallbackEvidence(input),
     });
     suggestions.push('请使用系统已知费用类别');
   }
@@ -247,13 +271,13 @@ export async function validateExpense(
   const rules = await loadRules(store);
 
   if (rules.length === 0) {
-    if (pool) return validateFromDb(pool, input);
+    if (pool) return validateFromDb(store, pool, input, scope);
     return {
       valid: false,
       matched_rule: null,
       issues: [
         ...issues,
-        { code: 'no_rules', message: '本体图尚未投影审批规则', evidence: [] },
+        { code: 'no_rules', message: '本体图尚未投影审批规则', evidence: [RULE_SET_URI] },
       ],
       suggestions: [...suggestions, '请先运行本体重建或等待规则投影'],
       source: 'graph',
@@ -266,7 +290,7 @@ export async function validateExpense(
     issues.push({
       code: 'no_matching_rule',
       message: '未匹配到有效的审批规则',
-      evidence: category ? [category.uri] : [],
+      evidence: category ? [category.uri] : fallbackEvidence(input),
     });
     suggestions.push('请管理员检查审批规则配置');
   } else {

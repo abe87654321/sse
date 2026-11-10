@@ -1,5 +1,4 @@
 import { DataFactory, Parser, Store } from 'n3';
-import SHACLValidator from 'rdf-validate-shacl';
 import { GRAPH } from '../graph/namespaces';
 import type { GraphStore } from '../graph/types';
 
@@ -42,6 +41,11 @@ export async function validateGraph(store: GraphStore, shapesTtl: string): Promi
   const data = datasetFromNQuads(dataNq);
   const shapes = datasetFromTurtle(shapesTtl);
 
+  // rdf-validate-shacl is ESM-only. Load it lazily so requiring this package
+  // (and starting the API with ONTOLOGY_V2 disabled) never pulls in the ESM
+  // module graph until validation is actually requested.
+  const shaclModule = await import('rdf-validate-shacl');
+  const SHACLValidator = (shaclModule as any).default ?? (shaclModule as any);
   const validator = new SHACLValidator(shapes as any);
   const report: any = await validator.validate(data as any);
 

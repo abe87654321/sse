@@ -1,5 +1,6 @@
 import { MemoryGraphStore } from '../graph/memory-store';
 import { XSD, sse, uri } from '../graph/namespaces';
+import { InvalidQueryError } from '../query/query-service';
 import { findAnomalies } from '../reasoning/anomalies';
 import { explainReport } from '../reasoning/explain';
 import { impactAnalysis } from '../reasoning/impact';
@@ -156,6 +157,54 @@ async function storeWithSeed(): Promise<MemoryGraphStore> {
   return store;
 }
 
+/** A report/invoice graph with no projected rules, so validate uses the DB fallback. */
+async function storeWithoutRules(): Promise<MemoryGraphStore> {
+  const store = new MemoryGraphStore();
+  await store.load([
+    type(person('p1'), 'Person'),
+    dataType(person('p1'), 'name', '张三'),
+    nq(person('p1'), 'belongsTo', dept('技术部')),
+    type(dept('技术部'), 'Department'),
+    dataType(dept('技术部'), 'name', '技术部'),
+    type(report('r1'), 'ExpenseReport'),
+    dataType(report('r1'), 'serialNo', 'RE-1'),
+    dataType(report('r1'), 'amount', '100', 'decimal'),
+    dataType(report('r1'), 'status', 'pending'),
+    nq(report('r1'), 'submittedBy', person('p1')),
+    nq(report('r1'), 'containsItem', item('i1')),
+    type(item('i1'), 'ExpenseItem'),
+    dataType(item('i1'), 'amount', '100', 'decimal'),
+    nq(item('i1'), 'hasInvoice', invoice('v1')),
+    type(invoice('v1'), 'Invoice'),
+    dataType(invoice('v1'), 'invoiceNo', 'INV-1'),
+    dataType(invoice('v1'), 'verificationStatus', 'warning'),
+  ].join('\n'));
+  return store;
+}
+
+function fallbackPool() {
+  return {
+    query: async (sql: string) => {
+      if (sql.includes('FROM expense_categories')) return { rows: [{ id: 'c1', name: '差旅' }] };
+      if (sql.includes('FROM approval_rules')) {
+        return {
+          rows: [{
+            id: 'db-rule',
+            name: 'DB 规则',
+            min_amount: '0',
+            max_amount: '1000',
+            category_ids: [],
+            approval_chain: [{ step: 1, role: 'finance' }],
+            priority: 1,
+          }],
+        };
+      }
+      if (sql.includes('FROM users')) return { rows: [{ cnt: '1' }] };
+      return { rows: [] };
+    },
+  };
+}
+
 describe('reasoning services', () => {
   it('explains the full report chain with evidence', async () => {
     const store = await storeWithSeed();
@@ -305,5 +354,160 @@ describe('reasoning services', () => {
 
     const mismatch = result.anomalies.find((anomaly) => anomaly.code === 'amount_mismatch');
     expect(mismatch?.evidence).toContain(report('r2'));
+  });
+
+  it('does not leak out-of-scope approvers or payers when a self-scoped employee explains their report', async () => {
+    const store = await storeWithSeed();
+    const explanation = await explainReport(store, report('r1'), { kind: 'self', userId: 'p1' });
+
+    expect(explanation).not.toBeNull();
+    const personPrefix = 'https://sse.local/person/';
+    const people = explanation!.evidenceUris.filter((value) => value.startsWith(personPrefix));
+    expect(people).not.toContain(person('p2'));
+    expect(people).not.toContain(person('p3'));
+    expect(people.every((value) => value === person('p1'))).toBe(true);
+
+    const actors = explanation!.timeline
+      .map((entry) => entry.actor)
+      .filter((actor): actor is string => Boolean(actor));
+    expect(actors).not.toContain('李四');
+    expect(actors).not.toContain('王五');
+
+    const approvalWhy = explanation!.why.find((entry) => entry.code.startsWith('approval_'));
+    expect(approvalWhy?.evidence).not.toContain(person('p2'));
+
+    // Global configuration stays visible even under self scope.
+    expect(explanation!.evidenceUris).toContain(category('c1'));
+    expect(explanation!.evidenceUris).toContain(rule('ar1'));
+  });
+
+  it('rejects an unknown impact rule_id instead of falling through to match-all', async () => {
+    const store = await storeWithSeed();
+    await expect(
+      impactAnalysis(store, { rule_id: 'missing-rule' }, { kind: 'all' }),
+    ).rejects.toBeInstanceOf(InvalidQueryError);
+  });
+
+  it('applies self and department scope to impact analysis', async () => {
+    const store = await storeWithSeed();
+
+    const outsider = await impactAnalysis(store, {}, { kind: 'self', userId: 'p2' });
+    expect(outsider.affected_reports).toEqual([]);
+
+    const sameDept = await impactAnalysis(store, {}, { kind: 'department', department: '技术部' });
+    expect(sameDept.affected_reports.map((entry) => entry.uri)).toEqual(
+      expect.arrayContaining([report('r1'), report('r2'), report('r3')]),
+    );
+
+    const otherDept = await impactAnalysis(store, {}, { kind: 'department', department: '财务部' });
+    expect(otherDept.affected_reports).toEqual([]);
+  });
+
+  it('applies self and department scope to anomalies', async () => {
+    const store = await storeWithSeed();
+
+    const outsider = await findAnomalies(store, { scope: { kind: 'self', userId: 'p2' } });
+    expect(outsider.anomalies).toEqual([]);
+
+    const sameDept = await findAnomalies(store, { scope: { kind: 'department', department: '技术部' } });
+    expect(sameDept.anomalies.map((anomaly) => anomaly.code)).toEqual(
+      expect.arrayContaining(['amount_mismatch', 'duplicate_invoice_no', 'missing_approver']),
+    );
+
+    const otherDept = await findAnomalies(store, { scope: { kind: 'department', department: '财务部' } });
+    expect(otherDept.anomalies).toEqual([]);
+  });
+
+  it('applies scope to report invoice validation in the graph path', async () => {
+    const store = await storeWithSeed();
+
+    const own = await validateExpense(
+      store,
+      { amount: 500, category_id: 'c1', report_id: 'r1' },
+      { kind: 'self', userId: 'p1' },
+    );
+    expect(own.issues.map((issue) => issue.code)).not.toContain('out_of_scope');
+
+    const outsider = await validateExpense(
+      store,
+      { amount: 500, category_id: 'c1', report_id: 'r1' },
+      { kind: 'self', userId: 'p2' },
+    );
+    expect(outsider.issues.map((issue) => issue.code)).toContain('out_of_scope');
+
+    const sameDept = await validateExpense(
+      store,
+      { amount: 500, category_id: 'c1', report_id: 'r1' },
+      { kind: 'department', department: '技术部' },
+    );
+    expect(sameDept.issues.map((issue) => issue.code)).not.toContain('out_of_scope');
+
+    const otherDept = await validateExpense(
+      store,
+      { amount: 500, category_id: 'c1', report_id: 'r1' },
+      { kind: 'department', department: '财务部' },
+    );
+    expect(otherDept.issues.map((issue) => issue.code)).toContain('out_of_scope');
+  });
+
+  it('applies scope and invoice checks in the DB fallback', async () => {
+    const store = await storeWithoutRules();
+    const pool = fallbackPool();
+
+    const own = await validateExpense(
+      store,
+      { amount: 100, category_id: 'c1', report_id: 'r1' },
+      { kind: 'self', userId: 'p1' },
+      pool as any,
+    );
+    expect(own.source).toBe('db-fallback');
+    expect(own.issues.map((issue) => issue.code)).toContain('invoice_not_verified');
+    expect(own.issues.map((issue) => issue.code)).not.toContain('out_of_scope');
+
+    const outsider = await validateExpense(
+      store,
+      { amount: 100, category_id: 'c1', report_id: 'r1' },
+      { kind: 'self', userId: 'p2' },
+      pool as any,
+    );
+    expect(outsider.source).toBe('db-fallback');
+    expect(outsider.issues.map((issue) => issue.code)).toContain('out_of_scope');
+
+    const sameDept = await validateExpense(
+      store,
+      { amount: 100, category_id: 'c1', report_id: 'r1' },
+      { kind: 'department', department: '技术部' },
+      pool as any,
+    );
+    expect(sameDept.issues.map((issue) => issue.code)).toContain('invoice_not_verified');
+    expect(sameDept.issues.map((issue) => issue.code)).not.toContain('out_of_scope');
+
+    const otherDept = await validateExpense(
+      store,
+      { amount: 100, category_id: 'c1', report_id: 'r1' },
+      { kind: 'department', department: '财务部' },
+      pool as any,
+    );
+    expect(otherDept.issues.map((issue) => issue.code)).toContain('out_of_scope');
+  });
+
+  it('always attaches evidence to validation issues', async () => {
+    const store = await storeWithSeed();
+
+    const noMatch = await validateExpense(store, { amount: 99999 }, { kind: 'all' });
+    const noMatchIssue = noMatch.issues.find((issue) => issue.code === 'no_matching_rule');
+    expect(noMatchIssue?.evidence.length).toBeGreaterThan(0);
+
+    const missingCategory = await validateExpense(
+      store,
+      { amount: 500, category_name: '不存在类别' },
+      { kind: 'all' },
+    );
+    const categoryIssue = missingCategory.issues.find((issue) => issue.code === 'category_not_found');
+    expect(categoryIssue?.evidence.length).toBeGreaterThan(0);
+
+    const empty = await validateExpense(new MemoryGraphStore(), { amount: 100 }, { kind: 'all' });
+    const noRules = empty.issues.find((issue) => issue.code === 'no_rules');
+    expect(noRules?.evidence.length).toBeGreaterThan(0);
   });
 });
