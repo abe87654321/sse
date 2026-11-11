@@ -48,6 +48,11 @@ an `admin` account.
 
 - [ ] **Service tokens are set**: `SCIM_TOKEN`, `MDM_TOKEN` (or `WEBHOOK_TOKEN`).
 - [ ] **`ALLOW_LEGACY_PLAINTEXT_PASSWORDS` is unset or `0`**.
+- [ ] **No raw `$` in `.env` values** (especially bcrypt hashes or generated
+  secrets). Docker Compose interpolates `$VAR`; escape as `$$` or use single
+  quotes. Bcrypt hashes belong in the database, not `.env`. If `docker compose`
+  prints warnings like `The "jFK" variable is not set`, inspect
+  `grep -n '\$' .env` and fix the offending line.
 - [ ] **`BCRYPT_ROUNDS=10`** (allowed range 10–14).
 
 ## 2. Preflight and credential rotation
@@ -59,10 +64,17 @@ an `admin` account.
     -v ON_ERROR_STOP=1 -f deploy/preflight-ontology-v2.sql
   ```
 
-- [ ] **Require `total_affected = 0`** in section 2 (no empty, whitespace, or
-  sentinel hashes). Reset any listed account before proceeding.
+- [ ] **Review section 2.** `!` is the intentional unusable sentinel written by
+  migration 018 for SCIM/MDM/no-password users. It is not a login credential.
+  - If those users authenticate through SCIM/MDM, no action is needed.
+  - If they need password login, reset each one from **Admin → Users → 编辑**
+    (or set a bcrypt hash directly as shown below).
+  - Empty, whitespace, `scim_managed_no_pwd`, and `mdm_managed_no_pwd` must be
+    zero after migration 018.
 - [ ] **Rotate the default admin** if section 3 reports
   `has_legacy_default_hash = true` or `has_current_seed_hash = true`.
+
+  If `admin123` still works, use the API:
 
   ```bash
   ADMIN_TOKEN=$(curl -s -X POST http://127.0.0.1:3000/auth/login \
@@ -75,7 +87,24 @@ an `admin` account.
     -d '{"oldPassword":"admin123","newPassword":"<strong-new-password>"}'
   ```
 
+  If the old hash no longer matches `admin123`, set a bcrypt hash directly
+  (run from the repo root; `psql` uses `:'hash'` so the `$` characters are safe):
+
+  ```bash
+  HASH=$(pnpm --filter @sse/auth exec node -e \
+    "console.log(require('bcrypt').hashSync(process.argv[1], 10))" \
+    '<strong-new-password>')
+
+  docker compose exec -T postgres psql -U sse -d sse \
+    -v hash="$HASH" \
+    -c "UPDATE users SET password_hash = :'hash' WHERE phone = '13800000000';"
+
+  docker compose exec -T postgres psql -U sse -d sse \
+    -c "SELECT phone, left(password_hash, 7) FROM users WHERE phone = '13800000000';"
+  ```
+
   Re-login with the new password to refresh `ADMIN_TOKEN` before continuing.
+  Then reset the six `!` accounts from Admin → Users if they need password login.
 - [ ] Confirm section 1 shows all four migrations `applied = true` or that they
   are queued for step 3.
 

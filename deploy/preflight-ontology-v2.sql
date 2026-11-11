@@ -69,7 +69,12 @@ ORDER BY e.version;
 -- ============================================================================
 -- 2. PASSWORD HYGIENE
 -- Sentinel / empty / whitespace-only hashes cannot log in. List ids and
--- phones only — never print password_hash values.
+-- phones only -- never print password_hash values.
+--
+-- `!` is the intentional unusable sentinel written by migration 018 for
+-- SCIM/MDM/no-password users. It is not a login credential. Review these
+-- accounts; reset them only if they must log in with a password. Empty,
+-- whitespace, `scim_managed_no_pwd`, and `mdm_managed_no_pwd` must be zero.
 -- ============================================================================
 
 SELECT
@@ -212,7 +217,7 @@ SELECT
 FROM reasoning_rules;
 
 -- Duplicate names keep the lowest UUID id during migration 017. Must be empty.
-SELECT name, COUNT(*) AS copies, MIN(id) AS keep_id
+SELECT name, COUNT(*) AS copies, (array_agg(id ORDER BY id))[1] AS keep_id
 FROM reasoning_rules
 GROUP BY name
 HAVING COUNT(*) > 1
