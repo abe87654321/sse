@@ -137,11 +137,15 @@ curl -s http://127.0.0.1:3001/healthz
 
 ## 五、下一会话待办
 
-### P0：密码安全（仍未修）
+### P0：密码安全（已修复）
 
-- `packages/api/src/routes/auth.ts` 登录只校验手机号存在与状态，**完全不校验密码**。
-- `packages/api/src/routes/admin.ts` 创建用户时忽略传入的 `password`。
-- `packages/api/src/routes/auth.ts` 修改密码明文写入 `password_hash`（无 bcrypt）。
+- `packages/api/src/routes/auth.ts` 登录改为通过 `findCredentialsByPhone` 读取 `password_hash` 并用 bcrypt 校验；手机号不存在与密码错误统一返回 401「手机号或密码错误」，不存在账号也会执行一次固定 bcrypt 比较以降低时序差异。
+- `packages/auth/src/password.ts` 新增 `hashPassword` / `verifyPassword` / `validatePassword`（6–72 位）。历史明文密码在成功登录后会被**机会性重哈希**为 bcrypt（`needsRehash`）；重哈希失败只写 stderr，不阻塞登录。
+- `packages/api/src/routes/auth.ts` 的 `PUT /password` 现在强制校验 `oldPassword`，新密码经 bcrypt 哈希后写入 `password_hash`，不再保存明文。
+- `packages/api/src/routes/admin.ts` 创建用户时**必须提供密码**并写入 bcrypt 哈希；编辑用户可选重置密码。管理员创建的账号不再允许空密码。
+- `packages/web/src/pages/AdminUsers.vue` 新建/编辑弹窗增加密码字段：新建必填，编辑留空表示不修改。
+
+> 以上为代码层修复。仍需在目标环境用真实种子账号和管理员新建账号做一次登录冒烟测试，确认 `JWT_SECRET`、bcrypt 原生模块等部署配置正常，不能仅凭单元测试宣称生产已完全安全。
 
 ### P1：Agent 接入加固
 
@@ -180,7 +184,8 @@ curl -s http://127.0.0.1:3001/healthz
 - 外部 Agent 可任选：**Streamable HTTP MCP（`/mcp`）** 或 **OpenAPI REST（`/openapi.json`）**，
   两者共用同一套 API key → 角色/部门数据范围。
 - Agent 已能完成：发票 OCR 建单 → 发票入库 → AI 核对 → 读摘要 → 审批/驳回 → 查询统计。
-- 未完成（下一会话）：MCP key 作用域、轮换端点、哈希存储；P0 密码安全。
+- 未完成（下一会话）：MCP key 作用域、轮换端点、哈希存储。
+- P0 密码安全已在后续会话修复（见第五节），但部署后仍需按 runbook 做登录冒烟验证。
 
 ---
 

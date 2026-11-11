@@ -30,17 +30,25 @@ The graph is rebuildable at any time from Postgres.
    take table locks on `reasoning_rules` and the mapped business tables; the
    trigger creation also compiles the function once per table.
 4. `pnpm -r build` and `pnpm -r test` are green on the release commit.
-5. **Exactly one API replica** may run with `ONTOLOGY_V2=shadow|on`. Each
+5. The authentication precondition is now fixed in code: login verifies the
+   bcrypt `password_hash`, password changes require the old password, and
+   admin-created users always receive a bcrypt hash. Before cutover, verify in
+   the target environment that a seeded/legacy account and a newly
+   admin-created account can log in. Any user whose `password_hash` is empty
+   (created before this fix) cannot log in and must have an admin reset their
+   password. This remains a code-level fix: the live login smoke test is still
+   required.
+6. **Exactly one API replica** may run with `ONTOLOGY_V2=shadow|on`. Each
    process owns an independent in-memory Oxigraph graph and only the advisory
    lock winner drains the outbox, so additional replicas serve stale/divergent
    graphs. A shared graph store or leader election is a production prerequisite
    before horizontal scaling.
-6. The outbox triggers are still disabled (`ontology_settings.outbox_enabled =
+7. The outbox triggers are still disabled (`ontology_settings.outbox_enabled =
    'false'`) until a projector is running. `startOntologyProjector()` disables
    them while starting and enables them only after TBox load, snapshot
    restore/reconcile and `runner.start()`. If startup fails it disables them and
    the API exits non-zero.
-7. Capacity: monitor PostgreSQL for trigger overhead and the API process for
+8. Capacity: monitor PostgreSQL for trigger overhead and the API process for
    graph memory growth (`counts.quads` from `/ontology/status`).
 
 ## 2. Backfill / reconcile
