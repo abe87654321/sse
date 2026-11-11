@@ -5,11 +5,12 @@
 ## 一、当前代码状态
 
 - 分支：`master`
-- 当前 HEAD / origin/master：`3d5d2a9 fix(ontology): fix preflight uuid query and document admin recovery`
+- 当前 HEAD / origin/master：`208075d fix(web): hide opaque graph labels and restore drag spring-back`
 - 本体 v2 合并提交：`e1cbba0 merge: ontology v2 platform overhaul and P0 security fixes`
 - 工作区：仅剩原有未跟踪的 `docs/handover-docs/*`，未提交、未改动。
-- 测试：`pnpm -r build` 通过；`pnpm -r test` 595 tests，0 failures。
+- 测试：`pnpm -r build` 通过；上次数值 `pnpm -r test` 595 tests，0 failures。
   - ontology 170、api 123、mcp 56、web 25、core 41、auth 30、db 21、ai 100、notifications 29。
+  - 本轮新增 12 个 web 用例（`graph-view-state` 7 个、`utils` 5 个），本机未安装 `vitest`，待测试机执行确认。
 
 ## 二、本次已完成
 
@@ -251,3 +252,44 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/ontology/sync
 - 当前 `/ontology/status`：`version=9`、`quads=673`、`subjects=131`、`pending=0`、`deadLettered=0`、`failuresLastHour=0`、`shadow.equal=true`、`checkedAt=13:11:20Z`。
 - **不要再重启 API**；通过后按 cutover checklist 切 `ONTOLOGY_V2=on`，重启 API + MCP，再做冒烟和监控。
 - 测试报销单已全部清理（`DELETE 4`，查询回到 4 条）；MinIO 两个测试发票对象由用户自行删除。
+
+## 九、本体工作台前端交互修复（2026-11-11 后续）
+
+提交：
+
+- `66491c0 fix(web): lay out ontology graph filters horizontally`
+- `1b8551a feat(web): persist ontology graph view state`
+- `208075d fix(web): hide opaque graph labels and restore drag spring-back`
+
+### 1. 工具栏横向排列
+
+- 根因：全局 `select { width: 100% }` 让工具栏四个下拉各占一行。
+- 修复：`GraphExplorer.vue` 的 scoped 样式给工具栏 `select` 设置 `width: auto; flex: 0 0 auto`，深度下拉保留 `max-width: 96px`。
+- 窄屏仍由现有 `flex-wrap` 换行。
+
+### 2. 图谱状态持久化
+
+- 新增 `packages/web/src/components/ontology/graph-view-state.ts`，sessionStorage key `sse:ontology-graph:v1`。
+- 保存内容：类型/状态/部门/搜索、深度、视口（scale + position）、选中节点 URI。
+- `Ontology.vue` 图谱面板由 `v-if` 改为 `v-show`，工作台标签切换不再销毁 vis-network 实例。
+- 刷新或重新进入 `/ontology`：恢复筛选/深度/视口/选中节点，并在图数据加载后重新拉取右侧详情；失效节点自动清除。
+- 视口在节点稳定后 `moveTo` 恢复；恢复期间禁止写回。退出登录时清理该 sessionStorage。
+- 单测：`__tests__/graph-view-state.test.ts`（7 个用例）。
+
+### 3. 标签与拖动回弹
+
+- 标签：`entityLabel` 增加 opaque ID 识别（UUID、`item/<uuid>`、checksum、24+ 位长串），并把 `description`/`invoiceNo`/`paymentRef` 提到 `node.label` 之前；全部无意义时节点不显示文字。`normalizeGraph`/`normalizeNetwork` 同步改用 `entityLabel`。
+- 回弹：节点 `dragStart` 临时开启 physics，`dragEnd` 后保留约 900ms 再关闭；平移画布不触发。恢复旧版本拖动时的力导向回弹效果，同时避免常驻物理模拟。
+- 单测：`utils.test.ts` 新增 5 个用例（opaque ID 与标签回退）。
+
+### 4. 下一步
+
+1. 测试机 `git fetch origin && git reset --hard origin/master`（当前应为 `208075d`），刷新 `http://192.168.3.107:5173/ontology` 验证：
+   - 工具栏四个下拉横向排列；
+   - 切到校验/影响分析/异常再回图谱，筛选、深度、缩放、平移、选中详情保持；
+   - 刷新页面后上述状态恢复；
+   - 费用明细显示描述、发票显示发票号，UUID 不再出现在图上；
+   - 拖动节点有回弹效果，约 900ms 后停止。
+2. 测试机执行 `pnpm --filter @sse/web test` 确认新增用例。
+3. shadow 24h 门禁不变，仍以第八节第 5 条为准；**不要重启 API**。
+4. 门禁通过后再按 cutover checklist 切 `ONTOLOGY_V2=on`。

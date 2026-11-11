@@ -265,7 +265,12 @@ Natural Language / 自然语言
 
 ### Visualization / 可视化
 
-`/ontology` page — interactive vis-network graph with NL-to-graph generation, manual editing, role-scoped data, and reasoning results overlay.
+`/ontology` page — ontology workbench with tabs for graph exploration, validation, impact analysis and anomalies (role-scoped).
+
+- Graph tab: horizontal type/status/department/depth filters, node search, and drag with physics spring-back.
+- Labels prefer human fields (`title` / `serialNo` / `description` / `invoiceNo` / `fileName`); raw UUID or checksum strings are hidden.
+- View state (filters, depth, zoom/pan, selected node and detail) survives workbench tab switches and is restored after reload or re-entry within the current browser session (`sessionStorage`, cleared on logout).
+- Admin tools remain available for manual entities/relations and NL-to-graph generation.
 
 ![Ontology Graph](test/screenshot_ontology.JPG)
 
@@ -389,6 +394,7 @@ troubleshooting: [Ontology v2 runbook](docs/2026-11-10-ontology-v2-runbook.md).
 | [UserPicker 设计](docs/2026-07-26-userpicker-design.md) | Reusable user search/select component |
 | [审批流设计器](docs/2026-07-07-workflow-organisation-design.md) | Visual drag-drop approval flow designer |
 | [实体关系与权限矩阵](docs/2026-07-07-er-permission-matrix.md) | ER diagram, RBAC data scope, permission matrix |
+| [开发过程记录 (2026-11-11)](docs/2026-11-11-sse-process.md) | Ontology workbench UI, graph state persistence, readable labels, drag spring-back, shadow gate |
 | [开发过程记录 (2026-11-10)](docs/2026-11-10-sse-process.md) | MCP agent integration: Streamable HTTP, approval/OCR tools, per-request auth, OpenAPI |
 | [开发过程记录 (2026-11-02)](docs/2026-11-02-sse-process.md) | Payment receipt verification, migration runner, next steps |
 | [AI 发票核对设计](docs/superpowers/specs/2026-11-02-ai-invoice-verification-design.md) | Invoice field / duplicate verification + approval gating |
@@ -403,6 +409,11 @@ troubleshooting: [Ontology v2 runbook](docs/2026-11-10-ontology-v2-runbook.md).
 
 ## 🆕 Recent Updates / 最近更新
 
+- **2026-11-11** — Ontology workbench UI polish:
+  - Horizontal type/status/department/depth filters sized to their content
+  - Session-scoped graph view state (filters, depth, zoom/pan, selected node and detail) survives tab switches, reload and re-entry; cleared on logout
+  - Human-readable node labels; opaque UUID/checksum identifiers are hidden
+  - Dragged nodes spring back using temporary physics during and shortly after the drag
 - **2026-11-10** — Ontology v2 rollout tooling:
   - SQL-truth shadow comparator, admin-only `shadow` status field, and
     aggregate `[ontology-shadow]` stderr metrics (full diff is admin-only)
