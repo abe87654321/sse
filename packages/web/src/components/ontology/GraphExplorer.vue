@@ -455,7 +455,12 @@ watch([searchTerm, typeFilter, statusFilter, departmentFilter], () => syncData()
   background: var(--bg-card);
   color: var(--text-primary);
 }
+.explorer-toolbar select {
+  width: auto;
+  flex: 0 0 auto;
+}
 .depth-select {
+  width: auto;
   max-width: 96px;
 }
 .explorer-hint {
