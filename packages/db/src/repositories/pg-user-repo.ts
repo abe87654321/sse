@@ -33,6 +33,30 @@ export class PgUserRepo implements IUserRepo {
     return rows.length === 0 ? null : mapUser(rows[0]);
   }
 
+  async findCredentialsByPhone(
+    phone: string
+  ): Promise<{ user: User; passwordHash: string } | null> {
+    const { rows } = await pool.query(
+      `SELECT ${USER_COLUMNS}, password_hash FROM users WHERE phone = $1`,
+      [phone]
+    );
+    return rows.length === 0
+      ? null
+      : { user: mapUser(rows[0]), passwordHash: rows[0].password_hash ?? '' };
+  }
+
+  async findCredentialsById(
+    id: string
+  ): Promise<{ user: User; passwordHash: string } | null> {
+    const { rows } = await pool.query(
+      `SELECT ${USER_COLUMNS}, password_hash FROM users WHERE id = $1`,
+      [id]
+    );
+    return rows.length === 0
+      ? null
+      : { user: mapUser(rows[0]), passwordHash: rows[0].password_hash ?? '' };
+  }
+
   async findDeptApprovers(department: string): Promise<User[]> {
     const { rows } = await pool.query(
       `SELECT ${USER_COLUMNS} FROM users WHERE department = $1 AND role = $2`,
