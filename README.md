@@ -347,17 +347,24 @@ Postgres rows ──triggers──▶ ontology_outbox ──GraphProjector──
 - Named graphs: `urn:sse:tbox`, `urn:sse:data`, `urn:sse:inferred`,
   `urn:sse:history`, `urn:sse:manual`.
 - `ONTOLOGY_V2=0` — legacy path only (default).
-- `ONTOLOGY_V2=shadow` — v2 routes are mounted and serve reads, while writes are
-  mirrored to the legacy `OwlStore` so legacy queries stay current and rollback
-  stays safe. A SQL-truth comparator runs every 5 minutes and exposes the
-  `shadow` field of `GET /ontology/status` (admin-only).
+- `ONTOLOGY_V2=shadow` — v2 routes are mounted and serve reads. Only the legacy
+  `SemanticMapper` report writes continue, so the legacy graph stays warm for
+  rollback. v2 manual edits go to `urn:sse:manual` and the v2 snapshot and are
+  **not** mirrored into the legacy `OwlStore`. A SQL-truth comparator runs every
+  5 minutes and exposes the `shadow` field of `GET /ontology/status`
+  (admin-only).
 - `ONTOLOGY_V2=on` — typed queries, SPARQL, explain/validate/impact/anomalies and
   MCP ontology tools use the v2 graph. `/health` and `/healthz` return `503` when
   the outbox is more than 300s behind.
+- **Single API replica required** for `shadow|on`: each API process owns its own
+  in-memory graph, so multiple replicas serve divergent/stale graphs unless a
+  shared graph store is added. The API logs a startup warning for this.
 - Rollback is `ONTOLOGY_V2=0` + restart, then
   `UPDATE ontology_settings SET value='false' WHERE key='outbox_enabled';`.
-  The legacy `executeSparql`/`OwlStore` paths are kept until after the production
-  shadow gate.
+  Re-run the legacy `GET /ontology/sync` after rollback if you need the legacy
+  graph to include edits made through the v2 manual endpoints. The legacy
+  `executeSparql`/`OwlStore` paths are kept until after the production shadow
+  gate.
 
 Enable with the `ONTOLOGY_*` variables in `.env.example`. Cutover, rollback and
 troubleshooting: [Ontology v2 runbook](docs/2026-11-10-ontology-v2-runbook.md).

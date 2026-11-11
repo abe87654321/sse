@@ -13,11 +13,34 @@ The graph is rebuildable at any time from Postgres.
 1. A database backup has been taken and verified.
 2. Migrations `015_ontology_graph_snapshots.sql`,
    `016_ontology_outbox.sql`, and `017_ontology_rules_v2.sql` are applied.
-3. `pnpm -r build` and `pnpm -r test` are green on the release commit.
-4. The outbox triggers are still disabled (`ontology_settings.outbox_enabled =
-   'false'`) until a projector is running. `startOntologyProjector()` enables
-   them when `ONTOLOGY_V2=shadow|on`.
-5. Capacity: monitor PostgreSQL for trigger overhead and the API process for
+   Before running 017, preflight duplicate rule names; the migration deletes
+   duplicates keeping the lowest UUID `id`, then creates
+   `uq_reasoning_rules_name`:
+
+   ```sql
+   SELECT name, COUNT(*), MIN(id), MAX(id)
+     FROM reasoning_rules
+    GROUP BY name
+   HAVING COUNT(*) > 1;
+   ```
+
+   Review the rows first (the migration intentionally keeps the lowest id). If
+   you cannot accept that, resolve them manually before running the migration.
+3. Run `ADD COLUMN` / `CREATE TRIGGER` migrations in a low-traffic window. They
+   take table locks on `reasoning_rules` and the mapped business tables; the
+   trigger creation also compiles the function once per table.
+4. `pnpm -r build` and `pnpm -r test` are green on the release commit.
+5. **Exactly one API replica** may run with `ONTOLOGY_V2=shadow|on`. Each
+   process owns an independent in-memory Oxigraph graph and only the advisory
+   lock winner drains the outbox, so additional replicas serve stale/divergent
+   graphs. A shared graph store or leader election is a production prerequisite
+   before horizontal scaling.
+6. The outbox triggers are still disabled (`ontology_settings.outbox_enabled =
+   'false'`) until a projector is running. `startOntologyProjector()` disables
+   them while starting and enables them only after TBox load, snapshot
+   restore/reconcile and `runner.start()`. If startup fails it disables them and
+   the API exits non-zero.
+7. Capacity: monitor PostgreSQL for trigger overhead and the API process for
    graph memory growth (`counts.quads` from `/ontology/status`).
 
 ## 2. Backfill / reconcile
@@ -96,8 +119,12 @@ it starts the same reconcile job instead of running the old `SemanticMapper`.
 ## 4. Shadow 24h gate
 
 1. Set `ONTOLOGY_V2=shadow` and restart the API. The v2 routes are mounted for
-   `on|shadow` and serve reads, while writes are mirrored to the legacy
-   `OwlStore` so legacy queries stay current and rollback stays safe.
+   `on|shadow` and serve reads. Only the legacy `SemanticMapper` report writes
+   keep running, so the legacy graph stays warm for rollback. v2 manual edits
+   (`PUT/DELETE /ontology/entity`, `/ontology/relation`, `/ontology/from-text`)
+   are written to `urn:sse:manual` and the v2 snapshot only; they are **not**
+   mirrored into the legacy `OwlStore` and will be absent from legacy reads
+   after a rollback unless you re-run the legacy sync step in §6.
 2. The SQL-truth comparator runs immediately and then every
    `ONTOLOGY_SHADOW_INTERVAL_MS` (default `300000`, i.e. 5 minutes). It compares
    per-table `COUNT(*)`, samples up to 200 rows/table
@@ -142,12 +169,20 @@ PGPASSWORD="$DB_PASSWORD" psql \
   -c "UPDATE ontology_settings SET value='false' WHERE key='outbox_enabled';"
 
 # 3) Restart the API (and MCP).
+
+# 4) After restart with ONTOLOGY_V2=0, rebuild the legacy graph if v2 manual
+#    edits must survive the rollback. Manual v2 edits live only in
+#    urn:sse:manual / the v2 snapshot and are not written to the legacy OwlStore.
+curl -s http://127.0.0.1:3000/ontology/sync \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
 The legacy `SemanticMapper` and `executeSparql`/`OwlStore` paths remain intact,
 so rollback does not require a data migration. The v2 graph and snapshots can be
 left in place; they are additive and rebuildable. Re-enabling `shadow|on` later
-runs a reconcile if the graph is stale.
+runs a reconcile if the graph is stale. Note that the legacy `/ontology/sync`
+rebuild reads Postgres; it cannot recover manual v2-only edits, so capture or
+re-enter those if rollback must preserve them.
 
 ## 7. Troubleshooting
 
@@ -155,9 +190,11 @@ runs a reconcile if the graph is stale.
 
 - Check API logs for `[ontology-projector]` ticks and `[ontology] projector tick
   failed`.
-- Confirm only one projector holds the advisory lock. The projector uses
-  `pg_try_advisory_xact_lock(728001)`; multiple API replicas are safe, but a
-  held lock means the other replica is doing the work.
+- Confirm **exactly one API replica** is running. Each replica has its own
+  in-memory graph and the projector uses `pg_try_advisory_xact_lock(728001)` only
+  to serialize drains. If you see the lock held by another process, that other
+  replica is draining, and this replica's graph is stale. Stop the extra
+  replicas; do not scale the API horizontally until a shared graph store exists.
 - Check PostgreSQL for long transactions or trigger errors on mapped tables.
 - If the worker respawned, the projector logs a reconcile and rebuilds from the
   latest snapshot/Postgres.
@@ -166,12 +203,27 @@ runs a reconcile if the graph is stale.
 
 ### Dead letters
 
+- Alert on `outbox.deadLettered` in `GET /ontology/status` (and on
+  `outbox.oldestPendingAgeSeconds > 300`). Page when the dead-letter count is
+  non-zero for a sustained period or increases between checks; dead letters are
+  never retried automatically.
 - Query:
   `SELECT id, table_name, op, attempts, last_error FROM ontology_outbox WHERE dead_letter = true ORDER BY id;`
-- Fix the underlying data or mapping issue, then run a full reconcile:
-  `POST /ontology/reconcile`.
-- Dead letters are not retried automatically. Do not mark them processed by hand
-  without fixing the cause.
+- **A full reconcile does not clear dead letters.** It rebuilds the graph from
+  Postgres but leaves the outbox rows untouched. After fixing the data/mapping
+  cause, requeue the specific rows:
+
+  ```sql
+  UPDATE ontology_outbox
+     SET dead_letter = false, attempts = 0, processed_at = NULL, last_error = NULL
+   WHERE id IN (<dead-letter ids>);
+  ```
+
+  The projector retries them on the next tick. If the rows are known-irrelevant
+  after investigation, delete only those reviewed rows:
+  `DELETE FROM ontology_outbox WHERE dead_letter = true AND id IN (<ids>);`
+- Do not mark dead letters processed by hand without fixing the cause; the next
+  write will fail the same way.
 
 ### Worker crashes / timeouts
 
