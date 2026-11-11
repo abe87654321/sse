@@ -166,7 +166,7 @@ VALUES (
   '13800000000',
   '管理部',
   'admin',
-  '$2b$10$CrmgV1BBcfaDFF7m5uIUf.5zk/JK8BvMgUP4M5Ock0KOgAmZDvgMq'
+  '$2b$10$eILf0FOaUu3MyMoa/J93SuV2hnBaL7XcNO7/ye9H7AGkYceJs9OSK'
 ) ON CONFLICT (phone) DO NOTHING;
 
 -- ============================================================
