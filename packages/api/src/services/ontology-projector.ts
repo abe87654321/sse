@@ -196,13 +196,17 @@ export async function startOntologyProjector(): Promise<void> {
   setGraphContext(store, pool);
   liveStore = store;
 
-  const projector = new GraphProjector(store, pool);
+  const projector = new GraphProjector(store, pool, {
+    batchSize: Math.max(1, Number(process.env.ONTOLOGY_MAX_OUTBOX_BATCH) || 200),
+  });
   const rules = new RuleEngine(store, pool);
   const graphNames = [GRAPH.tbox, GRAPH.data, GRAPH.inferred, GRAPH.history, GRAPH.manual];
 
   runner = new ProjectorRunner({
     drain: (n) => projector.drain(n),
-    purgeOldEvents: (d) => projector.purgeOldEvents(d),
+    purgeOldEvents: (d) => projector.purgeOldEvents(
+      d ?? Math.max(1, Number(process.env.ONTOLOGY_OUTBOX_RETENTION_DAYS) || 7),
+    ),
     runRules: () => rules.materialize(),
     snapshot: async () => {
       const nquads = await store.dump(graphNames);
