@@ -20,6 +20,7 @@ export * from './projection/entity-mapper';
 export * from './projection/projector';
 export * from './projection/reconcile';
 export * from './projection/reconcile-jobs';
+export * from './projection/shadow';
 export * from './query/query-service';
 export * from './query/sparql-guard';
 export * from './query/sparql-term';
