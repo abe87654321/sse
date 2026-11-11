@@ -144,6 +144,27 @@ describe('reconcile', () => {
     expect(await hasEdge(store, uri.report('r1'), sse('containsItem'), uri.item('i1'))).toBe(true);
   });
 
+  it('preserves manual edits across reconcile and snapshots them', async () => {
+    const store = new MemoryGraphStore();
+    await store.load(`
+<https://sse.local/person/manual1> <${sse('name')}> "Manual" <urn:sse:manual> .
+`);
+    const pool = new FakePool();
+
+    const rebuilt = await reconcile(store, pool as any);
+
+    const manual = await store.query(
+      `SELECT ?o WHERE { GRAPH <urn:sse:manual> { <https://sse.local/person/manual1> <${sse('name')}> ?o } }`,
+    );
+    if (manual.kind !== 'select') throw new Error('expected select');
+    expect(manual.rows).toHaveLength(1);
+    expect(manual.rows[0].o).toBe('Manual');
+
+    expect(pool.snapshots).toHaveLength(1);
+    expect(pool.snapshots[0].nquads).toContain('https://sse.local/person/manual1');
+    expect(rebuilt.nquads).toContain('<urn:sse:manual>');
+  });
+
   it('is deterministic when run repeatedly', async () => {
     const store = new MemoryGraphStore();
     const first = await reconcile(store, new FakePool() as any);

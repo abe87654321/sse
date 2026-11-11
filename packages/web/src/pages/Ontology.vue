@@ -104,7 +104,11 @@
             {{ generating ? '生成中...' : '生成本体' }}
           </button>
         </div>
-        <p v-if="adminMessage" class="admin-message">{{ adminMessage }}</p>
+        <p
+          v-if="adminMessage"
+          class="admin-message"
+          :class="{ 'admin-message-warning': adminWarning }"
+        >{{ adminMessage }}</p>
       </div>
     </section>
   </div>
@@ -180,6 +184,7 @@ const newRelTo = ref('')
 const nlText = ref('')
 const generating = ref(false)
 const adminMessage = ref('')
+const adminWarning = ref(false)
 
 const isAdmin = computed(() => auth.user?.role === 'admin')
 
@@ -374,8 +379,9 @@ async function addNode(): Promise<void> {
     adminMessage.value = '属性 JSON 格式错误'
     return
   }
+  adminWarning.value = false
   try {
-    await api.put('/ontology/entity', {
+    const response = await api.put('/ontology/entity', {
       uri: newNodeUri.value,
       type: newNodeType.value,
       properties,
@@ -383,9 +389,13 @@ async function addNode(): Promise<void> {
     newNodeUri.value = ''
     newNodeType.value = ''
     newNodeProps.value = ''
-    adminMessage.value = '节点已保存'
+    adminWarning.value = response.data?.persisted === false
+    adminMessage.value = adminWarning.value
+      ? '节点已写入内存，但快照持久化失败；服务重启或重建后可能丢失'
+      : '节点已保存'
     await loadGraph()
   } catch (err) {
+    adminWarning.value = false
     adminMessage.value = `保存失败：${errorMessage(err)}`
   }
 }
@@ -395,8 +405,9 @@ async function addRelation(): Promise<void> {
     adminMessage.value = '请填写完整的关系信息'
     return
   }
+  adminWarning.value = false
   try {
-    await api.post('/ontology/relation', {
+    const response = await api.post('/ontology/relation', {
       from: newRelFrom.value,
       predicate: newRelPredicate.value,
       to: newRelTo.value,
@@ -404,9 +415,13 @@ async function addRelation(): Promise<void> {
     newRelFrom.value = ''
     newRelPredicate.value = ''
     newRelTo.value = ''
-    adminMessage.value = '关系已保存'
+    adminWarning.value = response.data?.persisted === false
+    adminMessage.value = adminWarning.value
+      ? '关系已写入内存，但快照持久化失败；服务重启或重建后可能丢失'
+      : '关系已保存'
     await loadGraph()
   } catch (err) {
+    adminWarning.value = false
     adminMessage.value = `保存失败：${errorMessage(err)}`
   }
 }
@@ -415,12 +430,17 @@ async function generateFromText(): Promise<void> {
   if (!nlText.value.trim()) return
   generating.value = true
   adminMessage.value = ''
+  adminWarning.value = false
   try {
-    await api.post('/ontology/from-text', { text: nlText.value })
+    const response = await api.post('/ontology/from-text', { text: nlText.value })
     nlText.value = ''
-    adminMessage.value = '本体已生成'
+    adminWarning.value = response.data?.persisted === false
+    adminMessage.value = adminWarning.value
+      ? '本体已生成到内存，但快照持久化失败；服务重启或重建后可能丢失'
+      : '本体已生成'
     await loadGraph()
   } catch (err) {
+    adminWarning.value = false
     adminMessage.value = `生成失败：${errorMessage(err)}`
   } finally {
     generating.value = false
@@ -563,6 +583,13 @@ onMounted(async () => {
   margin: 0;
   font-size: 0.78rem;
   color: var(--accent-coral);
+}
+.admin-message-warning {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #b45309;
 }
 @media (max-width: 1024px) {
   .explorer-layout {

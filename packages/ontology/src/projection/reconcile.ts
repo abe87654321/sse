@@ -93,6 +93,11 @@ export async function rebuildGraph(
   const history = await target.dump([GRAPH.history]);
   if (history.trim() !== '') await fresh.load(history);
 
+  // Manual edits bypass the outbox, so they only exist in the live target.
+  // Carry them into the fresh store or the final replaceAll would wipe them.
+  const manual = await target.dump([GRAPH.manual]);
+  if (manual.trim() !== '') await fresh.load(manual);
+
   for (const table of TABLES) {
     await projectTable(fresh, pool, table, batchSize);
   }

@@ -67,14 +67,16 @@ function close(server: Server): Promise<void> {
 describe('ontology v2 routes', () => {
   let url: string;
   let server: Server;
+  let store: MemoryGraphStore;
+  let pool: any;
 
   beforeAll(async () => {
     jest.spyOn(console, 'error').mockImplementation(() => {});
 
-    const store = new MemoryGraphStore();
+    store = new MemoryGraphStore();
     await loadTBox(store);
     await store.load(NQ);
-    const pool = {
+    pool = {
       query: async (sql: string) => {
         if (sql.includes('ontology_projector_state')) {
           return { rows: [{ last_snapshot_version: '3' }] };
@@ -137,6 +139,17 @@ describe('ontology v2 routes', () => {
   function put(path: string, body: unknown, token?: string) {
     return fetch(`${url}${path}`, {
       method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    })
+  }
+
+  function del(path: string, body: unknown, token?: string) {
+    return fetch(`${url}${path}`, {
+      method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -370,6 +383,102 @@ describe('ontology v2 routes', () => {
         }),
       ]),
     );
+  });
+
+  it('reports persisted:true when the manual snapshot is durable', async () => {
+    const res = await put(
+      '/ontology/entity',
+      { uri: 'person/durable1', type: 'Person', properties: { name: '持久化' } },
+      adminToken,
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as any).persisted).toBe(true);
+  });
+
+  it('surfaces a snapshot failure without failing the in-memory write', async () => {
+    const failingPool = {
+      query: async () => { throw new Error('snapshot db down'); },
+    };
+    setGraphContext(store, failingPool);
+
+    let status = 0;
+    let body: any = null;
+    try {
+      const res = await put(
+        '/ontology/entity',
+        { uri: 'person/memory-only', type: 'Person', properties: { name: '内存' } },
+        adminToken,
+      );
+      status = res.status;
+      body = await res.json();
+    } finally {
+      setGraphContext(store, pool);
+    }
+
+    expect(status).toBe(200);
+    expect(body.persisted).toBe(false);
+
+    const graphRes = await get('/ontology/graph', adminToken);
+    const graphBody: any = await graphRes.json();
+    expect(graphBody.graph.nodes.map((node: any) => node.uri)).toContain(
+      'https://sse.local/person/memory-only',
+    );
+  });
+
+  it('deletes manual entities from urn:sse:manual', async () => {
+    await put(
+      '/ontology/entity',
+      { uri: 'person/to-delete', type: 'Person', properties: { name: '待删除' } },
+      adminToken,
+    );
+    await post(
+      '/ontology/relation',
+      { from: 'person/manual1', predicate: 'knows', to: 'person/to-delete' },
+      adminToken,
+    );
+
+    const res = await del('/ontology/entity', { uri: 'person/to-delete' }, adminToken);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as any).persisted).toBe(true);
+
+    const graphRes = await get('/ontology/graph', adminToken);
+    const graphBody: any = await graphRes.json();
+    const uris = graphBody.graph.nodes.map((node: any) => node.uri);
+    expect(uris).not.toContain('https://sse.local/person/to-delete');
+    expect(
+      graphBody.graph.edges.some((edge: any) => edge.to === 'https://sse.local/person/to-delete'),
+    ).toBe(false);
+  });
+
+  it('deletes manual relations from urn:sse:manual', async () => {
+    await post(
+      '/ontology/relation',
+      { from: 'person/manual1', predicate: 'collaboratesWith', to: 'dept/tech' },
+      adminToken,
+    );
+
+    const res = await del(
+      '/ontology/relation',
+      { from: 'person/manual1', predicate: 'collaboratesWith', to: 'dept/tech' },
+      adminToken,
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as any).persisted).toBe(true);
+
+    const graphRes = await get('/ontology/graph', adminToken);
+    const graphBody: any = await graphRes.json();
+    expect(
+      graphBody.graph.edges.some(
+        (edge: any) =>
+          edge.from === 'https://sse.local/person/manual1' &&
+          edge.predicate === 'collaboratesWith',
+      ),
+    ).toBe(false);
+  });
+
+  it('rejects manual deletes from non-admins', async () => {
+    const res = await del('/ontology/entity', { uri: 'person/manual1' }, employeeToken);
+    expect(res.status).toBe(403);
   });
 
   it('rejects manual writes from non-admins', async () => {

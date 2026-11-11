@@ -188,24 +188,34 @@ function propertyTriples(subject: string, properties: unknown): string[] {
   return triples;
 }
 
+export interface ManualPersistence {
+  persisted: boolean;
+}
+
 /**
  * Manual writes bypass the outbox, so persist the graph snapshot immediately.
- * The projector will keep snapshotting afterwards as usual.
+ * The projector will keep snapshotting afterwards as usual. The in-memory write
+ * always stands; the returned flag only reports whether it reached the DB.
  */
-async function persistManualSnapshot(): Promise<void> {
+async function persistManualSnapshot(): Promise<ManualPersistence> {
   const store = graphStore();
   const pool = graphPool();
   const nquads = await store.dump(MANUAL_GRAPH_NAMES);
   store.checkpoint(nquads);
-  if (!pool) return;
+  if (!pool) {
+    console.error('[ontology] manual snapshot not persisted: graph pool unavailable');
+    return { persisted: false };
+  }
   try {
     const state = await pool.query(
       `SELECT last_outbox_id FROM ontology_projector_state WHERE id = 'default'`,
     );
     const lastOutboxId = Number(state.rows[0]?.last_outbox_id ?? 0) || 0;
     await new SnapshotRepo(pool).save(MANUAL_GRAPH_NAMES, nquads, lastOutboxId);
+    return { persisted: true };
   } catch (err: any) {
     console.error(`[ontology] manual snapshot persistence failed: ${err?.message ?? err}`);
+    return { persisted: false };
   }
 }
 
@@ -244,9 +254,22 @@ router.put('/entity', requireRole('admin'), asyncWrap(async (req, res) => {
   const store = graphStore();
   await store.update(`DELETE WHERE { GRAPH <${GRAPH.manual}> { ${subject} ?p ?o } }`);
   await store.update(`INSERT DATA { GRAPH <${GRAPH.manual}> { ${triples.join('\n')} } }`);
-  await persistManualSnapshot();
+  const { persisted } = await persistManualSnapshot();
 
-  res.json({ message: '实体已保存到 urn:sse:manual', uri: normalizeEntityIri(body.uri) });
+  res.json({ message: '实体已保存到 urn:sse:manual', uri: normalizeEntityIri(body.uri), persisted });
+}));
+
+router.delete('/entity', requireRole('admin'), asyncWrap(async (req, res) => {
+  const body = req.body ?? {};
+  const rawUri = body.uri ?? req.query.uri;
+  const subject = iriTerm(rawUri, 'uri');
+
+  const store = graphStore();
+  await store.update(`DELETE WHERE { GRAPH <${GRAPH.manual}> { ${subject} ?p ?o } }`);
+  await store.update(`DELETE WHERE { GRAPH <${GRAPH.manual}> { ?s ?p ${subject} } }`);
+  const { persisted } = await persistManualSnapshot();
+
+  res.json({ message: '实体已从 urn:sse:manual 删除', uri: normalizeEntityIri(rawUri), persisted });
 }));
 
 router.post('/relation', requireRole('admin'), asyncWrap(async (req, res) => {
@@ -258,9 +281,23 @@ router.post('/relation', requireRole('admin'), asyncWrap(async (req, res) => {
   await graphStore().update(
     `INSERT DATA { GRAPH <${GRAPH.manual}> { ${from} ${predicate} ${to} . } }`,
   );
-  await persistManualSnapshot();
+  const { persisted } = await persistManualSnapshot();
 
-  res.json({ message: '关系已保存到 urn:sse:manual' });
+  res.json({ message: '关系已保存到 urn:sse:manual', persisted });
+}));
+
+router.delete('/relation', requireRole('admin'), asyncWrap(async (req, res) => {
+  const body = req.body ?? {};
+  const from = iriTerm(body.from, 'from');
+  const predicate = predicateTerm(body.predicate);
+  const to = iriTerm(body.to, 'to');
+
+  await graphStore().update(
+    `DELETE DATA { GRAPH <${GRAPH.manual}> { ${from} ${predicate} ${to} . } }`,
+  );
+  const { persisted } = await persistManualSnapshot();
+
+  res.json({ message: '关系已从 urn:sse:manual 删除', persisted });
 }));
 
 router.post('/from-text', requireRole('admin'), asyncWrap(async (req, res) => {
@@ -290,14 +327,15 @@ router.post('/from-text', requireRole('admin'), asyncWrap(async (req, res) => {
     );
   }
 
+  let persisted = true;
   if (triples.length > 0) {
     await graphStore().update(
       `INSERT DATA { GRAPH <${GRAPH.manual}> { ${triples.join('\n')} } }`,
     );
-    await persistManualSnapshot();
+    persisted = (await persistManualSnapshot()).persisted;
   }
 
-  res.json({ entities_added: entities.length, relations_added: relations.length });
+  res.json({ entities_added: entities.length, relations_added: relations.length, persisted });
 }));
 
 router.get('/entities', asyncWrap(async (req, res) => {
