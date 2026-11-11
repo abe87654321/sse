@@ -38,6 +38,19 @@ The graph is rebuildable at any time from Postgres.
    (created before this fix) cannot log in and must have an admin reset their
    password. This remains a code-level fix: the live login smoke test is still
    required.
+   Additional pre-cutover password checks:
+   - `ALLOW_LEGACY_PLAINTEXT_PASSWORDS` must be unset or `0` in production. Only
+     set it to `1` for a short migration window if plaintext rows still exist,
+     then remove it.
+   - Apply migration `018_disable_external_password_sentinels.sql`; it converts
+     `scim_managed_no_pwd`, `mdm_managed_no_pwd`, and empty hashes to the
+     unusable sentinel `!`. Confirm no user still has an empty/sentinel hash:
+     `SELECT id, phone, password_hash FROM users WHERE password_hash IN ('', '!', 'scim_managed_no_pwd', 'mdm_managed_no_pwd');`
+     Any remaining provisioning user must have an admin-set password before
+     they can log in.
+   - Set `SCIM_TOKEN` and `MDM_TOKEN` (or `WEBHOOK_TOKEN`) before cutover.
+     Without them, `/scim` and `/webhook` return 503
+     `SERVICE_TOKEN_NOT_CONFIGURED` in production.
 6. **Exactly one API replica** may run with `ONTOLOGY_V2=shadow|on`. Each
    process owns an independent in-memory Oxigraph graph and only the advisory
    lock winner drains the outbox, so additional replicas serve stale/divergent

@@ -144,6 +144,10 @@ curl -s http://127.0.0.1:3001/healthz
 - `packages/api/src/routes/auth.ts` 的 `PUT /password` 现在强制校验 `oldPassword`，新密码经 bcrypt 哈希后写入 `password_hash`，不再保存明文。
 - `packages/api/src/routes/admin.ts` 创建用户时**必须提供密码**并写入 bcrypt 哈希；编辑用户可选重置密码。管理员创建的账号不再允许空密码。
 - `packages/web/src/pages/AdminUsers.vue` 新建/编辑弹窗增加密码字段：新建必填，编辑留空表示不修改。
+- **外部身份哨兵加固**：`verifyPassword` 永久拒绝 `scim_managed_no_pwd`、`mdm_managed_no_pwd`、`!`、空串与纯空白值；SCIM/MDM 创建的用户改写入不可用哨兵 `!`（不再是可登录凭据）。迁移 `018_disable_external_password_sentinels.sql` 把历史哨兵/空哈希统一改为 `!`，只匹配精确哨兵值，不改动合法 bcrypt。
+- **明文开关**：历史明文密码仅在 `ALLOW_LEGACY_PLAINTEXT_PASSWORDS=1` 时允许比较并机会性重哈希，默认关闭；生产不得开启。
+- **SCIM/Webhook 鉴权**：`/scim`、`/webhook` 增加服务令牌中间件，接受 `Authorization: Bearer <token>` 或 `X-Service-Token: <token>`；令牌来自 `SCIM_TOKEN` 与 `MDM_TOKEN`（或 `WEBHOOK_TOKEN`）。生产未配置令牌时返回 503 `SERVICE_TOKEN_NOT_CONFIGURED`，非生产记录告警后放行。
+- **登录防护**：`POST /auth/login` 按 `ip + phone` 固定窗口限流（10 次 / 15 分钟，429 `RATE_LIMITED`），成功登录清除计数；先校验密码再判断账号状态，避免通过 403 枚举禁用账号；bcrypt 72 UTF-8 字节上限同时应用于设置密码与登录输入；`BCRYPT_ROUNDS` 限制在 10–14 且与 dummy hash 使用同一 cost。
 
 > 以上为代码层修复。仍需在目标环境用真实种子账号和管理员新建账号做一次登录冒烟测试，确认 `JWT_SECRET`、bcrypt 原生模块等部署配置正常，不能仅凭单元测试宣称生产已完全安全。
 
