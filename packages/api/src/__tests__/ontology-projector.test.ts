@@ -9,6 +9,10 @@ import {
 const result = { processed: 1, failed: 0, deadLettered: 0 };
 
 describe('ProjectorRunner', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('drains and sleeps until stopped', async () => {
     const calls: string[] = [];
     const runner = new ProjectorRunner({
@@ -20,8 +24,9 @@ describe('ProjectorRunner', () => {
       reconcile: async () => { calls.push('reconcile'); },
     } as any, { intervalMs: 5, snapshotEvery: 2 });
 
+    jest.useFakeTimers();
     runner.start();
-    await new Promise(resolve => setTimeout(resolve, 30));
+    await jest.advanceTimersByTimeAsync(30);
     await runner.stop();
 
     expect(calls.filter(call => call === 'drain').length).toBeGreaterThan(1);
