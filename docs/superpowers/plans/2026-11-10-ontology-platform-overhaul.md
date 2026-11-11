@@ -3654,7 +3654,7 @@ Before execution, confirm:
 
 ## 12. Execution status (2026-11-10)
 
-Approved and implemented on branch `feat/ontology-platform-overhaul` in worktree `E:\app\opencode\sse-ontology-v2`.
+Approved and implemented on branch `feat/ontology-platform-overhaul`, merged to `master` in `e1cbba0`, and pushed. Follow-up preflight fix: `3d5d2a9`. Current test-machine handoff and remaining cutover steps: `docs/2026-11-11-sse-process.md`.
 
 | Phase | Status | Key commits |
 |---|---|---|

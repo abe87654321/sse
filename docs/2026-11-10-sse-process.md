@@ -261,7 +261,8 @@ curl -s http://127.0.0.1:3001/healthz
 
 ## 九、本体 v2 全量执行进度（分支 `feat/ontology-platform-overhaul`）
 
-> 状态：代码与文档已完成，测试全绿；未推送、未合并 `master`。
+> 状态：已合并并推送到 `master`（`e1cbba0`），后续 preflight 修复为 `3d5d2a9`。
+> 最新会话交接与测试机状态见 `docs/2026-11-11-sse-process.md`。
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
