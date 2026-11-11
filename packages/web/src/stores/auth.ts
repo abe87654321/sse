@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import router from '@/router'
+import { clearGraphViewState } from '@/components/ontology/graph-view-state'
 
 export interface UserInfo {
   id: string
@@ -27,12 +28,16 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.setItem('user', JSON.stringify(u))
   }
 
-  function logout() {
+  async function logout() {
     token.value = ''
     user.value = null
     localStorage.removeItem('token')
     localStorage.removeItem('user')
-    router.push('/login')
+    try {
+      await router.push('/login')
+    } finally {
+      clearGraphViewState()
+    }
   }
 
   return { token, user, isLoggedIn, setAuth, logout }

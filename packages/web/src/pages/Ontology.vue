@@ -39,7 +39,7 @@
       </button>
     </nav>
 
-    <div v-if="activeTab === 'explorer'" class="explorer-tab">
+    <div v-show="activeTab === 'explorer'" class="explorer-tab">
       <div class="explorer-layout">
         <GraphExplorer
           :nodes="graphNodes"
@@ -47,6 +47,7 @@
           :selected="selectedUri"
           :loading="graphLoading"
           :max-nodes="400"
+          :depth="depth"
           @select="selectEntity"
           @depth-change="handleDepthChange"
           @refresh="refresh"
@@ -71,7 +72,7 @@
     </div>
 
     <ValidationPanel
-      v-else-if="activeTab === 'validate'"
+      v-if="activeTab === 'validate'"
       @select="openEntity"
     />
     <ImpactPanel
@@ -79,7 +80,7 @@
       @select="openEntity"
     />
     <AnomalyPanel
-      v-else
+      v-else-if="activeTab === 'anomalies'"
       @select="openEntity"
     />
 
@@ -126,7 +127,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import api from '../api/index'
 import {
   ontologyApi,
@@ -146,6 +147,7 @@ import AnomalyPanel from '../components/ontology/AnomalyPanel.vue'
 import SyncStatus from '../components/ontology/SyncStatus.vue'
 import { entityLabel } from '../components/ontology/utils'
 import { graphLegendItems } from '../components/ontology/graph-style'
+import { patchGraphViewState, readGraphViewState } from '../components/ontology/graph-view-state'
 
 type TabId = 'explorer' | 'validate' | 'impact' | 'anomalies'
 
@@ -173,17 +175,18 @@ const tabs: Array<{ id: TabId; label: string }> = [
 ]
 
 const auth = useAuthStore()
+const savedViewState = readGraphViewState()
 const activeTab = ref<TabId>('explorer')
 const graphNodes = ref<WorkbenchNode[]>([])
 const graphEdges = ref<WorkbenchEdge[]>([])
 const legendItems = computed(() => graphLegendItems(graphNodes.value.map((node) => node.type)))
 const graphLoading = ref(false)
-const selectedUri = ref<string | null>(null)
+const selectedUri = ref<string | null>(savedViewState.selectedUri)
 const entity = ref<EntityDetailModel | null>(null)
 const explanation = ref<Explanation | null>(null)
 const detailLoading = ref(false)
 const detailError = ref<string | null>(null)
-const depth = ref(2)
+const depth = ref(savedViewState.depth)
 const disabled = ref(false)
 const serviceError = ref<string | null>(null)
 
@@ -460,8 +463,22 @@ async function generateFromText(): Promise<void> {
   }
 }
 
+watch(selectedUri, (uri) => {
+  patchGraphViewState({ selectedUri: uri })
+})
+watch(depth, (value) => {
+  patchGraphViewState({ depth: value })
+})
+
 onMounted(async () => {
   await loadGraph()
+  if (selectedUri.value) {
+    const uri = selectedUri.value
+    await loadEntity(uri)
+    if (!entity.value && !disabled.value) {
+      selectedUri.value = null
+    }
+  }
 })
 </script>
 

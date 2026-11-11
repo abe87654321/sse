@@ -20,10 +20,10 @@
         <option v-for="department in departmentOptions" :key="department" :value="department">{{ department }}</option>
       </select>
       <select
-        v-model.number="depth"
+        :value="depth"
         class="input-sm depth-select"
         aria-label="关系深度"
-        @change="emit('depth-change', depth)"
+        @change="handleDepthChange"
       >
         <option :value="1">深度 1</option>
         <option :value="2">深度 2</option>
@@ -82,6 +82,11 @@ import {
   GRAPH_SHAPES as SHAPES,
   GRAPH_TYPE_LABELS,
 } from './graph-style'
+import {
+  patchGraphViewState,
+  readGraphViewState,
+  type GraphViewport,
+} from './graph-view-state'
 
 export interface ExplorerNode {
   id?: string
@@ -106,11 +111,13 @@ const props = withDefaults(
     selected?: string | null
     loading?: boolean
     maxNodes?: number
+    depth?: number
   }>(),
   {
     selected: null,
     loading: false,
     maxNodes: 400,
+    depth: 2,
   },
 )
 
@@ -122,14 +129,14 @@ const emit = defineEmits<{
 
 
 
+const savedViewState = readGraphViewState()
 const graphWrapper = ref<HTMLElement | null>(null)
 const graphContainer = ref<HTMLElement | null>(null)
-const searchInput = ref('')
-const searchTerm = ref('')
-const typeFilter = ref('')
-const statusFilter = ref('')
-const departmentFilter = ref('')
-const depth = ref(2)
+const searchInput = ref(savedViewState.filters.search)
+const searchTerm = ref(savedViewState.filters.search)
+const typeFilter = ref(savedViewState.filters.type)
+const statusFilter = ref(savedViewState.filters.status)
+const departmentFilter = ref(savedViewState.filters.department)
 
 interface NodeTooltip {
   visible: boolean
@@ -159,6 +166,11 @@ let edgesData: DataSet<any> | null = null
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let resizeObserver: ResizeObserver | null = null
 let lastSignature = ''
+let filterPersistTimer: ReturnType<typeof setTimeout> | null = null
+let viewportPersistTimer: ReturnType<typeof setTimeout> | null = null
+let pendingViewport: GraphViewport | null = savedViewState.viewport
+let viewportRestored = !savedViewState.viewport
+let layoutGeneration = 0
 
 const nodeId = (node: ExplorerNode): string => graphNodeId(node)
 const renderedCount = ref(0)
@@ -243,6 +255,70 @@ function unique(values: string[]): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b))
 }
 
+function handleDepthChange(event: Event): void {
+  const next = Number((event.target as HTMLSelectElement).value)
+  if (next === 1 || next === 2 || next === 3) {
+    emit('depth-change', next)
+  }
+}
+
+function persistFilters(): void {
+  patchGraphViewState({
+    filters: {
+      type: typeFilter.value,
+      status: statusFilter.value,
+      department: departmentFilter.value,
+      search: searchInput.value,
+    },
+  })
+}
+
+function scheduleFilterPersist(): void {
+  if (filterPersistTimer) clearTimeout(filterPersistTimer)
+  filterPersistTimer = setTimeout(() => {
+    filterPersistTimer = null
+    persistFilters()
+  }, 200)
+}
+
+function captureViewport(): GraphViewport | null {
+  if (!network) return null
+  const position = network.getViewPosition()
+  const scale = network.getScale()
+  if (!Number.isFinite(scale) || scale <= 0) return null
+  if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) return null
+  return { scale, position: { x: position.x, y: position.y } }
+}
+
+function persistViewport(): void {
+  if (!viewportRestored) return
+  if (!nodesData || (nodesData.getIds() as string[]).length === 0) return
+  const viewport = captureViewport()
+  if (viewport) patchGraphViewState({ viewport })
+}
+
+function scheduleViewportPersist(): void {
+  if (!viewportRestored) return
+  if (viewportPersistTimer) clearTimeout(viewportPersistTimer)
+  viewportPersistTimer = setTimeout(() => {
+    viewportPersistTimer = null
+    persistViewport()
+  }, 250)
+}
+
+function flushOnPageHide(): void {
+  if (filterPersistTimer) {
+    clearTimeout(filterPersistTimer)
+    filterPersistTimer = null
+  }
+  if (viewportPersistTimer) {
+    clearTimeout(viewportPersistTimer)
+    viewportPersistTimer = null
+  }
+  persistFilters()
+  persistViewport()
+}
+
 function nodeVisual(node: ExplorerNode): Record<string, unknown> {
   const id = nodeId(node)
   const label = entityLabel(node)
@@ -322,11 +398,23 @@ function syncData(): void {
 
 function relayout(): void {
   if (!network) return
+  const generation = ++layoutGeneration
   network.setOptions({ physics: { enabled: true } })
   network.stabilize(60)
   network.once('stabilizationIterationsDone', () => {
-    network?.setOptions({ physics: { enabled: false } })
-    network?.fit({ animation: false })
+    if (!network || generation !== layoutGeneration) return
+    network.setOptions({ physics: { enabled: false } })
+    const hasNodes = ((nodesData?.getIds() as string[]) ?? []).length > 0
+    if (pendingViewport && hasNodes) {
+      const target = pendingViewport
+      pendingViewport = null
+      viewportRestored = true
+      network.moveTo({ scale: target.scale, position: target.position, animation: false })
+      return
+    }
+    if (!pendingViewport) {
+      network.fit({ animation: false })
+    }
   })
 }
 
@@ -371,7 +459,12 @@ onMounted(() => {
   network.on('hoverNode', (params: { node: string }) => showTooltip(params.node))
   network.on('blurNode', () => hideTooltip())
   network.on('dragStart', () => hideTooltip())
-  network.on('zoom', () => hideTooltip())
+  network.on('zoom', () => {
+    hideTooltip()
+    scheduleViewportPersist()
+  })
+  network.on('dragEnd', () => scheduleViewportPersist())
+  window.addEventListener('pagehide', flushOnPageHide)
 
   // vis-network keeps the initial container size; observe layout changes so the
   // canvas fills the card instead of rendering into a short strip.
@@ -392,6 +485,9 @@ onMounted(() => {
 onUnmounted(() => {
   if (debounceTimer) clearTimeout(debounceTimer)
   if (tooltipTimer) clearTimeout(tooltipTimer)
+  if (filterPersistTimer) clearTimeout(filterPersistTimer)
+  if (viewportPersistTimer) clearTimeout(viewportPersistTimer)
+  window.removeEventListener('pagehide', flushOnPageHide)
   resizeObserver?.disconnect()
   resizeObserver = null
   if (network) {
@@ -425,6 +521,24 @@ watch(searchInput, (value) => {
   }, 250)
 })
 watch([searchTerm, typeFilter, statusFilter, departmentFilter], () => syncData())
+watch([searchInput, typeFilter, statusFilter, departmentFilter], () => scheduleFilterPersist())
+watch([typeOptions, statusOptions, departmentOptions], () => {
+  if (props.nodes.length === 0) return
+  let changed = false
+  if (typeFilter.value && !typeOptions.value.includes(typeFilter.value)) {
+    typeFilter.value = ''
+    changed = true
+  }
+  if (statusFilter.value && !statusOptions.value.includes(statusFilter.value)) {
+    statusFilter.value = ''
+    changed = true
+  }
+  if (departmentFilter.value && !departmentOptions.value.includes(departmentFilter.value)) {
+    departmentFilter.value = ''
+    changed = true
+  }
+  if (changed) persistFilters()
+}, { immediate: true })
 </script>
 
 <style scoped>
