@@ -2,13 +2,15 @@
 # SSE MCP 一键回归测试
 set -e
 
-BASE="http://localhost:3000"
+BASE="${SSE_API_BASE:-http://localhost:3000}"
+ADMIN_PHONE="${ADMIN_PHONE:-13800000000}"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
 PASS=0
 FAIL=0
 
 TOKEN=$(curl -sf -X POST "$BASE/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"phone":"13800000000","password":"123456"}' \
+  -d "{\"phone\":\"$ADMIN_PHONE\",\"password\":\"$ADMIN_PASSWORD\"}" \
   | python3 -c "import json,sys; print(json.load(sys.stdin).get('accessToken',''))")
 
 if [ -z "$TOKEN" ]; then
