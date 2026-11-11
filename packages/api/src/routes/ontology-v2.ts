@@ -23,6 +23,7 @@ import { requireRole } from '../middleware/rbac';
 import { AppError } from '../middleware/error';
 import { persistGraphSnapshot } from '../services/ontology-projector';
 import { getEngine } from './ontology-helpers';
+import { listAllEntities } from './ontology-pagination';
 
 const router = Router();
 
@@ -410,15 +411,29 @@ router.post('/from-text', requireRole('admin'), asyncWrap(async (req, res) => {
 router.get('/entities', asyncWrap(async (req, res) => {
   const type = queryParam(req.query.type);
   const explicitPageSize = queryParam(req.query.page_size ?? req.query.pageSize);
+
+  // The legacy `type` shape returned every match; only apply pagination when
+  // the caller explicitly asks for it. Walk pages so >1000 matches are not
+  // silently truncated.
+  if (type && explicitPageSize === undefined) {
+    const { results } = await listAllEntities(queryService(), {
+      type,
+      status: queryParam(req.query.status),
+      department: queryParam(req.query.department),
+      q: queryParam(req.query.q),
+      scope: toScope(req),
+    });
+    res.json(results.map((entity) => ({ uri: entity.uri, properties: entity.properties })));
+    return;
+  }
+
   const result = await queryService().listEntities({
     type,
     status: queryParam(req.query.status),
     department: queryParam(req.query.department),
     q: queryParam(req.query.q),
     page: pageNumber(req.query.page),
-    // The legacy `type` shape returned every match; only apply pagination when
-    // the caller explicitly asks for it.
-    pageSize: type && explicitPageSize === undefined ? 1000 : pageSize(explicitPageSize),
+    pageSize: pageSize(explicitPageSize),
     scope: toScope(req),
   });
 

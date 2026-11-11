@@ -5,6 +5,7 @@ import { UserRole } from '@sse/shared';
 import { AppError } from '../middleware/error';
 import { PgUserRepo, pool } from '@sse/db';
 import { getEngine } from './ontology-helpers';
+import { listAllEntities } from './ontology-pagination';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
@@ -114,15 +115,13 @@ router.get('/query', asyncWrap(async (req, res) => {
   if (!type) throw new AppError(400, 'INVALID_PARAMS', '请提供 type 参数');
 
   if (v2On()) {
-    // Legacy `/ontology/query?type=` returned every match. Page size 1000 keeps
-    // that contract without silently truncating at the v2 default of 20.
-    const result = await v2QueryService().listEntities({
+    // Legacy `/ontology/query?type=` returned every match. The v2 service
+    // paginates, so walk pages instead of truncating at the first 1000 rows.
+    const { results } = await listAllEntities(v2QueryService(), {
       type,
       scope: v2Scope(req),
-      page: 1,
-      pageSize: 1000,
     });
-    res.json(result.results.map((entity) => ({
+    res.json(results.map((entity) => ({
       uri: entity.uri,
       properties: entity.properties,
     })));
