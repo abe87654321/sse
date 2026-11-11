@@ -102,8 +102,8 @@ pnpm test   → core 41 · auth 19 · db 13 · ai 100 · notifications 29 · ont
 冒烟验证：
 
 - Streamable HTTP（`:3099`）：`/healthz` 正常；`initialize` 返回 2025-06-18 + session id；
-  `tools/list` 返回 18 个工具。
-- stdio：`initialize` + `tools/list` 返回 18 个工具。
+  `tools/list` 返回 18 个工具（本次会话前；本体 v2 合并后为 22 个）。
+- stdio：`initialize` + `tools/list` 返回 18 个工具（本体 v2 合并后为 22 个）。
 - `GET /openapi.json`：HTTP 200、`openapi: 3.1.0`、19 个路径、JSON 可解析（无 DB 也可访问该端点）。
 
 ---
@@ -124,11 +124,12 @@ curl -s http://127.0.0.1:3001/healthz
 
 ---
 
-## 四、MCP 工具清单（18）
+## 四、MCP 工具清单（22）
 
 只读：`search_expenses`、`get_expense_detail`、`get_approval_status`、`get_statistics`、
 `get_user_summary`、`list_pending_approvals`、`query_expense_status`、`explain_decision`、
-`validate_expense`、`query_ontology`、`get_entity_network`、`query_sparql`。
+`validate_expense`、`query_ontology`、`get_entity_network`、`query_sparql`、
+`explain_expense`、`impact_analysis`、`find_anomalies`、`get_ontology_schema`。
 
 写入：`submit_expense_from_text`、`submit_expense_from_invoice`、`approve_expense`、
 `reject_expense`、`upload_invoice`、`verify_expense`。
@@ -160,7 +161,7 @@ curl -s http://127.0.0.1:3001/healthz
   - 前置：管理端 MCP key 管理页/接口（目前只能直接改 `mcp_api_keys` 表）。
 - 为 `@sse/mcp` 增加独立测试（目前仍以构建 + 现有套件验证）。
 - 工具契约：`outputSchema`、`annotations`（只读/破坏性提示）、统一错误信封。
-- 更新 `docs/2026-07-29-mcp-test-cases.md` 与 `docs/2026-07-31-mcp-pi-test-cases.md`（14 → 18 工具、HTTP 传输）。
+- 更新 `docs/2026-07-29-mcp-test-cases.md` 与 `docs/2026-07-31-mcp-pi-test-cases.md`（14 → 22 工具、HTTP 传输）。
 
 ### P2：其余
 
@@ -255,3 +256,27 @@ curl -s http://127.0.0.1:3001/healthz
 `ONTOLOGY_ANOMALY_INTERVAL_MS`、`ONTOLOGY_MAX_OUTBOX_BATCH`、
 `ONTOLOGY_GRAPH_CALL_TIMEOUT_MS`、`ONTOLOGY_SHADOW_INTERVAL_MS`、
 `ONTOLOGY_SHADOW_SAMPLE_ROWS`、`ONTOLOGY_WORKER_PATH`。
+
+---
+
+## 九、本体 v2 全量执行进度（分支 `feat/ontology-platform-overhaul`）
+
+> 状态：代码与文档已完成，测试全绿；未推送、未合并 `master`。
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| 0 | ADR、依赖、测试基线 | 完成 |
+| 1 | GraphStore 端口、Oxigraph worker、TBox、快照 | 完成 |
+| 2 | 触发器 outbox、全表映射、projector、reconcile | 完成 |
+| 3 | 真 SPARQL 1.1、类型化查询、scope、分页 | 完成 |
+| 4 | CONSTRUCT 规则、SHACL、explain/validate/impact/anomalies | 完成 |
+| 5 | MCP 瘦客户端、22 工具、超时/审计 | 完成 |
+| 6 | Web 本体工作台、同步健康、手动图 | 完成 |
+| 7 | shadow SQL 真值、health、runbook、安全下线 | 完成 |
+| P0 | bcrypt 登录/改密/建用户、限流、SCIM/MDM 令牌、哨兵清理 | 完成 |
+
+- 基线 `6d039f1`，当前分支 HEAD 约 69 个提交；工作区干净。
+- 验证：`pnpm -r build` 通过；`pnpm -r test` 595 tests，0 failures。
+- 计划与执行记录：`docs/superpowers/plans/2026-11-10-ontology-platform-overhaul.md`。
+- 生产 cutover：`docs/2026-11-10-ontology-v2-cutover-checklist.md`、`deploy/preflight-ontology-v2.sql`。
+- 仍需运维执行：备份、迁移 `015`-`018`、`shadow` 24h、MCP 冒烟、切 `on`；生产要求单 API 副本。

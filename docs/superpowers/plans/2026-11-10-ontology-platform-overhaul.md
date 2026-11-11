@@ -3667,7 +3667,11 @@ Approved and implemented on branch `feat/ontology-platform-overhaul` in worktree
 | 6 | Done | `d4cbaca`, `02480e8`, `9e8dfc7`, `68d88af`, `9621dd9`, `7cad63c`, `6a5ba66` |
 | 7 | Done | `6f16c77`, `d14135f`, `f4080a7`, `8a890bb`, `ef09fa3`, `ca5897e`, `ed43ff6` |
 
-**Verification:** `pnpm -r build` passes (11 packages); `pnpm -r test` passes (ontology 167, api 91, mcp 55, web 22, core 41, auth 19, db 15, ai 100, notifications 29).
+**Verification:** `pnpm -r build` passes (11 packages); `pnpm -r test` passes (595 tests, 0 failures: ontology 170, api 123, mcp 56, web 25, core 41, auth 30, db 21, ai 100, notifications 29).
+
+**P0 security follow-up:** bcrypt login/change/create, login rate limiting, account enumeration fix, 72-byte bcrypt limit, SCIM/MDM service tokens, sentinel cleanup migration `018`, and the verified `admin123` seed hash are implemented and reviewed.
+
+**Cutover artifacts:** `deploy/preflight-ontology-v2.sql`, `docs/2026-11-10-ontology-v2-cutover-checklist.md`, deployment nginx `X-Forwarded-For`/`TRUST_PROXY` notes, and the updated runbook.
 
 **Deliberate deviations from the original text:**
 - MCP Jest config is `jest.config.cjs` because `@sse/mcp` is `"type": "module"`; test scripts use `--passWithNoTests` where suites are added later.

@@ -50,7 +50,7 @@
 | ⚙️ **Admin Engine Setup** | Root URL + API key, model catalog picker, connectivity test, observable OCR test panel with history |
 | 📊 **Statistics & Export** | Charts, monthly trends, Excel export |
 | 🔔 **Notifications** | In-app + SMS + Email for approval / payment / broadcast events, per-user preferences, delivery tracking and bounce alerts |
-| 📡 **MCP Protocol** | 18 tools for AI Agent integration (stdio + Streamable HTTP) |
+| 📡 **MCP Protocol** | 22 tools for AI Agent integration (stdio + Streamable HTTP) |
 | 🔗 **SCIM 2.0 + MDM** | External identity sync via SCIM and MDM Webhook |
 | 🗂️ **Object Storage** | Invoice files in MinIO, DB holds references only |
 | 🔐 **RBAC** | 4 roles with data scope isolation |
@@ -192,7 +192,7 @@ sse/
 │   ├── db/              # PostgreSQL repositories & migrations
 │   ├── auth/            # JWT + RBAC
 │   ├── api/             # Express REST API
-│   ├── mcp/             # MCP Server (14 tools)
+│   ├── mcp/             # MCP Server (22 tools)
 │   ├── ontology/        # OWL ontology + semantic orchestration engine
 │   ├── ocr/             # Invoice OCR (PDF/OFD)
 │   ├── ai/              # LLM provider (OpenAI-compatible)
@@ -308,6 +308,10 @@ External Systems (HR / LDAP / 企业微信)
 | `reject_expense` | Reject a report with a required comment |
 | `upload_invoice` | Attach a PDF/OFD invoice to a report item |
 | `verify_expense` | Run AI invoice verification (amount/date/number + duplicates) |
+| `explain_expense` | Evidence chain: rule, approvers, invoices, payment, why blocked |
+| `impact_analysis` | What-if impact of rule/category/department changes |
+| `find_anomalies` | Amount mismatch, duplicate invoice, missing approver |
+| `get_ontology_schema` | Classes/properties available in the ontology TBox |
 
 ### 🔌 MCP Transports / 传输
 

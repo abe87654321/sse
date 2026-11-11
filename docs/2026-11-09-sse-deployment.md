@@ -952,7 +952,7 @@ ONTOLOGY_SHADOW_INTERVAL_MS=300000
 - [ ] 邮件/短信实际收到（或日志显示发送成功）
 - [ ] MCP 工具能返回数据
 - [ ] `curl -s http://127.0.0.1:3001/healthz` 返回 `status: ok`
-- [ ] `POST /mcp` initialize + `tools/list` 返回 18 个工具
+- [ ] `POST /mcp` initialize + `tools/list` 返回 22 个工具
 - [ ] `GET /openapi.json` 返回 OpenAPI 3.1；`POST /auth/api-key-login` 能换到 JWT
 - [ ] 通知偏好开关生效
 
