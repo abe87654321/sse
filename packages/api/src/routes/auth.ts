@@ -8,7 +8,12 @@ import {
   hashPassword,
   verifyPassword,
   validatePassword,
+  dummyPasswordHash,
+  checkRateLimit,
+  pruneRateLimitStore,
+  MAX_PASSWORD_BYTES,
 } from '@sse/auth';
+import type { RateLimitWindow } from '@sse/auth';
 import { AppError } from '../middleware/error';
 import { pool } from '@sse/db';
 import { uploadAvatar, validateUploadSignature } from '../middleware/upload';
@@ -17,10 +22,24 @@ import { MinioStorage } from '../storage/minio-storage';
 const router = Router();
 const userRepo = new PgUserRepo();
 
-// A fixed hash used to spend comparable bcrypt time when the phone number does
-// not exist. The result is intentionally ignored.
-const DUMMY_PASSWORD_HASH =
-  '$2b$10$CrmgV1BBcfaDFF7m5uIUf.5zk/JK8BvMgUP4M5Ock0KOgAmZDvgMq';
+// Login throttling: 10 attempts per (ip, phone) per 15 minutes.
+const LOGIN_RATE_LIMIT_MAX = 10;
+const LOGIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const loginRateLimitStore = new Map<string, RateLimitWindow>();
+const loginRateLimitSweeper = setInterval(
+  () => pruneRateLimitStore(loginRateLimitStore),
+  LOGIN_RATE_LIMIT_WINDOW_MS
+);
+loginRateLimitSweeper.unref?.();
+
+export function __resetLoginRateLimitForTests(): void {
+  loginRateLimitStore.clear();
+}
+
+function loginRateLimitKey(req: Request, phone: string): string {
+  const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+  return `${clientIp}:${phone}`;
+}
 
 function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -37,22 +56,41 @@ router.post(
       throw new AppError(400, 'INVALID_PARAMS', '手机号和密码不能为空');
     }
 
+    const rateLimitKey = loginRateLimitKey(req, phone);
+    const limited = checkRateLimit(loginRateLimitStore, rateLimitKey, {
+      limit: LOGIN_RATE_LIMIT_MAX,
+      windowMs: LOGIN_RATE_LIMIT_WINDOW_MS,
+    });
+    if (!limited.allowed) {
+      throw new AppError(429, 'RATE_LIMITED', '登录尝试过于频繁，请稍后重试');
+    }
+
+    // bcrypt only considers the first 72 UTF-8 bytes; reject longer input so it
+    // can never match by truncation.
+    if (Buffer.byteLength(password, 'utf8') > MAX_PASSWORD_BYTES) {
+      throw new AppError(401, 'UNAUTHORIZED', '手机号或密码错误');
+    }
+
     const credentials = await userRepo.findCredentialsByPhone(phone);
     if (!credentials) {
-      await verifyPassword(password, DUMMY_PASSWORD_HASH);
+      await verifyPassword(password, dummyPasswordHash());
       throw new AppError(401, 'UNAUTHORIZED', '手机号或密码错误');
     }
 
     const { user, passwordHash } = credentials;
 
-    if (user.status !== 'active') {
-      throw new AppError(403, 'UNAUTHORIZED', '账号已被禁用');
-    }
-
+    // Verify credentials before checking status so a wrong password never
+    // reveals whether a phone number exists or is disabled.
     const verified = await verifyPassword(password, passwordHash);
     if (!verified.ok) {
       throw new AppError(401, 'UNAUTHORIZED', '手机号或密码错误');
     }
+
+    if (user.status !== 'active') {
+      throw new AppError(403, 'UNAUTHORIZED', '账号已被禁用');
+    }
+
+    loginRateLimitStore.delete(rateLimitKey);
 
     if (verified.needsRehash) {
       try {

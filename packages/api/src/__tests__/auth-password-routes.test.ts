@@ -38,7 +38,7 @@ import type { AddressInfo } from 'net';
 import type { Server } from 'http';
 import * as db from '@sse/db';
 import { hashPassword, signToken, verifyPassword } from '@sse/auth';
-import { authRoutes } from '../routes/auth';
+import { authRoutes, __resetLoginRateLimitForTests } from '../routes/auth';
 import { adminRoutes } from '../routes/admin';
 import { errorHandler } from '../middleware/error';
 
@@ -129,6 +129,8 @@ afterAll(async () => {
 beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset();
   mocks.query.mockResolvedValue({ rows: [] });
+  __resetLoginRateLimitForTests();
+  delete process.env.ALLOW_LEGACY_PLAINTEXT_PASSWORDS;
 });
 
 describe('POST /auth/login', () => {
@@ -199,7 +201,26 @@ describe('POST /auth/login', () => {
     });
   });
 
-  it('upgrades a legacy plaintext password after a successful login', async () => {
+  it('rejects legacy plaintext when the migration flag is off', async () => {
+    mocks.findCredentialsByPhone.mockResolvedValue({
+      user: activeUser,
+      passwordHash: 'legacy-secret',
+    });
+
+    const response = await request('POST', '/auth/login', {
+      phone: activeUser.phone,
+      password: 'legacy-secret',
+    });
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { message: '手机号或密码错误' },
+    });
+    expect(mocks.query).not.toHaveBeenCalled();
+  });
+
+  it('upgrades a legacy plaintext password after a successful login when enabled', async () => {
+    process.env.ALLOW_LEGACY_PLAINTEXT_PASSWORDS = '1';
     mocks.findCredentialsByPhone.mockResolvedValue({
       user: activeUser,
       passwordHash: 'legacy-secret',
@@ -218,6 +239,118 @@ describe('POST /auth/login', () => {
     await expect(verifyPassword('legacy-secret', params[0])).resolves.toMatchObject({
       ok: true,
     });
+  });
+
+  it('rejects SCIM/MDM sentinel values as login credentials', async () => {
+    for (const sentinel of ['scim_managed_no_pwd', 'mdm_managed_no_pwd', '!']) {
+      __resetLoginRateLimitForTests();
+      mocks.findCredentialsByPhone.mockResolvedValue({
+        user: activeUser,
+        passwordHash: sentinel,
+      });
+
+      const response = await request('POST', '/auth/login', {
+        phone: activeUser.phone,
+        password: sentinel,
+      });
+
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { message: '手机号或密码错误' },
+      });
+      expect(mocks.query).not.toHaveBeenCalled();
+    }
+  });
+
+  it('does not reveal an inactive account when the password is wrong', async () => {
+    mocks.findCredentialsByPhone.mockResolvedValue({
+      user: { ...activeUser, status: 'inactive' },
+      passwordHash: await hashPassword('correct-password'),
+    });
+
+    const response = await request('POST', '/auth/login', {
+      phone: activeUser.phone,
+      password: 'wrong-password',
+    });
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { message: '手机号或密码错误' },
+    });
+  });
+
+  it('rejects passwords longer than 72 UTF-8 bytes before any lookup', async () => {
+    mocks.findCredentialsByPhone.mockResolvedValue({
+      user: activeUser,
+      passwordHash: await hashPassword('correct-password'),
+    });
+
+    const response = await request('POST', '/auth/login', {
+      phone: activeUser.phone,
+      password: '密'.repeat(25),
+    });
+
+    expect(response.status).toBe(401);
+    expect(mocks.findCredentialsByPhone).not.toHaveBeenCalled();
+  });
+
+  it('blocks after 10 attempts for the same ip and phone', async () => {
+    mocks.findCredentialsByPhone.mockResolvedValue({
+      user: activeUser,
+      passwordHash: 'legacy-secret',
+    });
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const response = await request('POST', '/auth/login', {
+        phone: activeUser.phone,
+        password: 'wrong-password',
+      });
+      expect(response.status).toBe(401);
+    }
+
+    const blocked = await request('POST', '/auth/login', {
+      phone: activeUser.phone,
+      password: 'wrong-password',
+    });
+
+    expect(blocked.status).toBe(429);
+    await expect(blocked.json()).resolves.toMatchObject({
+      error: { code: 'RATE_LIMITED' },
+    });
+  });
+
+  it('resets the attempt counter after a successful login', async () => {
+    mocks.findCredentialsByPhone.mockResolvedValue({
+      user: activeUser,
+      passwordHash: 'legacy-secret',
+    });
+    for (let attempt = 0; attempt < 9; attempt += 1) {
+      const response = await request('POST', '/auth/login', {
+        phone: activeUser.phone,
+        password: 'wrong-password',
+      });
+      expect(response.status).toBe(401);
+    }
+
+    mocks.findCredentialsByPhone.mockResolvedValue({
+      user: activeUser,
+      passwordHash: await hashPassword('correct-password'),
+    });
+    const success = await request('POST', '/auth/login', {
+      phone: activeUser.phone,
+      password: 'correct-password',
+    });
+    expect(success.status).toBe(200);
+
+    mocks.findCredentialsByPhone.mockResolvedValue({
+      user: activeUser,
+      passwordHash: 'legacy-secret',
+    });
+    const afterReset = await request('POST', '/auth/login', {
+      phone: activeUser.phone,
+      password: 'wrong-password',
+    });
+    expect(afterReset.status).toBe(401);
   });
 });
 
