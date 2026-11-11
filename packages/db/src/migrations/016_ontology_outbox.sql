@@ -34,9 +34,12 @@ SET search_path = pg_catalog, public
 AS $$
 DECLARE
   enabled TEXT;
+  -- Denylist, not an allowlist: new text columns are still exposed unless they
+  -- are added here. See the ontology v2 runbook for the remaining allowlist work.
   forbidden TEXT[] := ARRAY[
     'password_hash', 'phone', 'email',
-    'storage_key', 'storage_bucket', 'ocr_result', 'verification_result'
+    'storage_key', 'storage_bucket', 'ocr_result', 'verification_result',
+    'payment_comment', 'avatar_url'
   ];
 BEGIN
   SELECT value INTO enabled FROM ontology_settings WHERE key = 'outbox_enabled';
@@ -70,5 +73,7 @@ END $$;
 -- INSERT on ontology_outbox. Keep explicit grants for tools/tests anyway.
 -- Migrations run as the application role in this repo, so some of these are
 -- advisory in environments where the role already owns the tables.
-GRANT SELECT, INSERT ON ontology_outbox TO CURRENT_USER;
-GRANT UPDATE ON ontology_settings, ontology_projector_state TO CURRENT_USER;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ontology_outbox TO CURRENT_USER;
+GRANT USAGE, SELECT ON SEQUENCE ontology_outbox_id_seq TO CURRENT_USER;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ontology_settings TO CURRENT_USER;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ontology_projector_state TO CURRENT_USER;

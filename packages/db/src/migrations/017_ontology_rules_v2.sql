@@ -7,6 +7,15 @@ ALTER TABLE reasoning_rules ADD COLUMN IF NOT EXISTS construct_query TEXT;
 ALTER TABLE reasoning_rules ADD COLUMN IF NOT EXISTS severity TEXT NOT NULL DEFAULT 'info';
 ALTER TABLE reasoning_rules ADD COLUMN IF NOT EXISTS message TEXT;
 
+-- Preflight for databases that already contain duplicate rule names from the
+-- older unconstrained seed. Keep the lowest UUID id and delete the rest so the
+-- unique index below can be created. This is safe because nothing references
+-- reasoning_rules(id) with a foreign key.
+DELETE FROM reasoning_rules a
+ USING reasoning_rules b
+ WHERE a.name = b.name
+   AND a.id > b.id;
+
 -- Seed idempotency relies on a named unique constraint. Without it, re-running
 -- this migration (or any future seed touching the same name) would append
 -- duplicate legacy rules, which then match with the same priority.

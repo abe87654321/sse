@@ -26,3 +26,10 @@ CREATE TABLE IF NOT EXISTS ontology_projector_state (
 
 INSERT INTO ontology_projector_state (id) VALUES ('default')
   ON CONFLICT (id) DO NOTHING;
+
+-- Migrations run as the application role in this repo, so some of these are
+-- advisory where the role already owns the objects. Keep them explicit for
+-- least-privilege deployments and for tools/tests that use a separate role.
+GRANT SELECT, INSERT, UPDATE, DELETE
+  ON ontology_graph_snapshots, ontology_projector_state TO CURRENT_USER;
+GRANT USAGE, SELECT ON SEQUENCE ontology_snapshot_version_seq TO CURRENT_USER;

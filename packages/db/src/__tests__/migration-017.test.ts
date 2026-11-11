@@ -22,4 +22,16 @@ describe('migration 017 rule seed idempotency', () => {
     expect(sql).toMatch(/ON CONFLICT \(name\) DO NOTHING;/);
     expect(sql).not.toMatch(/ON CONFLICT DO NOTHING;/);
   });
+
+  it('deduplicates existing rule names before creating the unique index', () => {
+    const dedupe = sql.indexOf('DELETE FROM reasoning_rules a');
+    const index = sql.indexOf(
+      'CREATE UNIQUE INDEX IF NOT EXISTS uq_reasoning_rules_name ON reasoning_rules(name);',
+    );
+
+    expect(dedupe).toBeGreaterThanOrEqual(0);
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(dedupe).toBeLessThan(index);
+    expect(sql).toMatch(/a\.id > b\.id/);
+  });
 });
