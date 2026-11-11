@@ -173,6 +173,23 @@ function departmentPattern(entity: string, department: string): string {
   }`;
 }
 
+/**
+ * Child entities (items, invoices, approvals, payment receipts) are visible
+ * when their parent report is visible. Keep this as the single definition so
+ * typed list queries and point reads cannot drift apart.
+ */
+function childScopePatterns(entity: string, reportOwner: string): string[] {
+  return [
+    // ExpenseItem is linked from its report via containsItem.
+    `{ ?scopeReport <${sse('containsItem')}> ${entity} . ${reportOwner} }`,
+    // Invoice is linked from its item, whose report is the actual parent.
+    `{ ?scopeItem <${sse('hasInvoice')}> ${entity} . ?scopeReport <${sse('containsItem')}> ?scopeItem . ${reportOwner} }`,
+    // ApprovalRecord / PaymentReceipt are linked directly from the report.
+    `{ ?scopeReport <${sse('hasApproval')}> ${entity} . ${reportOwner} }`,
+    `{ ?scopeReport <${sse('hasPaymentReceipt')}> ${entity} . ${reportOwner} }`,
+  ];
+}
+
 function scopePatterns(scope: Scope, entity: string): string[] {
   switch (scope.kind) {
     case 'all':
@@ -183,15 +200,26 @@ function scopePatterns(scope: Scope, entity: string): string[] {
       if (!scope.userId) return ['FILTER(false)'];
       const person = safeIri(uri.person(scope.userId));
       if (!person) return ['FILTER(false)'];
+      const reportOwner = `?scopeReport <${sse('submittedBy')}> ${person}`;
       return [`{
         { ${entity} <${sse('submittedBy')}> ${person} }
         UNION
         { FILTER(${entity} = ${person}) }
+        UNION
+        ${childScopePatterns(entity, reportOwner).join('\n        UNION\n        ')}
       }`];
     }
-    case 'department':
+    case 'department': {
       if (!scope.department) return ['FILTER(false)'];
-      return [departmentPattern(entity, scope.department)];
+      const name = sparqlString(scope.department);
+      const reportOwner =
+        `?scopeReport <${sse('submittedBy')}> ?scopePerson . ?scopePerson <${sse('belongsTo')}> ?scopeDept . ?scopeDept <${sse('name')}> ${name}`;
+      return [`{
+        ${departmentPattern(entity, scope.department)}
+        UNION
+        ${childScopePatterns(entity, reportOwner).join('\n        UNION\n        ')}
+      }`];
+    }
   }
 }
 
@@ -257,7 +285,9 @@ export class OntologyQueryService {
     scope: Scope;
   }): Promise<{ results: EntitySummary[]; total: number }> {
     const page = Math.max(1, Math.floor(Number(input.page) || 1));
-    const pageSize = Math.max(1, Math.min(100, Math.floor(Number(input.pageSize) || 20)));
+    // Internal callers may request up to 1000 per page to preserve the legacy
+    // "return every match" contract; the HTTP routes still clamp user input.
+    const pageSize = Math.max(1, Math.min(1000, Math.floor(Number(input.pageSize) || 20)));
     const { patterns, legacyType } = entityPatterns(input);
     const where = patterns.join('\n  ');
 
@@ -753,16 +783,6 @@ ORDER BY ?property`);
     const subject = safeIri(entity);
     if (!subject) return false;
 
-    const childPatterns = (reportOwner: string): string[] => [
-      // ExpenseItem is linked from its report via containsItem.
-      `{ ?scopeReport <${sse('containsItem')}> ${subject} . ${reportOwner} }`,
-      // Invoice is linked from its item, whose report is the actual parent.
-      `{ ?scopeItem <${sse('hasInvoice')}> ${subject} . ?scopeReport <${sse('containsItem')}> ?scopeItem . ${reportOwner} }`,
-      // ApprovalRecord / PaymentReceipt are linked directly from the report.
-      `{ ?scopeReport <${sse('hasApproval')}> ${subject} . ${reportOwner} }`,
-      `{ ?scopeReport <${sse('hasPaymentReceipt')}> ${subject} . ${reportOwner} }`,
-    ];
-
     let body: string;
     if (scope.kind === 'self') {
       if (!scope.userId) return false;
@@ -776,7 +796,7 @@ ORDER BY ?property`);
         UNION
         { ${subject} <${sse('submittedBy')}> ${person} }
         UNION
-        ${childPatterns(reportOwner).join('\n        UNION\n        ')}
+        ${childScopePatterns(subject, reportOwner).join('\n        UNION\n        ')}
       }`;
     } else {
       if (!scope.department) return false;
@@ -791,7 +811,7 @@ ORDER BY ?property`);
         UNION
         { ${subject} a <${sse('Department')}> . ${subject} <${sse('name')}> ${name} }
         UNION
-        ${childPatterns(reportOwner).join('\n        UNION\n        ')}
+        ${childScopePatterns(subject, reportOwner).join('\n        UNION\n        ')}
       }`;
     }
 

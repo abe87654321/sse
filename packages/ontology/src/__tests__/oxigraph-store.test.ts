@@ -43,6 +43,28 @@ describe('OxigraphStore', () => {
     await store.close();
   });
 
+  it('uses ONTOLOGY_GRAPH_CALL_TIMEOUT_MS for internal queries', async () => {
+    const original = process.env.ONTOLOGY_GRAPH_CALL_TIMEOUT_MS;
+    const store = new OxigraphStore(WORKER_PATH);
+    try {
+      const filler = Array.from({ length: 50_000 }, (_, i) =>
+        `<https://sse.local/report/g${i}> <https://sse.local/ontology#status> "pending" <urn:sse:data> .`,
+      ).join('\n') + '\n';
+      await store.load(filler);
+
+      // Set the budget after the fixture load: callTimeoutMs() also governs
+      // load/update, and loading 50k quads is expected to exceed 10ms.
+      process.env.ONTOLOGY_GRAPH_CALL_TIMEOUT_MS = '10';
+      await expect(
+        store.query('SELECT * WHERE { ?a ?b ?c . ?d ?e ?f . ?g ?h ?i }'),
+      ).rejects.toThrow(/timeout/i);
+    } finally {
+      await store.close();
+      if (original === undefined) delete process.env.ONTOLOGY_GRAPH_CALL_TIMEOUT_MS;
+      else process.env.ONTOLOGY_GRAPH_CALL_TIMEOUT_MS = original;
+    }
+  });
+
   it('excludes urn:sse:history from bare queries but exposes it via GRAPH', async () => {
     const store = new OxigraphStore(WORKER_PATH);
     await store.load(`

@@ -122,6 +122,17 @@ const CROSS_DEPT_NQ = `
 <https://sse.local/approval/x> <${SSE}approvedBy> <https://sse.local/person/t1> <${DATA}> .
 `;
 
+const CHILD_SCOPE_NQ = `${NQ}
+<https://sse.local/report/r1> <${SSE}hasApproval> <https://sse.local/approval/a1> <${DATA}> .
+<https://sse.local/approval/a1> <${RDF}type> <${SSE}ApprovalRecord> <${DATA}> .
+<https://sse.local/report/r1> <${SSE}hasPaymentReceipt> <https://sse.local/payment/pay1> <${DATA}> .
+<https://sse.local/payment/pay1> <${RDF}type> <${SSE}PaymentReceipt> <${DATA}> .
+<https://sse.local/report/r2> <${SSE}hasApproval> <https://sse.local/approval/a2> <${DATA}> .
+<https://sse.local/approval/a2> <${RDF}type> <${SSE}ApprovalRecord> <${DATA}> .
+<https://sse.local/report/r2> <${SSE}hasPaymentReceipt> <https://sse.local/payment/pay2> <${DATA}> .
+<https://sse.local/payment/pay2> <${RDF}type> <${SSE}PaymentReceipt> <${DATA}> .
+`;
+
 const SELF_SCOPE_NQ = `${NQ}
 <https://sse.local/person/p3> <${RDF}type> <${SSE}Person> <${DATA}> .
 <https://sse.local/person/p3> <${SSE}name> "同部门同事" <${DATA}> .
@@ -470,6 +481,48 @@ describe('OntologyQueryService', () => {
     expect(await svc.getEntity('https://sse.local/invoice/inv1', self)).not.toBeNull();
     expect(await svc.getEntity('https://sse.local/item/i2', self)).toBeNull();
     expect(await svc.getEntity('https://sse.local/invoice/inv2', self)).toBeNull();
+  });
+
+  it('applies parent-report scope to typed child-entity lists', async () => {
+    const svc = await makeServiceWith(CHILD_SCOPE_NQ);
+    const self = { kind: 'self', userId: 'p1' } as const;
+    const department = { kind: 'department', department: '技术部' } as const;
+
+    async function uris(type: string, scope: typeof self | typeof department): Promise<string[]> {
+      const res = await svc.listEntities({ type, pageSize: 1000, scope });
+      return res.results.map((entity) => entity.uri).sort();
+    }
+
+    const expected = [
+      'https://sse.local/item/i1',
+      'https://sse.local/item/i3',
+      'https://sse.local/item/i5',
+    ];
+    expect(await uris('ExpenseItem', self)).toEqual(expected);
+    expect(await uris('ExpenseItem', department)).toEqual(expected);
+
+    expect(await uris('Invoice', self)).toEqual(['https://sse.local/invoice/inv1']);
+    expect(await uris('Invoice', department)).toEqual(['https://sse.local/invoice/inv1']);
+
+    expect(await uris('ApprovalRecord', self)).toEqual(['https://sse.local/approval/a1']);
+    expect(await uris('ApprovalRecord', department)).toEqual(['https://sse.local/approval/a1']);
+
+    expect(await uris('PaymentReceipt', self)).toEqual(['https://sse.local/payment/pay1']);
+    expect(await uris('PaymentReceipt', department)).toEqual(['https://sse.local/payment/pay1']);
+  });
+
+  it('allows internal callers to request more than the legacy 20-entity default', async () => {
+    const ids = Array.from({ length: 25 }, (_, index) => `r${index + 1}`);
+    const svc = await makeServiceWith(pagingNq(ids));
+
+    const res = await svc.listEntities({
+      type: 'ExpenseReport',
+      pageSize: 1000,
+      scope: { kind: 'all' },
+    });
+
+    expect(res.total).toBe(25);
+    expect(res.results).toHaveLength(25);
   });
 
   it('restricts self scope to the own person and department node', async () => {

@@ -4,7 +4,6 @@ import type { GraphCounts, GraphQueryResult, GraphStore, ProjectedQuad } from '.
 
 type Pending = { resolve: (v: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout };
 
-const DEFAULT_QUERY_TIMEOUT_MS = 1500;
 const RESTORE_TIMEOUT_MS = 10_000;
 
 function callTimeoutMs(): number {
@@ -126,7 +125,9 @@ export class OxigraphStore implements GraphStore {
   }
 
   query(sparql: string, opts?: { timeoutMs?: number }): Promise<GraphQueryResult> {
-    return this.call('query', { sparql }, opts?.timeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS);
+    // Internal reads use the caller-configured graph budget; the raw SPARQL
+    // route passes ONTOLOGY_SPARQL_TIMEOUT_MS explicitly.
+    return this.call('query', { sparql }, opts?.timeoutMs ?? callTimeoutMs());
   }
   update(sparql: string): Promise<void> {
     return this.call('update', { sparql }, callTimeoutMs());
