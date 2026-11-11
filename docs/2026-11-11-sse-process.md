@@ -211,4 +211,43 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/ontology/sync
 - **不要再重启 API**，否则门禁窗口再次重置。
 - 通过后按 cutover checklist 切 `ONTOLOGY_V2=on`，重启 API + MCP，再做一次 MCP 冒烟和 `/healthz`、`/ontology/status` 监控。
 - 临时 HTTP MCP 仍在运行（PID `4095838`）；如不继续冒烟可 `kill $(cat /tmp/sse-mcp-http.pid)`。
-- 代码修复已在测试机工作区（未提交）和本机工作区（未提交）。如需固化，按仓库风格提交并推送后再在测试机 `git pull`；当前未执行 commit/push。
+- 代码修复已提交并推送：`741375b`（修复）+ `b86f4ce`（文档）；测试机已 `git fetch && git reset --hard origin/master` 到 `b86f4ce`。
+
+## 八、本体工作台 UI 修复（2026-11-11 12:56–13:10 UTC）
+
+提交：`7a5c53e fix(web): fill ontology graph canvas and restore legend`（随后推送）。
+
+### 1. 图例
+
+- 恢复图下方独立“图例”卡片，按当前图中出现的类型动态生成，颜色复用当前 `COLORS`/`SHAPES`。
+- 新增 `packages/web/src/components/ontology/graph-style.ts` 统一维护颜色、形状和中文类型名；补充了 `ExpenseCategory (费用类别)`。
+- 图例位置/配色按确认：图下方独立卡片 + 当前图谱配色。
+
+### 2. 灰色遮挡根因与修复
+
+- 现象不是 tooltip，而是 vis-network 画布没有铺满容器：`.graph-canvas` 高 460px，但 `.vis-network` 仅 156.8px、canvas 缓冲区仅 150px，下面显示的是 `.graph-canvas` 的 `#fafbfc` 背景。
+- 根因：`.graph-canvas` 是 `flex: 1 1 0%` 的 flex 子项，子元素 `height: 100%` 未解析到 460px，vis-network 初始化时按 157px 建画布。
+- 修复：增加 `.graph-canvas-wrap` 固定 560px 高度；`.graph-canvas` 填满 wrapper；增加 `ResizeObserver` 调用 `network.setSize()`/`redraw()`；布局稳定后 `network.fit()`。
+- 验证（Playwright + Edge）：`.graph-canvas` 661×560，`.vis-network` 659×558，canvas 缓冲区 659×558；灰色块消失，节点铺满。
+
+### 3. 悬停浮层
+
+- 移除节点 `title`（vis-network 内置灰色 tooltip 来源），改为自定义 `.graph-tooltip`。
+- 另发现：vis-network 初始化会清空 `.graph-canvas` 子节点，Vue 的 `v-if` 锚点被移除，浮层无法插入；已把浮层移到 canvas 外层 wrapper。
+- 行为：悬停节点显示“类型 + 中文名 + 最多 6 个属性”，`pointer-events: none`，3 秒后自动消失；移出/点击/拖拽/缩放立即隐藏。
+- 验证：悬停出现 `ExpenseItem · 费用明细` 浮层，内置 `.vis-tooltip` 数量 0，3.6s 后消失。
+
+### 4. 验证与状态
+
+- `pnpm --filter @sse/web build` 通过；测试机 `pnpm --filter @sse/web test`：5 个文件、25 个用例全部通过。
+- 测试机 Vite 已热更新；刷新 `http://192.168.3.107:5173/ontology` 可见。
+- 改动文件：`GraphExplorer.vue`、`graph-style.ts`（新）、`Ontology.vue`。
+
+### 5. 当前门禁（下次会话直接看这里）
+
+- API：`2026-11-11 12:01:14Z` 启动，PID `4105012`，`ONTOLOGY_V2=shadow`，之后未重启。
+- 门禁：`first_clean_at = 2026-11-11T12:07:44Z`；最近样本 `13:07:46Z` clean，已连续约 1 小时。
+- 预计通过：`2026-11-12T12:07:44Z`（北京时间 20:07:44）。以 `/tmp/sse-shadow-gate.state.json` 为准。
+- 当前 `/ontology/status`：`version=9`、`quads=673`、`subjects=131`、`pending=0`、`deadLettered=0`、`failuresLastHour=0`、`shadow.equal=true`、`checkedAt=13:11:20Z`。
+- **不要再重启 API**；通过后按 cutover checklist 切 `ONTOLOGY_V2=on`，重启 API + MCP，再做冒烟和监控。
+- 测试报销单已全部清理（`DELETE 4`，查询回到 4 条）；MinIO 两个测试发票对象由用户自行删除。
