@@ -77,6 +77,10 @@
         {{ showAdmin ? '收起管理员工具' : '展开管理员工具（手动编辑）' }}
       </button>
       <div v-if="showAdmin" class="admin-body">
+        <p class="admin-hint">
+          手动编辑在 ONTOLOGY_V2=on/shadow 时写入 <code>urn:sse:manual</code> 并持久化为快照；
+          关闭 v2 时仍写入旧版本体库。保存成功后图谱会立即刷新。
+        </p>
         <div class="admin-row">
           <input v-model="newNodeUri" class="input-sm" placeholder="URI（如 person/zhangsan）" />
           <input v-model="newNodeType" class="input-sm" placeholder="类型（如 Person）" />
@@ -250,22 +254,27 @@ async function loadGraph(): Promise<void> {
   }
 }
 
+let entityRequestId = 0
+
 async function loadEntity(uri: string): Promise<void> {
+  const requestId = ++entityRequestId
   detailLoading.value = true
   detailError.value = null
   explanation.value = null
   try {
     const response = await ontologyApi.entity(uri)
+    if (requestId !== entityRequestId) return
     entity.value = response.data
     if (isReport(response.data)) {
-      await loadExplanation(uri)
+      await loadExplanation(uri, requestId)
     }
   } catch (err) {
+    if (requestId !== entityRequestId) return
     entity.value = null
     detailError.value = errorMessage(err)
     if (isUnavailable(err)) disabled.value = true
   } finally {
-    detailLoading.value = false
+    if (requestId === entityRequestId) detailLoading.value = false
   }
 }
 
@@ -273,11 +282,13 @@ function isReport(detail: EntityDetailModel): boolean {
   return detail.type === 'ExpenseReport' || detail.uri.includes('/report/')
 }
 
-async function loadExplanation(uri: string): Promise<void> {
+async function loadExplanation(uri: string, requestId: number): Promise<void> {
   try {
     const response = await ontologyApi.explain(uri)
+    if (requestId !== entityRequestId) return
     explanation.value = response.data
   } catch (err) {
+    if (requestId !== entityRequestId) return
     if (isUnavailable(err)) disabled.value = true
     explanation.value = null
   }
@@ -535,6 +546,18 @@ onMounted(async () => {
 }
 .nl-row {
   margin-top: 4px;
+}
+.admin-hint {
+  margin: 0 0 6px;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.admin-hint code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 0.74rem;
 }
 .admin-message {
   margin: 0;

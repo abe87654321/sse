@@ -131,7 +131,18 @@ describe('ontology v2 routes', () => {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(body),
-    });
+    })
+  }
+
+  function put(path: string, body: unknown, token?: string) {
+    return fetch(`${url}${path}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    })
   }
 
   it('rejects unauthenticated requests', async () => {
@@ -311,6 +322,73 @@ describe('ontology v2 routes', () => {
     expect(new Set(body.anomalies.map((anomaly: any) => anomaly.code))).toEqual(
       new Set(['amount_mismatch', 'duplicate_invoice_no']),
     );
+  });
+
+  it('writes manual entities into the manual graph so the explorer can read them', async () => {
+    const res = await put(
+      '/ontology/entity',
+      {
+        uri: 'person/manual1',
+        type: 'Person',
+        properties: { name: '手动用户' },
+      },
+      adminToken,
+    );
+    expect(res.status).toBe(200);
+
+    const graphRes = await get('/ontology/graph', adminToken);
+    const body: any = await graphRes.json();
+    const node = body.graph.nodes.find(
+      (item: any) => item.uri === 'https://sse.local/person/manual1',
+    );
+    expect(node).toMatchObject({
+      type: 'Person',
+      properties: { name: '手动用户' },
+    });
+  });
+
+  it('writes manual relations into the manual graph', async () => {
+    const res = await post(
+      '/ontology/relation',
+      {
+        from: 'person/manual1',
+        predicate: 'belongsTo',
+        to: 'dept/tech',
+      },
+      adminToken,
+    );
+    expect(res.status).toBe(200);
+
+    const graphRes = await get('/ontology/graph', adminToken);
+    const body: any = await graphRes.json();
+    expect(body.graph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: 'https://sse.local/person/manual1',
+          to: 'https://sse.local/dept/tech',
+          predicate: 'belongsTo',
+        }),
+      ]),
+    );
+  });
+
+  it('rejects manual writes from non-admins', async () => {
+    const res = await put(
+      '/ontology/entity',
+      { uri: 'person/nope', type: 'Person', properties: {} },
+      employeeToken,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects invalid manual entity types', async () => {
+    const res = await put(
+      '/ontology/entity',
+      { uri: 'person/bad', type: 'bad-type!', properties: {} },
+      adminToken,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as any).error.code).toBe('INVALID_PARAMS');
   });
 
   it('returns 503 for v2 routes when the platform is disabled', async () => {

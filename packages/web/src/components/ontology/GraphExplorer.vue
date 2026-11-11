@@ -51,7 +51,13 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Network } from 'vis-network'
 import { DataSet } from 'vis-data'
-import { entityLabel } from './utils'
+import {
+  entityLabel,
+  graphNodeId,
+  matchesGraphFilters,
+  selectVisibleGraphNodes,
+  type GraphFilters,
+} from './utils'
 
 export interface ExplorerNode {
   id?: string
@@ -139,9 +145,16 @@ let edgesData: DataSet<any> | null = null
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let lastSignature = ''
 
-const nodeId = (node: ExplorerNode): string => node.id || node.uri
+const nodeId = (node: ExplorerNode): string => graphNodeId(node)
+const renderedCount = ref(0)
 
-const typeOptions = computed(() => unique(props.nodes.map((node) => node.type)))
+const typeOptions = computed(() =>
+  unique(
+    props.nodes
+      .map((node) => node.type)
+      .filter((value): value is string => typeof value === 'string' && value.trim() !== ''),
+  ),
+)
 const statusOptions = computed(() =>
   unique(props.nodes.map((node) => node.properties?.status).filter((value): value is string => !!value)),
 )
@@ -149,39 +162,28 @@ const departmentOptions = computed(() =>
   unique(props.nodes.map((node) => node.properties?.department).filter((value): value is string => !!value)),
 )
 
-const sourceTruncated = computed(() => props.nodes.length > props.maxNodes)
+function currentFilters(): GraphFilters {
+  return {
+    type: typeFilter.value,
+    status: statusFilter.value,
+    department: departmentFilter.value,
+    term: searchTerm.value,
+  }
+}
+
+const sourceTruncated = computed(
+  () => props.nodes.filter((node) => matchesGraphFilters(node, currentFilters())).length > props.maxNodes,
+)
 
 const selectedLabel = computed(() => {
   const node = props.nodes.find((candidate) => nodeId(candidate) === props.selected)
   return node ? entityLabel(node) : ''
 })
 
-const displayedCount = computed(() => {
-  const visible = new Set(
-    props.nodes.filter(matchesFilters).slice(0, props.maxNodes).map(nodeId),
-  )
-  return visible.size
-})
+const displayedCount = computed(() => renderedCount.value)
 
 function unique(values: string[]): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b))
-}
-
-function matchesFilters(node: ExplorerNode): boolean {
-  if (typeFilter.value && node.type !== typeFilter.value) return false
-  if (statusFilter.value && node.properties?.status !== statusFilter.value) return false
-  if (departmentFilter.value && node.properties?.department !== departmentFilter.value) return false
-  const term = searchTerm.value.trim().toLowerCase()
-  if (!term) return true
-  const haystack = [
-    nodeId(node),
-    node.label ?? '',
-    node.type,
-    ...Object.values(node.properties ?? {}),
-  ]
-    .join(' ')
-    .toLowerCase()
-  return haystack.includes(term)
 }
 
 function nodeVisual(node: ExplorerNode): Record<string, unknown> {
@@ -216,18 +218,24 @@ function nodeVisual(node: ExplorerNode): Record<string, unknown> {
 function syncData(): void {
   if (!nodesData || !edgesData) return
 
-  const cappedNodes = props.nodes.slice(0, props.maxNodes)
-  const cappedIds = new Set(cappedNodes.map(nodeId))
-  const signature = cappedNodes.map(nodeId).join('|')
+  const visibleNodes = selectVisibleGraphNodes(
+    props.nodes,
+    currentFilters(),
+    props.maxNodes,
+    props.selected,
+  )
+  const visibleIds = new Set(visibleNodes.map(nodeId))
+  // Relayout only when the source graph changes, not on every filter keystroke.
+  const signature = `${props.nodes.map(nodeId).join('|')}#${props.maxNodes}`
 
   const existingNodeIds = nodesData.getIds() as string[]
-  const staleNodeIds = existingNodeIds.filter((id) => !cappedIds.has(id))
+  const staleNodeIds = existingNodeIds.filter((id) => !visibleIds.has(id))
   if (staleNodeIds.length > 0) nodesData.remove(staleNodeIds)
 
-  nodesData.update(cappedNodes.map(nodeVisual))
+  nodesData.update(visibleNodes.map(nodeVisual))
 
   const desiredEdges = props.edges.filter(
-    (edge) => cappedIds.has(edge.from) && cappedIds.has(edge.to),
+    (edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to),
   )
   const desiredEdgeIds = new Set(desiredEdges.map((edge) => edge.id))
   const existingEdgeIds = edgesData.getIds() as string[]
@@ -248,36 +256,12 @@ function syncData(): void {
     })),
   )
 
-  applyFilters()
+  renderedCount.value = (nodesData.getIds() as string[]).length
 
   if (signature !== lastSignature) {
     lastSignature = signature
     relayout()
   }
-}
-
-function applyFilters(): void {
-  if (!nodesData || !edgesData) return
-
-  const visible = new Set(
-    props.nodes.filter(matchesFilters).slice(0, props.maxNodes).map(nodeId),
-  )
-
-  const nodeUpdates = (nodesData.getIds() as string[]).map((id) => ({
-    id,
-    hidden: !visible.has(id),
-    opacity: visible.has(id) ? 1 : 0.15,
-  }))
-  if (nodeUpdates.length > 0) nodesData.update(nodeUpdates)
-
-  const edgeUpdates = (edgesData.getIds() as string[]).map((id) => {
-    const edge = edgesData!.get(id) as { from: string; to: string }
-    return {
-      id,
-      hidden: !visible.has(edge.from) || !visible.has(edge.to),
-    }
-  })
-  if (edgeUpdates.length > 0) edgesData.update(edgeUpdates)
 }
 
 function relayout(): void {
@@ -362,7 +346,7 @@ watch(searchInput, (value) => {
     searchTerm.value = value
   }, 250)
 })
-watch([searchTerm, typeFilter, statusFilter, departmentFilter], () => applyFilters())
+watch([searchTerm, typeFilter, statusFilter, departmentFilter], () => syncData())
 </script>
 
 <style scoped>

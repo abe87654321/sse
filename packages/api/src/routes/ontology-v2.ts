@@ -1,7 +1,11 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { authMiddleware, resolveDataScope } from '@sse/auth';
 import {
+  GRAPH,
+  INST,
   InvalidQueryError,
+  RDF_TYPE,
+  SnapshotRepo,
   explainReport,
   findAnomalies,
   getGraphStore,
@@ -9,10 +13,14 @@ import {
   getQueryService,
   impactAnalysis,
   reportUri as buildReportUri,
+  sparqlIri,
+  sparqlString,
+  sse,
   validateExpense,
 } from '@sse/ontology';
 import { requireRole } from '../middleware/rbac';
 import { AppError } from '../middleware/error';
+import { getEngine } from './ontology-helpers';
 
 const router = Router();
 
@@ -113,6 +121,94 @@ function entityUri(req: Request): string {
   }
 }
 
+const MANUAL_GRAPH_NAMES = [GRAPH.tbox, GRAPH.data, GRAPH.inferred, GRAPH.history, GRAPH.manual];
+const LOCAL_NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
+
+function requiredString(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new AppError(400, 'INVALID_PARAMS', `请提供 ${label}`);
+  }
+  return value.trim();
+}
+
+function normalizeEntityIri(value: unknown, label = 'uri'): string {
+  const raw = requiredString(value, label);
+  if (!raw.includes('://')) return `${INST}${raw.replace(/^\/+/, '')}`;
+  return raw;
+}
+
+function iriTerm(value: unknown, label: string): string {
+  try {
+    return sparqlIri(normalizeEntityIri(value, label));
+  } catch {
+    throw new AppError(400, 'INVALID_PARAMS', `${label} 必须是 https://sse.local/ 下的绝对 IRI`);
+  }
+}
+
+function typeTerm(value: unknown): string {
+  const raw = requiredString(value, 'type');
+  if (raw.includes('://')) {
+    try {
+      return sparqlIri(raw);
+    } catch {
+      throw new AppError(400, 'INVALID_PARAMS', '类型 IRI 必须位于 https://sse.local/ 命名空间');
+    }
+  }
+  if (!LOCAL_NAME.test(raw)) {
+    throw new AppError(400, 'INVALID_PARAMS', '类型名无效');
+  }
+  return `<${sse(raw)}>`;
+}
+
+function predicateTerm(value: unknown): string {
+  const raw = requiredString(value, 'predicate');
+  if (raw.includes('://')) {
+    try {
+      return sparqlIri(raw);
+    } catch {
+      throw new AppError(400, 'INVALID_PARAMS', '谓词 IRI 必须位于 https://sse.local/ 命名空间');
+    }
+  }
+  if (!LOCAL_NAME.test(raw)) {
+    throw new AppError(400, 'INVALID_PARAMS', '谓词名无效');
+  }
+  return `<${sse(raw)}>`;
+}
+
+function propertyTriples(subject: string, properties: unknown): string[] {
+  if (properties === undefined || properties === null) return [];
+  if (typeof properties !== 'object' || Array.isArray(properties)) {
+    throw new AppError(400, 'INVALID_PARAMS', 'properties 必须是对象');
+  }
+  const triples: string[] = [];
+  for (const [key, value] of Object.entries(properties as Record<string, unknown>)) {
+    if (value === undefined || value === null) continue;
+    triples.push(`${subject} ${predicateTerm(key)} ${sparqlString(String(value))} .`);
+  }
+  return triples;
+}
+
+/**
+ * Manual writes bypass the outbox, so persist the graph snapshot immediately.
+ * The projector will keep snapshotting afterwards as usual.
+ */
+async function persistManualSnapshot(): Promise<void> {
+  const store = graphStore();
+  const pool = graphPool();
+  const nquads = await store.dump(MANUAL_GRAPH_NAMES);
+  store.checkpoint(nquads);
+  if (!pool) return;
+  try {
+    const state = await pool.query(
+      `SELECT last_outbox_id FROM ontology_projector_state WHERE id = 'default'`,
+    );
+    const lastOutboxId = Number(state.rows[0]?.last_outbox_id ?? 0) || 0;
+    await new SnapshotRepo(pool).save(MANUAL_GRAPH_NAMES, nquads, lastOutboxId);
+  } catch (err: any) {
+    console.error(`[ontology] manual snapshot persistence failed: ${err?.message ?? err}`);
+  }
+}
+
 router.use(authMiddleware);
 
 router.get('/status', asyncWrap(async (_req, res) => {
@@ -137,6 +233,71 @@ router.get('/graph', asyncWrap(async (req, res) => {
     },
     graph: { nodes, edges },
   });
+}));
+
+router.put('/entity', requireRole('admin'), asyncWrap(async (req, res) => {
+  const body = req.body ?? {};
+  const subject = iriTerm(body.uri, 'uri');
+  const type = typeTerm(body.type);
+  const triples = [`${subject} <${RDF_TYPE}> ${type} .`, ...propertyTriples(subject, body.properties)];
+
+  const store = graphStore();
+  await store.update(`DELETE WHERE { GRAPH <${GRAPH.manual}> { ${subject} ?p ?o } }`);
+  await store.update(`INSERT DATA { GRAPH <${GRAPH.manual}> { ${triples.join('\n')} } }`);
+  await persistManualSnapshot();
+
+  res.json({ message: '实体已保存到 urn:sse:manual', uri: normalizeEntityIri(body.uri) });
+}));
+
+router.post('/relation', requireRole('admin'), asyncWrap(async (req, res) => {
+  const body = req.body ?? {};
+  const from = iriTerm(body.from, 'from');
+  const predicate = predicateTerm(body.predicate);
+  const to = iriTerm(body.to, 'to');
+
+  await graphStore().update(
+    `INSERT DATA { GRAPH <${GRAPH.manual}> { ${from} ${predicate} ${to} . } }`,
+  );
+  await persistManualSnapshot();
+
+  res.json({ message: '关系已保存到 urn:sse:manual' });
+}));
+
+router.post('/from-text', requireRole('admin'), asyncWrap(async (req, res) => {
+  const text = requiredString(req.body?.text, 'text');
+
+  let extraction;
+  try {
+    extraction = await getEngine().extractor.extractGraph(text);
+  } catch (err: any) {
+    res.status(503).json({
+      error: { code: 'AI_SERVICE_UNAVAILABLE', message: err?.message || 'AI 模型调用失败' },
+    });
+    return;
+  }
+
+  const triples: string[] = [];
+  const entities = extraction.entities ?? [];
+  const relations = extraction.relations ?? [];
+  for (const entity of entities) {
+    const subject = iriTerm(entity.uri, 'uri');
+    triples.push(`${subject} <${RDF_TYPE}> ${typeTerm(entity.type)} .`);
+    triples.push(...propertyTriples(subject, entity.properties));
+  }
+  for (const relation of relations) {
+    triples.push(
+      `${iriTerm(relation.from, 'from')} ${predicateTerm(relation.predicate)} ${iriTerm(relation.to, 'to')} .`,
+    );
+  }
+
+  if (triples.length > 0) {
+    await graphStore().update(
+      `INSERT DATA { GRAPH <${GRAPH.manual}> { ${triples.join('\n')} } }`,
+    );
+    await persistManualSnapshot();
+  }
+
+  res.json({ entities_added: entities.length, relations_added: relations.length });
 }));
 
 router.get('/entities', asyncWrap(async (req, res) => {

@@ -37,6 +37,8 @@ const emit = defineEmits<{
 const status = ref<OntologyStatus | null>(null)
 const error = ref<string | null>(null)
 let timer: ReturnType<typeof setInterval> | null = null
+let mounted = false
+let polling = false
 
 const outboxPending = computed(() => status.value?.outboxPending ?? status.value?.outbox?.pending ?? 0)
 const deadLettered = computed(
@@ -68,20 +70,27 @@ function isUnavailable(err: unknown): boolean {
 }
 
 async function poll(): Promise<void> {
+  if (!mounted || polling) return
+  polling = true
   try {
     const response = await ontologyApi.status()
+    if (!mounted) return
     status.value = response.data
     error.value = null
     emit('status', response.data)
   } catch (err) {
+    if (!mounted) return
     status.value = null
     error.value = errorMessage(err)
     if (isUnavailable(err)) emit('unavailable')
     else emit('error', error.value)
+  } finally {
+    polling = false
   }
 }
 
 onMounted(() => {
+  mounted = true
   void poll()
   timer = setInterval(() => {
     void poll()
@@ -89,6 +98,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  mounted = false
   if (timer) {
     clearInterval(timer)
     timer = null

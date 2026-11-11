@@ -10,11 +10,33 @@
     <form class="panel-form" @submit.prevent="runValidation">
       <label>
         金额
-        <input v-model.number="amount" type="number" min="0" step="0.01" class="input-sm" placeholder="如 1200" />
+        <input
+          v-model.number="amount"
+          type="number"
+          min="0"
+          step="0.01"
+          class="input-sm"
+          placeholder="如 1200"
+          aria-label="金额"
+        />
       </label>
       <label>
-        费用类别
-        <input v-model="category" class="input-sm" placeholder="类别名称或 ID（可选）" />
+        类别 ID
+        <input
+          v-model="categoryId"
+          class="input-sm"
+          placeholder="可选，如 category-id 或 URI"
+          aria-label="类别 ID"
+        />
+      </label>
+      <label>
+        类别名称
+        <input
+          v-model="categoryName"
+          class="input-sm"
+          placeholder="可选，如 差旅"
+          aria-label="类别名称"
+        />
       </label>
       <button type="submit" class="btn-primary btn-sm" :disabled="loading || !amount">
         {{ loading ? '校验中...' : '校验' }}
@@ -92,7 +114,8 @@ const emit = defineEmits<{
 }>()
 
 const amount = ref<number | null>(null)
-const category = ref('')
+const categoryId = ref('')
+const categoryName = ref('')
 const loading = ref(false)
 const error = ref<string | null>(null)
 const result = ref<ValidateResult | null>(null)
@@ -123,9 +146,12 @@ async function runValidation(): Promise<void> {
   loading.value = true
   error.value = null
   try {
+    const id = categoryId.value.trim()
+    const name = categoryName.value.trim()
     const response = await ontologyApi.validate({
       amount: value,
-      ...(category.value.trim() ? { category_name: category.value.trim() } : {}),
+      ...(id ? { category_id: id } : {}),
+      ...(name ? { category_name: name } : {}),
     })
     result.value = response.data
   } catch (err) {
