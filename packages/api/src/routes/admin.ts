@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { PgUserRepo, PgApprovalRuleRepo, pool } from '@sse/db';
-import { authMiddleware } from '@sse/auth';
+import { authMiddleware, hashPassword, validatePassword } from '@sse/auth';
 import { requireRole } from '../middleware/rbac';
 import { UserRole } from '@sse/shared';
 import { welcomeMessage } from '@sse/notifications';
@@ -70,7 +70,7 @@ function checkRateLimit(ip: string): boolean {
   return true;
 }
 
-setInterval(() => {
+const rateLimitSweeper = setInterval(() => {
   const now = Date.now();
   for (const [ip, entry] of rateLimitMap) {
     if (now > entry.resetAt) {
@@ -78,6 +78,7 @@ setInterval(() => {
     }
   }
 }, RATE_LIMIT_WINDOW_MS);
+rateLimitSweeper.unref?.();
 
 function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -126,16 +127,27 @@ router.post(
       throw new AppError(400, 'INVALID_PARAMS', '名称、手机号、部门、角色不能为空');
     }
 
+    if (!password) {
+      throw new AppError(400, 'INVALID_PARAMS', '密码不能为空');
+    }
+
+    const invalidPassword = validatePassword(password);
+    if (invalidPassword) {
+      throw new AppError(400, 'INVALID_PARAMS', invalidPassword);
+    }
+
     const existing = await userRepo.findByPhone(phone);
     if (existing) {
       throw new AppError(400, 'INVALID_PARAMS', '手机号已存在');
     }
 
+    const passwordHash = await hashPassword(password);
+
     const { rows } = await pool.query(
       `INSERT INTO users (name, phone, email, department, role, password_hash, status)
-       VALUES ($1, $2, $3, $4, $5, '', 'active')
+       VALUES ($1, $2, $3, $4, $5, $6, 'active')
        RETURNING ${USER_COLUMNS}`,
-      [name, phone, email || null, department, role]
+      [name, phone, email || null, department, role, passwordHash]
     );
 
     const created = mapUserRow(rows[0]);
@@ -182,7 +194,7 @@ router.put(
   '/users/:id',
   asyncWrap(async (req, res) => {
     const { id } = req.params;
-    const { name, phone, email, department, role, status } = req.body;
+    const { name, phone, email, department, role, status, password } = req.body;
 
     const user = await userRepo.findById(id);
     if (!user) {
@@ -203,6 +215,16 @@ router.put(
     if (department !== undefined) { fields.push(`department = $${idx++}`); values.push(department); }
     if (role !== undefined) { fields.push(`role = $${idx++}`); values.push(role); }
     if (status !== undefined) { fields.push(`status = $${idx++}`); values.push(status); }
+
+    if (password !== undefined && password !== '') {
+      const invalidPassword = validatePassword(password);
+      if (invalidPassword) {
+        throw new AppError(400, 'INVALID_PARAMS', invalidPassword);
+      }
+      const passwordHash = await hashPassword(password);
+      fields.push(`password_hash = $${idx++}`);
+      values.push(passwordHash);
+    }
 
     if (fields.length === 0) {
       res.json(user);

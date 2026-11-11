@@ -1,6 +1,14 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { PgUserRepo } from '@sse/db';
-import { signToken, signRefreshToken, verifyRefreshToken, authMiddleware } from '@sse/auth';
+import {
+  signToken,
+  signRefreshToken,
+  verifyRefreshToken,
+  authMiddleware,
+  hashPassword,
+  verifyPassword,
+  validatePassword,
+} from '@sse/auth';
 import { AppError } from '../middleware/error';
 import { pool } from '@sse/db';
 import { uploadAvatar, validateUploadSignature } from '../middleware/upload';
@@ -8,6 +16,11 @@ import { MinioStorage } from '../storage/minio-storage';
 
 const router = Router();
 const userRepo = new PgUserRepo();
+
+// A fixed hash used to spend comparable bcrypt time when the phone number does
+// not exist. The result is intentionally ignored.
+const DUMMY_PASSWORD_HASH =
+  '$2b$10$CrmgV1BBcfaDFF7m5uIUf.5zk/JK8BvMgUP4M5Ock0KOgAmZDvgMq';
 
 function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -24,13 +37,33 @@ router.post(
       throw new AppError(400, 'INVALID_PARAMS', '手机号和密码不能为空');
     }
 
-    const user = await userRepo.findByPhone(phone);
-    if (!user) {
+    const credentials = await userRepo.findCredentialsByPhone(phone);
+    if (!credentials) {
+      await verifyPassword(password, DUMMY_PASSWORD_HASH);
       throw new AppError(401, 'UNAUTHORIZED', '手机号或密码错误');
     }
 
+    const { user, passwordHash } = credentials;
+
     if (user.status !== 'active') {
       throw new AppError(403, 'UNAUTHORIZED', '账号已被禁用');
+    }
+
+    const verified = await verifyPassword(password, passwordHash);
+    if (!verified.ok) {
+      throw new AppError(401, 'UNAUTHORIZED', '手机号或密码错误');
+    }
+
+    if (verified.needsRehash) {
+      try {
+        const upgraded = await hashPassword(password);
+        await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [
+          upgraded,
+          user.id,
+        ]);
+      } catch (error) {
+        console.error('[auth] password rehash failed', error);
+      }
     }
 
     const accessToken = signToken({
@@ -217,8 +250,32 @@ router.put(
   '/password',
   asyncWrap(async (req, res) => {
     const { oldPassword, newPassword } = req.body;
-    if (!newPassword || newPassword.length < 6) throw new AppError(400, 'INVALID_PARAMS', '新密码至少6位');
-    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newPassword, req.user!.userId]);
+
+    if (!oldPassword) {
+      throw new AppError(400, 'INVALID_PARAMS', '原密码不能为空');
+    }
+
+    const invalid = validatePassword(newPassword);
+    if (invalid) {
+      throw new AppError(400, 'INVALID_PARAMS', invalid);
+    }
+
+    const credentials = await userRepo.findCredentialsById(req.user!.userId);
+    if (!credentials) {
+      throw new AppError(404, 'NOT_FOUND', '用户不存在');
+    }
+
+    const verified = await verifyPassword(oldPassword, credentials.passwordHash);
+    if (!verified.ok) {
+      throw new AppError(401, 'UNAUTHORIZED', '原密码错误');
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [
+      passwordHash,
+      req.user!.userId,
+    ]);
+
     res.json({ message: '密码修改成功' });
   })
 );
