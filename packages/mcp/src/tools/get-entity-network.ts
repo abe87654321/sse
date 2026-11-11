@@ -25,6 +25,19 @@ function toDirection(value: unknown): OntologyDirection {
   return value === "out" || value === "in" ? value : "both";
 }
 
+/**
+ * Bare IDs are report ids in the documented tool contract. A value that already
+ * carries a path (`report/r1`, `person/p1`) or a full IRI is left untouched so
+ * callers can still target other entity types.
+ */
+export function resolveEntityUri(entityId: string): string {
+  if (entityId.includes("://")) return entityId;
+  const trimmed = entityId.replace(/^\/+/, "");
+  return trimmed.includes("/")
+    ? `https://sse.local/${trimmed}`
+    : `https://sse.local/report/${trimmed}`;
+}
+
 export async function handler(args: Record<string, unknown>): Promise<ToolResult> {
   const auth = resolveAuthContext(args);
   if (!auth) return errorResult("UNAUTHORIZED", "无效或缺失 API key");
@@ -35,7 +48,7 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
   const rawDepth = typeof args.depth === "number" ? args.depth : Number(args.depth);
   const depth = Number.isFinite(rawDepth) ? Math.min(5, Math.max(0, Math.floor(rawDepth))) : 2;
   const direction = toDirection(args.direction);
-  const targetUri = entityId.includes("://") ? entityId : `https://sse.local/${entityId}`;
+  const targetUri = resolveEntityUri(entityId);
 
   try {
     const res = await ontologyClient(auth).network(targetUri, depth, direction);

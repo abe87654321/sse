@@ -223,6 +223,22 @@ describe("get_entity_network", () => {
     });
   });
 
+  it("resolves a bare report id to the /report/ namespace", async () => {
+    const id = "00000000-0000-0000-0000-000000000001";
+    const fetchMock = mockFetch(200, {
+      nodes: [{ uri: `https://sse.local/report/${id}`, type: "ExpenseReport", properties: {} }],
+      edges: [],
+    });
+
+    const res = await getEntityNetwork({ api_key: EMPLOYEE_KEY, entity_id: id });
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toContain(
+      `/ontology/entities/${encodeURIComponent(`https://sse.local/report/${id}`)}/network`,
+    );
+    expect(payload(res).center).toBe(`https://sse.local/report/${id}`);
+  });
+
   it("clamps depth to 5 and honors direction=in", async () => {
     const fetchMock = mockFetch(200, {
       nodes: [{ uri: "https://sse.local/report/r1", type: "ExpenseReport", properties: {} }],

@@ -525,7 +525,13 @@ export default function sseMcpExtension(pi: ExtensionAPI) {
       required: ["entity_id"],
       call: (a) => {
         const entityId = a.entity_id as string;
-        const uri = entityId.includes("://") ? entityId : `https://sse.local/${entityId}`;
+        // Bare ids are report ids; values with a path or a full IRI pass through.
+        const trimmed = entityId.replace(/^\/+/, "");
+        const uri = entityId.includes("://")
+          ? entityId
+          : trimmed.includes("/")
+            ? `https://sse.local/${trimmed}`
+            : `https://sse.local/report/${trimmed}`;
         const rawDepth = typeof a.depth === "number" ? a.depth : Number(a.depth) || 2;
         const depth = Math.min(5, Math.max(0, Math.floor(rawDepth)));
         const direction = a.direction === "in" || a.direction === "out" ? a.direction : "both";
