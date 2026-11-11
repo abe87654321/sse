@@ -50,7 +50,7 @@
 | ⚙️ **Admin Engine Setup** | Root URL + API key, model catalog picker, connectivity test, observable OCR test panel with history |
 | 📊 **Statistics & Export** | Charts, monthly trends, Excel export |
 | 🔔 **Notifications** | In-app + SMS + Email for approval / payment / broadcast events, per-user preferences, delivery tracking and bounce alerts |
-| 📡 **MCP Protocol** | 18 tools for AI Agent integration (stdio + Streamable HTTP) |
+| 📡 **MCP Protocol** | 22 tools for AI Agent integration (stdio + Streamable HTTP) |
 | 🔗 **SCIM 2.0 + MDM** | External identity sync via SCIM and MDM Webhook |
 | 🗂️ **Object Storage** | Invoice files in MinIO, DB holds references only |
 | 🔐 **RBAC** | 4 roles with data scope isolation |
@@ -192,7 +192,7 @@ sse/
 │   ├── db/              # PostgreSQL repositories & migrations
 │   ├── auth/            # JWT + RBAC
 │   ├── api/             # Express REST API
-│   ├── mcp/             # MCP Server (14 tools)
+│   ├── mcp/             # MCP Server (22 tools)
 │   ├── ontology/        # OWL ontology + semantic orchestration engine
 │   ├── ocr/             # Invoice OCR (PDF/OFD)
 │   ├── ai/              # LLM provider (OpenAI-compatible)
@@ -308,6 +308,10 @@ External Systems (HR / LDAP / 企业微信)
 | `reject_expense` | Reject a report with a required comment |
 | `upload_invoice` | Attach a PDF/OFD invoice to a report item |
 | `verify_expense` | Run AI invoice verification (amount/date/number + duplicates) |
+| `explain_expense` | Evidence chain: rule, approvers, invoices, payment, why blocked |
+| `impact_analysis` | What-if impact of rule/category/department changes |
+| `find_anomalies` | Amount mismatch, duplicate invoice, missing approver |
+| `get_ontology_schema` | Classes/properties available in the ontology TBox |
 
 ### 🔌 MCP Transports / 传输
 
@@ -331,6 +335,46 @@ External Systems (HR / LDAP / 企业微信)
 
 ---
 
+## 🧬 Ontology v2 / 本体 v2
+
+PostgreSQL remains the system of record. Row triggers append every mapped change
+to `ontology_outbox`; the API projector drains it into an embedded Oxigraph
+store (real SPARQL 1.1, worker thread with timeout/respawn) and persists versioned
+N-Quads snapshots. MCP and Web read the API instead of owning their own graph.
+
+```
+Postgres rows ──triggers──▶ ontology_outbox ──GraphProjector──▶ Oxigraph
+                 │                                              │
+                 └── ontology_graph_snapshots (version/checksum)┘
+```
+
+- Named graphs: `urn:sse:tbox`, `urn:sse:data`, `urn:sse:inferred`,
+  `urn:sse:history`, `urn:sse:manual`.
+- `ONTOLOGY_V2=0` — legacy path only (default).
+- `ONTOLOGY_V2=shadow` — v2 routes are mounted and serve reads. Only the legacy
+  `SemanticMapper` report writes continue, so the legacy graph stays warm for
+  rollback. v2 manual edits go to `urn:sse:manual` and the v2 snapshot and are
+  **not** mirrored into the legacy `OwlStore`. A SQL-truth comparator runs every
+  5 minutes and exposes the `shadow` field of `GET /ontology/status`
+  (admin-only).
+- `ONTOLOGY_V2=on` — typed queries, SPARQL, explain/validate/impact/anomalies and
+  MCP ontology tools use the v2 graph. `/health` and `/healthz` return `503` when
+  the outbox is more than 300s behind.
+- **Single API replica required** for `shadow|on`: each API process owns its own
+  in-memory graph, so multiple replicas serve divergent/stale graphs unless a
+  shared graph store is added. The API logs a startup warning for this.
+- Rollback is `ONTOLOGY_V2=0` + restart, then
+  `UPDATE ontology_settings SET value='false' WHERE key='outbox_enabled';`.
+  Re-run the legacy `GET /ontology/sync` after rollback if you need the legacy
+  graph to include edits made through the v2 manual endpoints. The legacy
+  `executeSparql`/`OwlStore` paths are kept until after the production shadow
+  gate.
+
+Enable with the `ONTOLOGY_*` variables in `.env.example`. Cutover, rollback and
+troubleshooting: [Ontology v2 runbook](docs/2026-11-10-ontology-v2-runbook.md).
+
+---
+
 ## 📖 Documentation / 文档
 
 | Doc | Content |
@@ -339,6 +383,7 @@ External Systems (HR / LDAP / 企业微信)
 | [部署文档](docs/2026-11-09-sse-deployment.md) | Beginner-first install, offline MinIO, AI/OCR, notifications, MCP stdio + Streamable HTTP, OpenAPI, systemd, production & troubleshooting |
 | [MinIO 本地镜像](images/minio/sse-minio-local.meta.txt) | Bundled image version, SHA-256, offline load & verification |
 | [本体层设计](docs/2026-07-26-ontology-design.md) | OWL ontology + semantic orchestration engine |
+| [本体 v2 运行手册](docs/2026-11-10-ontology-v2-runbook.md) | Shadow comparison, 24h gate, cutover, rollback, troubleshooting, decommission |
 | [MDM 整合设计](docs/2026-07-26-mdm-design.md) | SCIM 2.0 + MDM Webhook + Identity Bridge |
 | [通知系统设计](docs/2026-07-26-notification-system-design.md) | In-app + SMS + Email notification system |
 | [UserPicker 设计](docs/2026-07-26-userpicker-design.md) | Reusable user search/select component |
@@ -358,6 +403,14 @@ External Systems (HR / LDAP / 企业微信)
 
 ## 🆕 Recent Updates / 最近更新
 
+- **2026-11-10** — Ontology v2 rollout tooling:
+  - SQL-truth shadow comparator, admin-only `shadow` status field, and
+    aggregate `[ontology-shadow]` stderr metrics (full diff is admin-only)
+  - `[ontology-projector]` tick metrics and 503-capable `/health` + `/healthz`
+    when the outbox is >300s behind with `ONTOLOGY_V2=on`
+  - Flag-gated legacy aliases (`/ontology/sync`, `/ontology/query`, `/ontology/graph`)
+    and `SemanticMapper` no-op on `on` only (`shadow`/`0` keep legacy writes)
+  - Runbook for backfill, 24h shadow gate, cutover, rollback and decommission
 - **2026-11-10** — MCP agent integration:
   - Streamable HTTP transport at `/mcp` (legacy `/sse` retained), `/healthz`, graceful shutdown
   - Per-request API-key identity for HTTP (no shared default key); ontology loads the latest DB snapshot

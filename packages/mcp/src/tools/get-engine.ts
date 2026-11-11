@@ -41,6 +41,11 @@ export function getEngine(): OntologyEngine {
  */
 export async function ensureOntologyLoaded(): Promise<OntologyEngine> {
   const instance = getEngine();
+  // In v2 the API owns the live graph. Submit tools only need the extractor and
+  // the (now deprecated) mapper no-op, so never load the legacy snapshot here.
+  if (process.env.ONTOLOGY_V2 === 'on' || process.env.ONTOLOGY_V2 === 'shadow') {
+    return instance;
+  }
   if (loaded) return instance;
   if (!loading) {
     loading = instance.store

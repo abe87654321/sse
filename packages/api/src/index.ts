@@ -15,15 +15,37 @@ import { notificationRoutes } from './routes/notifications';
 import { userRoutes } from './routes/user';
 import { adminMessageRoutes } from './routes/admin-messages';
 import { ontologyRoutes } from './routes/ontology';
+import { ontologyV2Routes, ontologyV2UnavailableRoutes } from './routes/ontology-v2';
 import { getEngine } from './routes/ontology-helpers';
 import { scimRoutes } from './routes/scim';
 import { webhookRoutes } from './routes/webhook';
+import { serviceTokenAuth } from './middleware/service-auth';
 import { errorHandler } from './middleware/error';
 import { buildOpenApiDocument } from './openapi';
 import { processPendingPaymentReceipts } from './services/payment-receipt-verifier';
+import { healthHandler } from './services/health';
+import {
+  anomalyIntervalMs,
+  defaultAnomalyScan,
+  startAnomalyScheduler,
+} from './services/anomaly-scheduler';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+
+// Only trust forwarding headers when the deployment actually sits behind a
+// known number of proxies. Otherwise req.ip would be spoofable via
+// X-Forwarded-For, which would let an attacker bypass login rate limiting.
+const trustProxy = process.env.TRUST_PROXY;
+if (trustProxy && trustProxy !== '0' && trustProxy !== 'false') {
+  if (trustProxy === 'true') {
+    app.set('trust proxy', 1);
+  } else if (/^\d+$/.test(trustProxy)) {
+    app.set('trust proxy', Number(trustProxy));
+  } else {
+    app.set('trust proxy', trustProxy);
+  }
+}
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -37,9 +59,12 @@ app.use('/ai', aiRoutes);
 app.use('/notifications', notificationRoutes);
 app.use('/user', userRoutes);
 app.use('/admin/messages', adminMessageRoutes);
+const ontologyV2Enabled = process.env.ONTOLOGY_V2 === 'on' || process.env.ONTOLOGY_V2 === 'shadow';
+if (ontologyV2Enabled) app.use('/ontology', ontologyV2Routes);
 app.use('/ontology', ontologyRoutes);
-app.use('/scim', scimRoutes);
-app.use('/webhook', webhookRoutes);
+if (!ontologyV2Enabled) app.use('/ontology', ontologyV2UnavailableRoutes);
+app.use('/scim', serviceTokenAuth('SCIM_TOKEN'), scimRoutes);
+app.use('/webhook', serviceTokenAuth('MDM_TOKEN', 'WEBHOOK_TOKEN'), webhookRoutes);
 
 app.get('/categories', async (_req, res, next) => {
   try {
@@ -49,9 +74,8 @@ app.get('/categories', async (_req, res, next) => {
   } catch (e) { next(e); }
 });
 
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+app.get('/health', healthHandler);
+app.get('/healthz', healthHandler);
 
 // OpenAPI 3.1 spec for agents/frameworks that consume REST instead of MCP.
 app.get('/openapi.json', (_req, res) => {
@@ -65,6 +89,7 @@ app.use(errorHandler);
 
 let schedulerInstance: { start: () => void; stop: () => void } | null = null;
 let paymentReceiptTimer: NodeJS.Timeout | null = null;
+let anomalyTimer: NodeJS.Timeout | null = null;
 
 async function startScheduler() {
   try {
@@ -85,12 +110,22 @@ async function startScheduler() {
   }
 }
 
-function shutdown(server: Server) {
+async function shutdown(server: Server) {
   console.log('[SSE] 正在关闭服务...');
   if (schedulerInstance) schedulerInstance.stop();
   if (paymentReceiptTimer) {
     clearInterval(paymentReceiptTimer);
     paymentReceiptTimer = null;
+  }
+  if (anomalyTimer) {
+    clearInterval(anomalyTimer);
+    anomalyTimer = null;
+  }
+  try {
+    const { stopOntologyProjector } = await import('./services/ontology-projector');
+    await stopOntologyProjector();
+  } catch (err) {
+    console.warn('[Ontology] 投影器关闭失败', err);
   }
   server.close(() => {
     console.log('[SSE] 服务已关闭');
@@ -121,6 +156,22 @@ async function initOntology() {
 
 const server = app.listen(PORT, '0.0.0.0', async () => {
   await initOntology();
+  if (process.env.ONTOLOGY_V2 === 'on' || process.env.ONTOLOGY_V2 === 'shadow') {
+    try {
+      const { startOntologyProjector } = await import('./services/ontology-projector');
+      await startOntologyProjector();
+    } catch (err: any) {
+      console.error(
+        `[ontology] failed to start the v2 projector; refusing to run with outbox triggers enabled: ${err?.message ?? err}`,
+      );
+      process.exit(1);
+      return;
+    }
+    anomalyTimer = startAnomalyScheduler(defaultAnomalyScan, anomalyIntervalMs());
+    if (anomalyTimer) {
+      console.error(`[ontology] anomaly scan scheduled every ${anomalyIntervalMs()}ms`);
+    }
+  }
   console.log(`[SSE API] 服务启动成功，端口: ${PORT}`);
   startScheduler();
   processPendingPaymentReceipts().catch((err) => {
@@ -134,5 +185,5 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
   paymentReceiptTimer.unref?.();
 });
 
-process.on('SIGTERM', () => shutdown(server));
-process.on('SIGINT', () => shutdown(server));
+process.on('SIGTERM', () => { void shutdown(server); });
+process.on('SIGINT', () => { void shutdown(server); });

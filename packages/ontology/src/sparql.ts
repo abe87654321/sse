@@ -1,3 +1,4 @@
+/// <reference path="./n3.d.ts" />
 import type { Store } from 'n3';
 
 export interface SparqlOptions {

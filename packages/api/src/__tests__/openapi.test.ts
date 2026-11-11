@@ -26,10 +26,36 @@ describe('OpenAPI document', () => {
       '/ontology/submit-from-text',
       '/ontology/query-expense-status',
       '/ontology/sparql',
+      '/ontology/status',
+      '/ontology/schema',
+      '/ontology/graph',
+      '/ontology/entities',
+      '/ontology/entities/{uri}',
+      '/ontology/entities/{uri}/network',
+      '/ontology/query',
+      '/ontology/anomalies',
+      '/ontology/validate',
+      '/ontology/explain',
+      '/ontology/impact',
     ];
     for (const path of required) {
       expect(doc.paths[path]).toBeDefined();
     }
+
+    expect(doc.paths['/ontology/query'].post).toBeDefined();
+    expect(doc.paths['/ontology/entities'].get).toBeDefined();
+    expect(doc.paths['/ontology/entities/{uri}/network'].get).toBeDefined();
+  });
+
+  it('documents the Phase 4 reasoning endpoints with real response schemas', () => {
+    expect(doc.paths['/ontology/validate'].post.responses['200'].content['application/json'].schema)
+      .toEqual({ $ref: '#/components/schemas/OntologyValidateResult' });
+    expect(doc.paths['/ontology/explain'].post.responses['200'].content['application/json'].schema)
+      .toEqual({ $ref: '#/components/schemas/OntologyExplanation' });
+    expect(doc.paths['/ontology/impact'].post.responses['200'].content['application/json'].schema)
+      .toEqual({ $ref: '#/components/schemas/OntologyImpactResult' });
+    expect(doc.paths['/ontology/anomalies'].get.responses['200'].content['application/json'].schema)
+      .toEqual({ $ref: '#/components/schemas/OntologyAnomalyResult' });
   });
 
   it('declares bearer auth and keeps the login endpoint public', () => {

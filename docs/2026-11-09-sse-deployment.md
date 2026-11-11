@@ -790,9 +790,15 @@ server {
         proxy_pass http://127.0.0.1:3000/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 }
 ```
+
+> **反向代理与限流**：前置 nginx 时必须设置 `TRUST_PROXY=1`（或实际的代理层数）。
+> 不设置时 API 不信任 `X-Forwarded-For`，所有请求会被识别为代理 IP，登录限流
+> （10 次 / 15 分钟）会按同一个 key 计数；设置错误（例如实际有 2 层代理却写 1）
+> 同样会导致 IP 识别错误。
 
 如果前后端不在同一域名下，也可以在构建时设置 `VITE_API_BASE` 指向完整 API 地址：
 
@@ -877,6 +883,30 @@ curl -s http://127.0.0.1:3001/healthz
 > stdio MCP；对外提供 HTTP MCP 时需单独启动/重启 `pnpm mcp:http` 或 systemd 服务。
 > MCP 启动后首次本体查询从 DB 快照加载；若从未同步，管理员可执行 `GET /ontology/sync`。
 
+#### 4.5.3 本体 v2 部署（可选）
+
+迁移 015–018 引入本体 v2：PostgreSQL 行触发器写入 `ontology_outbox`，API 内投影器
+再写入嵌入的 Oxigraph 图并持久化快照。首次上线请严格按
+[本体 v2 运行手册](./2026-11-10-ontology-v2-runbook.md) 和
+[切换检查清单](./2026-11-10-ontology-v2-cutover-checklist.md) 执行；切换前先运行
+[deploy/preflight-ontology-v2.sql](../deploy/preflight-ontology-v2.sql)（只读脚本）。
+
+关键环境变量（`0` → 旧路径；`shadow` → 影子比对，建议先跑 24h；`on` → 完全使用 v2）：
+
+```env
+ONTOLOGY_V2=0
+# 以下为可选调优，保持默认即可
+ONTOLOGY_PROJECT_INTERVAL_MS=1000
+ONTOLOGY_SNAPSHOT_INTERVAL_MS=5000
+ONTOLOGY_SPARQL_TIMEOUT_MS=1500
+ONTOLOGY_MAX_OUTBOX_BATCH=200
+ONTOLOGY_SHADOW_INTERVAL_MS=300000
+```
+
+> **单副本约束**：`ONTOLOGY_V2=shadow|on` 时只能运行 **一个 API 副本**。每个进程
+> 持有独立的内存 Oxigraph 图，额外副本会提供过期/分叉的图；扩容前需要共享图存储
+> 或 leader election。登录限流（10 次 / 15 分钟）同样是进程内计数，因此也要求单副本。
+
 ### 4.6 备份与恢复
 
 需要同时备份两个存储：
@@ -922,7 +952,7 @@ curl -s http://127.0.0.1:3001/healthz
 - [ ] 邮件/短信实际收到（或日志显示发送成功）
 - [ ] MCP 工具能返回数据
 - [ ] `curl -s http://127.0.0.1:3001/healthz` 返回 `status: ok`
-- [ ] `POST /mcp` initialize + `tools/list` 返回 18 个工具
+- [ ] `POST /mcp` initialize + `tools/list` 返回 22 个工具
 - [ ] `GET /openapi.json` 返回 OpenAPI 3.1；`POST /auth/api-key-login` 能换到 JWT
 - [ ] 通知偏好开关生效
 

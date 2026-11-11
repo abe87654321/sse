@@ -208,6 +208,334 @@ export function buildOpenApiDocument(): Record<string, unknown> {
             query: { type: "string", description: "SPARQL SELECT query" },
           },
         },
+        OntologyEntity: {
+          type: "object",
+          required: ["uri", "type", "properties"],
+          properties: {
+            uri: { type: "string" },
+            type: { type: "string" },
+            properties: { type: "object", additionalProperties: { type: "string" } },
+          },
+        },
+        OntologyEntityList: {
+          type: "object",
+          required: ["results", "total"],
+          properties: {
+            results: { type: "array", items: ref("OntologyEntity") },
+            total: { type: "integer" },
+          },
+        },
+        OntologyEntityDetail: {
+          type: "object",
+          required: ["uri", "type", "properties", "relations"],
+          properties: {
+            uri: { type: "string" },
+            type: { type: "string" },
+            properties: { type: "object", additionalProperties: { type: "string" } },
+            relations: {
+              type: "object",
+              required: ["outgoing", "incoming"],
+              properties: {
+                outgoing: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    required: ["predicate", "target"],
+                    properties: {
+                      predicate: { type: "string" },
+                      target: { type: "string" },
+                    },
+                  },
+                },
+                incoming: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    required: ["predicate", "source"],
+                    properties: {
+                      predicate: { type: "string" },
+                      source: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        OntologyLegacyEntity: {
+          type: "object",
+          required: ["uri", "properties"],
+          properties: {
+            uri: { type: "string" },
+            properties: { type: "object", additionalProperties: { type: "string" } },
+          },
+        },
+        OntologyNetworkEdge: {
+          type: "object",
+          required: ["id", "from", "to", "predicate", "label"],
+          properties: {
+            id: { type: "string" },
+            from: { type: "string" },
+            to: { type: "string" },
+            predicate: { type: "string" },
+            label: { type: "string" },
+          },
+        },
+        OntologyNetwork: {
+          type: "object",
+          required: ["nodes", "edges"],
+          properties: {
+            nodes: { type: "array", items: ref("OntologyEntity") },
+            edges: { type: "array", items: ref("OntologyNetworkEdge") },
+          },
+        },
+        OntologyGraphNode: {
+          type: "object",
+          required: ["id", "uri", "type", "properties"],
+          properties: {
+            id: { type: "string", description: "Same value as uri (legacy field)" },
+            uri: { type: "string" },
+            type: { type: "string" },
+            properties: { type: "object", additionalProperties: { type: "string" } },
+          },
+        },
+        OntologyGraphSummary: {
+          type: "object",
+          required: ["total_nodes", "total_edges", "type_counts"],
+          properties: {
+            total_nodes: { type: "integer" },
+            total_edges: { type: "integer" },
+            type_counts: { type: "object", additionalProperties: { type: "integer" } },
+          },
+        },
+        OntologyScopedGraph: {
+          type: "object",
+          required: ["summary", "graph"],
+          properties: {
+            summary: ref("OntologyGraphSummary"),
+            graph: {
+              type: "object",
+              required: ["nodes", "edges"],
+              properties: {
+                nodes: { type: "array", items: ref("OntologyGraphNode") },
+                edges: { type: "array", items: ref("OntologyNetworkEdge") },
+              },
+            },
+          },
+        },
+        OntologySchema: {
+          type: "object",
+          required: ["classes", "properties"],
+          properties: {
+            classes: { type: "array", items: { type: "string" } },
+            properties: { type: "array", items: { type: "string" } },
+          },
+        },
+        OntologyQueryRequest: {
+          type: "object",
+          properties: {
+            type: { type: "string" },
+            status: { type: "string" },
+            department: { type: "string" },
+            q: { type: "string" },
+            page: { type: "integer", default: 1 },
+            pageSize: { type: "integer", default: 20, maximum: 100 },
+          },
+        },
+        OntologyReport: {
+          type: "object",
+          additionalProperties: true,
+        },
+        OntologyReportList: {
+          type: "object",
+          required: ["results", "total"],
+          properties: {
+            results: { type: "array", items: ref("OntologyReport") },
+            total: { type: "integer" },
+          },
+        },
+        OntologyValidationIssue: {
+          type: "object",
+          required: ["code", "message", "evidence"],
+          properties: {
+            code: { type: "string" },
+            message: { type: "string" },
+            evidence: { type: "array", items: { type: "string" } },
+          },
+        },
+        OntologyMatchedRule: {
+          type: "object",
+          required: ["id", "name", "min_amount", "max_amount", "amount_range", "approval_steps"],
+          properties: {
+            id: { type: "string" },
+            uri: { type: "string" },
+            name: { type: "string" },
+            min_amount: { type: "number" },
+            max_amount: { type: "number" },
+            amount_range: { type: "string" },
+            approval_steps: { type: "integer" },
+            approval_chain: { type: "array", items: { type: "object", additionalProperties: true } },
+          },
+        },
+        OntologyValidateRequest: {
+          type: "object",
+          required: ["amount"],
+          properties: {
+            amount: { type: "number" },
+            category_id: { type: "string", description: "Category id or URI" },
+            category_name: { type: "string" },
+            report_id: { type: "string", description: "Report id or URI" },
+          },
+        },
+        OntologyValidateResult: {
+          type: "object",
+          required: ["valid", "category", "matched_rule", "issues", "suggestions", "source"],
+          properties: {
+            valid: { type: "boolean" },
+            category: {
+              oneOf: [
+                {
+                  type: "object",
+                  required: ["id", "name"],
+                  properties: {
+                    id: { type: "string" },
+                    name: { type: "string" },
+                  },
+                },
+                { type: "null" },
+              ],
+            },
+            matched_rule: {
+              oneOf: [ref("OntologyMatchedRule"), { type: "null" }],
+            },
+            issues: { type: "array", items: ref("OntologyValidationIssue") },
+            suggestions: { type: "array", items: { type: "string" } },
+            source: { type: "string", enum: ["graph", "db-fallback"] },
+          },
+        },
+        OntologyExplainRequest: {
+          type: "object",
+          required: ["report_id"],
+          properties: {
+            report_uri: { type: "string" },
+            report_id: { type: "string", description: "Report id or URI" },
+          },
+        },
+        OntologyTimelineEntry: {
+          type: "object",
+          required: ["at", "event", "evidence"],
+          properties: {
+            at: { type: "string" },
+            event: { type: "string" },
+            actor: { type: "string" },
+            evidence: { type: "string" },
+          },
+        },
+        OntologyWhyEntry: {
+          type: "object",
+          required: ["code", "message", "evidence"],
+          properties: {
+            code: { type: "string" },
+            message: { type: "string" },
+            evidence: { type: "array", items: { type: "string" } },
+          },
+        },
+        OntologyExplanation: {
+          type: "object",
+          required: ["report", "timeline", "why", "evidenceUris"],
+          properties: {
+            report: { type: "string" },
+            timeline: { type: "array", items: ref("OntologyTimelineEntry") },
+            why: { type: "array", items: ref("OntologyWhyEntry") },
+            evidenceUris: { type: "array", items: { type: "string" } },
+          },
+        },
+        OntologyImpactRequest: {
+          type: "object",
+          properties: {
+            rule_id: { type: "string" },
+            category_id: { type: "string", description: "Category id or URI" },
+            department: { type: "string" },
+            min_amount: { type: "number" },
+            max_amount: { type: "number" },
+            amount_delta: { type: "number" },
+            limit: { type: "integer", default: 500 },
+          },
+        },
+        OntologyImpactResult: {
+          type: "object",
+          required: ["affected_reports", "affected_people", "counts", "hypothetical"],
+          properties: {
+            affected_reports: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["uri", "serialNo", "amount", "status", "reason"],
+                properties: {
+                  uri: { type: "string" },
+                  serialNo: { type: "string" },
+                  amount: { type: "number" },
+                  status: { type: "string" },
+                  reason: { type: "string" },
+                },
+              },
+            },
+            affected_people: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["uri", "name", "department"],
+                properties: {
+                  uri: { type: "string" },
+                  name: { type: "string" },
+                  department: { type: "string" },
+                },
+              },
+            },
+            counts: {
+              type: "object",
+              required: ["reports", "people", "pending"],
+              properties: {
+                reports: { type: "integer" },
+                people: { type: "integer" },
+                pending: { type: "integer" },
+              },
+            },
+            hypothetical: { type: "boolean" },
+          },
+        },
+        OntologyAnomaly: {
+          type: "object",
+          required: ["code", "severity", "message", "entities", "evidence"],
+          properties: {
+            code: {
+              type: "string",
+              enum: ["amount_mismatch", "duplicate_invoice_no", "missing_approver"],
+            },
+            severity: { type: "string", enum: ["error", "warning", "info"] },
+            message: { type: "string" },
+            entities: { type: "array", items: { type: "string" } },
+            evidence: { type: "array", items: { type: "string" } },
+          },
+        },
+        OntologyAnomalyResult: {
+          type: "object",
+          required: ["anomalies", "summary"],
+          properties: {
+            anomalies: { type: "array", items: ref("OntologyAnomaly") },
+            summary: {
+              type: "object",
+              required: ["total", "error", "warning", "info", "byCode"],
+              properties: {
+                total: { type: "integer" },
+                error: { type: "integer" },
+                warning: { type: "integer" },
+                info: { type: "integer" },
+                byCode: { type: "object", additionalProperties: { type: "integer" } },
+              },
+            },
+          },
+        },
       },
     },
     security: [{ bearerAuth: [] }],
@@ -460,8 +788,14 @@ export function buildOpenApiDocument(): Record<string, unknown> {
         get: {
           tags: ["Ontology"],
           operationId: "getOntologyGraph",
-          summary: "Get the ontology graph (role-scoped)",
-          responses: { "200": ok("Graph nodes and edges") },
+          summary:
+            "Get the role-scoped ontology graph. With ONTOLOGY_V2 enabled the v2 snapshot (summary + graph) is returned; otherwise the legacy {nodes, edges} shape is kept.",
+          responses: {
+            "200": ok("Scoped graph", {
+              oneOf: [ref("OntologyScopedGraph"), ref("OntologyNetwork")],
+            }),
+            "401": error("Unauthorized"),
+          },
         },
       },
       "/ontology/query": {
@@ -471,6 +805,166 @@ export function buildOpenApiDocument(): Record<string, unknown> {
           summary: "Query ontology entities by type",
           parameters: [{ name: "type", in: "query", schema: { type: "string" } }],
           responses: { "200": ok("Entity list") },
+        },
+        post: {
+          tags: ["Ontology"],
+          operationId: "queryTypedOntology",
+          summary: "Run a typed, role-scoped ontology query",
+          requestBody: { required: true, content: json(ref("OntologyQueryRequest")) },
+          responses: {
+            "200": ok("Entity or report results", {
+              oneOf: [ref("OntologyEntityList"), ref("OntologyReportList")],
+            }),
+            "401": error("Unauthorized"),
+          },
+        },
+      },
+      "/ontology/schema": {
+        get: {
+          tags: ["Ontology"],
+          operationId: "getOntologySchema",
+          summary: "Read TBox classes and properties",
+          responses: {
+            "200": ok("Ontology schema", ref("OntologySchema")),
+            "401": error("Unauthorized"),
+          },
+        },
+      },
+      "/ontology/entities": {
+        get: {
+          tags: ["Ontology"],
+          operationId: "listOntologyEntities",
+          summary: "List ontology entities (legacy array shape when type is supplied)",
+          parameters: [
+            { name: "type", in: "query", schema: { type: "string" } },
+            {
+              name: "status",
+              in: "query",
+              schema: { type: "string", enum: ["draft", "pending", "approved", "rejected", "paid"] },
+            },
+            { name: "department", in: "query", schema: { type: "string" } },
+            { name: "q", in: "query", schema: { type: "string" } },
+            { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+            { name: "page_size", in: "query", schema: { type: "integer", default: 20, maximum: 100 } },
+          ],
+          responses: {
+            "200": ok("Entity list", {
+              oneOf: [
+                ref("OntologyEntityList"),
+                { type: "array", items: ref("OntologyLegacyEntity") },
+              ],
+            }),
+            "401": error("Unauthorized"),
+          },
+        },
+      },
+      "/ontology/entities/{uri}": {
+        get: {
+          tags: ["Ontology"],
+          operationId: "getOntologyEntity",
+          summary: "Get one entity with outgoing and incoming relations",
+          parameters: [
+            {
+              name: "uri",
+              in: "path",
+              required: true,
+              description: "URL-encoded full entity IRI",
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": ok("Entity detail", ref("OntologyEntityDetail")),
+            "401": error("Unauthorized"),
+            "404": error("Entity not found or out of scope"),
+          },
+        },
+      },
+      "/ontology/entities/{uri}/network": {
+        get: {
+          tags: ["Ontology"],
+          operationId: "getOntologyEntityNetwork",
+          summary: "Walk an entity relationship network",
+          parameters: [
+            {
+              name: "uri",
+              in: "path",
+              required: true,
+              description: "URL-encoded full entity IRI",
+              schema: { type: "string" },
+            },
+            { name: "depth", in: "query", schema: { type: "integer", default: 2, maximum: 5 } },
+            {
+              name: "direction",
+              in: "query",
+              schema: { type: "string", enum: ["both", "out", "in"], default: "both" },
+            },
+          ],
+          responses: {
+            "200": ok("Relationship network", ref("OntologyNetwork")),
+            "401": error("Unauthorized"),
+          },
+        },
+      },
+      "/ontology/validate": {
+        post: {
+          tags: ["Ontology"],
+          operationId: "validateExpenseOntology",
+          summary: "Validate an amount/category (or report) against graph rules and approvers",
+          requestBody: { required: true, content: json(ref("OntologyValidateRequest")) },
+          responses: {
+            "200": ok("Validation result", ref("OntologyValidateResult")),
+            "400": error("Invalid parameters"),
+            "401": error("Unauthorized"),
+          },
+        },
+      },
+      "/ontology/explain": {
+        post: {
+          tags: ["Ontology"],
+          operationId: "explainExpenseOntology",
+          summary: "Explain a report with a timeline, evidence URIs, invoice status and constraints",
+          requestBody: { required: true, content: json(ref("OntologyExplainRequest")) },
+          responses: {
+            "200": ok("Explanation", ref("OntologyExplanation")),
+            "400": error("Invalid parameters"),
+            "401": error("Unauthorized"),
+            "404": error("Report not found or out of scope"),
+          },
+        },
+      },
+      "/ontology/impact": {
+        post: {
+          tags: ["Ontology"],
+          operationId: "analyzeOntologyImpact",
+          summary: "Hypothetical impact of a rule/threshold change (read-only)",
+          requestBody: { required: true, content: json(ref("OntologyImpactRequest")) },
+          responses: {
+            "200": ok("Impact analysis", ref("OntologyImpactResult")),
+            "401": error("Unauthorized"),
+          },
+        },
+      },
+      "/ontology/anomalies": {
+        get: {
+          tags: ["Ontology"],
+          operationId: "listOntologyAnomalies",
+          summary: "List amount, duplicate-invoice and missing-approver anomalies",
+          parameters: [
+            {
+              name: "codes",
+              in: "query",
+              description:
+                "Comma-separated or repeated anomaly codes to include (amount_mismatch, duplicate_invoice_no, missing_approver)",
+              schema: { type: "array", items: { type: "string" } },
+              style: "form",
+              explode: false,
+            },
+            { name: "limit", in: "query", schema: { type: "integer", default: 500, maximum: 2000 } },
+          ],
+          responses: {
+            "200": ok("Anomaly result", ref("OntologyAnomalyResult")),
+            "401": error("Unauthorized"),
+          },
         },
       },
       "/ontology/sparql": {
@@ -482,6 +976,59 @@ export function buildOpenApiDocument(): Record<string, unknown> {
           responses: {
             "200": ok("Query results"),
             "403": error("Insufficient role"),
+          },
+        },
+      },
+      "/ontology/status": {
+        get: {
+          tags: ["Ontology"],
+          operationId: "getOntologyStatus",
+          summary: "Projector, graph and outbox sync status",
+          responses: {
+            "200": ok("Sync status", {
+              type: "object",
+              required: [
+                "engine",
+                "counts",
+                "outbox",
+                "version",
+                "outboxPending",
+                "deadLettered",
+                "lagSeconds",
+                "failuresLastHour",
+              ],
+              properties: {
+                engine: { type: "string", enum: ["oxigraph"] },
+                counts: {
+                  type: "object",
+                  required: ["quads", "subjects"],
+                  properties: {
+                    quads: { type: "integer" },
+                    subjects: { type: "integer" },
+                  },
+                },
+                outbox: {
+                  type: "object",
+                  required: ["pending", "deadLettered", "oldestPendingAgeSeconds", "lastError"],
+                  properties: {
+                    pending: { type: "integer" },
+                    deadLettered: { type: "integer" },
+                    oldestPendingAgeSeconds: { type: "number" },
+                    lastError: { type: ["string", "null"] },
+                  },
+                },
+                version: { type: "integer" },
+                outboxPending: { type: "integer" },
+                deadLettered: { type: "integer" },
+                lagSeconds: { type: "number" },
+                failuresLastHour: {
+                  type: "integer",
+                  description:
+                    "Unprocessed outbox rows with at least one failed attempt that occurred in the last hour",
+                },
+              },
+            }),
+            "401": error("Unauthorized"),
           },
         },
       },

@@ -1,10 +1,25 @@
 import { pool } from '@sse/db';
 import type { OwlStore } from './owl-store';
 
+function isV2On(): boolean {
+  return process.env.ONTOLOGY_V2 === 'on';
+}
+
+function warnDeprecated(method: string): void {
+  console.error(
+    `[ontology] SemanticMapper.${method} is deprecated and skipped while ONTOLOGY_V2=on; ` +
+      'the outbox projector owns graph writes. Set ONTOLOGY_V2=0 or shadow to restore the legacy path.',
+  );
+}
+
 export class SemanticMapper {
   constructor(private store: OwlStore) {}
 
   async syncReportToOntology(reportId: string): Promise<void> {
+    if (isV2On()) {
+      warnDeprecated('syncReportToOntology');
+      return;
+    }
     const { rows: reports } = await pool.query('SELECT * FROM expense_reports WHERE id = $1', [reportId]);
     if (reports.length === 0) return;
     const r = reports[0];
@@ -59,6 +74,10 @@ export class SemanticMapper {
   }
 
   async syncAll(): Promise<void> {
+    if (isV2On()) {
+      warnDeprecated('syncAll');
+      return;
+    }
     const { rows } = await pool.query('SELECT id FROM expense_reports ORDER BY created_at DESC LIMIT 500');
     for (const row of rows) {
       await this.syncReportToOntology(row.id);

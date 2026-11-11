@@ -47,7 +47,7 @@ export class IdentityBridge {
     const { rows: created } = await pool.query(
       `INSERT INTO users (name, phone, email, department, role, status, password_hash)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-      [name, phone, email || null, department, role, status, 'scim_managed_no_pwd']
+      [name, phone, email || null, department, role, status, '!']
     );
 
     await pool.query(
@@ -89,7 +89,7 @@ export class IdentityBridge {
 
     const { rows: created } = await pool.query(
       `INSERT INTO users (name, phone, email, department, role, status, password_hash)
-       VALUES ($1,$2,$3,$4,$5,$6,'mdm_managed_no_pwd') RETURNING id`,
+       VALUES ($1,$2,$3,$4,$5,$6,'!') RETURNING id`,
       [d.name, d.phone, d.email || null, d.department, d.role, d.status]
     );
     await pool.query(

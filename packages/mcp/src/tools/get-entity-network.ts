@@ -1,8 +1,7 @@
 import type { ToolDefinition, ToolResult } from "./types.js";
 import { errorResult, successResult } from "./types.js";
 import { resolveAuthContext } from "../auth.js";
-import { ensureOntologyLoaded } from "./get-engine.js";
-import { scopeGraphForUser } from "@sse/ontology";
+import { apiError, ontologyClient, type OntologyDirection } from "./ontology-client.js";
 
 export const definition: ToolDefinition = {
   name: "get_entity_network",
@@ -12,48 +11,82 @@ export const definition: ToolDefinition = {
     properties: {
       entity_id: { type: "string", description: "实体标识，如报告ID或人员名称" },
       depth: { type: "number", description: "关系跳数，默认2，最大5" },
+      direction: {
+        type: "string",
+        enum: ["both", "out", "in"],
+        description: "关系方向，默认 both",
+      },
     },
     required: ["entity_id"],
   },
 };
 
+function toDirection(value: unknown): OntologyDirection {
+  return value === "out" || value === "in" ? value : "both";
+}
+
+/**
+ * Bare IDs are report ids in the documented tool contract. A value that already
+ * carries a path (`report/r1`, `person/p1`) or a full IRI is left untouched so
+ * callers can still target other entity types.
+ */
+export function resolveEntityUri(entityId: string): string {
+  if (entityId.includes("://")) return entityId;
+  const trimmed = entityId.replace(/^\/+/, "");
+  return trimmed.includes("/")
+    ? `https://sse.local/${trimmed}`
+    : `https://sse.local/report/${trimmed}`;
+}
+
 export async function handler(args: Record<string, unknown>): Promise<ToolResult> {
   const auth = resolveAuthContext(args);
   if (!auth) return errorResult("UNAUTHORIZED", "无效或缺失 API key");
-  const entityId = args.entity_id as string;
+
+  const entityId = typeof args.entity_id === "string" ? args.entity_id : "";
+  if (!entityId) return errorResult("INVALID_PARAMS", "请提供 entity_id");
+
   const rawDepth = typeof args.depth === "number" ? args.depth : Number(args.depth);
   const depth = Number.isFinite(rawDepth) ? Math.min(5, Math.max(0, Math.floor(rawDepth))) : 2;
-  if (!entityId) return errorResult("INVALID_PARAMS", "请提供 entity_id");
+  const direction = toDirection(args.direction);
+  const targetUri = resolveEntityUri(entityId);
+
   try {
-    const engine = await ensureOntologyLoaded();
-    const graph = scopeGraphForUser(engine.store.getGraph(), {
-      role: auth.role,
-      userId: auth.userId,
-      department: auth.department,
-    });
-    const targetUri = entityId.includes("://") ? entityId : `https://sse.local/${entityId}`;
-    if (!graph.nodes.some(node => node.id === targetUri)) {
+    const res = await ontologyClient(auth).network(targetUri, depth, direction);
+    if (res.status === 404) {
       return errorResult("FORBIDDEN", "无权访问该实体");
     }
-    const visited = new Set<string>();
-    const neighborhoodNodes: typeof graph.nodes = [];
-    const neighborhoodEdges: typeof graph.edges = [];
-    function expand(currentUri: string, currentDepth: number) {
-      if (currentDepth > depth || visited.has(currentUri)) return;
-      visited.add(currentUri);
-      const node = graph.nodes.find(n => n.id === currentUri);
-      if (node && !neighborhoodNodes.find(n => n.id === currentUri)) neighborhoodNodes.push(node);
-      for (const edge of graph.edges) {
-        if (edge.from === currentUri || edge.to === currentUri) {
-          if (!neighborhoodEdges.find(e => e.id === edge.id)) neighborhoodEdges.push(edge);
-          const neighbor = edge.from === currentUri ? edge.to : edge.from;
-          if (!visited.has(neighbor)) expand(neighbor, currentDepth + 1);
-        }
-      }
+    if (!res.ok) {
+      const err = apiError(res);
+      return errorResult(err.code, err.message);
     }
-    expand(targetUri, 0);
-    return successResult({ center: targetUri, depth, nodes: neighborhoodNodes, edges: neighborhoodEdges, node_count: neighborhoodNodes.length, edge_count: neighborhoodEdges.length });
+
+    const rawNodes = Array.isArray(res.data?.nodes) ? res.data.nodes : [];
+    // The legacy tool treated an out-of-scope root as forbidden; the API now
+    // returns 404 for that case, but keep the empty-network guard as a fallback.
+    if (rawNodes.length === 0) {
+      return errorResult("FORBIDDEN", "无权访问该实体");
+    }
+
+    const nodes = rawNodes.map((node: any) => {
+      const uri = typeof node?.uri === "string" ? node.uri : "";
+      return {
+        id: uri,
+        uri,
+        type: typeof node?.type === "string" ? node.type : "",
+        properties: node?.properties && typeof node.properties === "object" ? node.properties : {},
+      };
+    });
+    const edges = Array.isArray(res.data?.edges) ? res.data.edges : [];
+
+    return successResult({
+      center: targetUri,
+      depth,
+      nodes,
+      edges,
+      node_count: nodes.length,
+      edge_count: edges.length,
+    });
   } catch (err: any) {
-    return errorResult("INTERNAL_ERROR", err.message || "内部错误");
+    return errorResult("INTERNAL_ERROR", err?.message || "内部错误");
   }
 }

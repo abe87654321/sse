@@ -1,402 +1,599 @@
 <template>
   <div class="ontology-page">
-    <div class="ontology-title-row">
-      <h1 class="ontology-title">本体图谱</h1>
-      <p class="ontology-subtitle">报销单、人员、组织的语义关系可视化</p>
-      <div class="header-spacer"></div>
-      <button class="btn-secondary btn-sm" @click="syncFromDB" :disabled="syncing">从数据库同步</button>
+    <div v-if="disabled" class="banner banner-warning">
+      <strong>本体 v2 查询服务未启用。</strong>
+      <span>当前仅显示旧版图谱视图；校验、影响分析、异常与解释功能需要设置 ONTOLOGY_V2=on 或 shadow 后重启 API。</span>
+    </div>
+    <div v-else-if="serviceError" class="banner banner-error">
+      <strong>本体服务请求失败。</strong>
+      <span>{{ serviceError }}</span>
     </div>
 
-    <div class="card nl-input-section">
-      <label>自然语言描述</label>
-      <div class="nl-input-row">
-        <input v-model="nlText" placeholder='例如：张三属于技术部，提交了报销单RE-001，包含住宿费2000元，由李四审批' @keyup.enter="generateFromText" />
-        <button class="btn-primary btn-sm" @click="generateFromText" :disabled="generating || !nlText.trim()">{{ generating ? '生成中...' : '生成本体' }}</button>
+    <header class="workbench-header">
+      <div>
+        <h1 class="workbench-title">本体工作台</h1>
+        <p class="workbench-subtitle">图谱探索、业务校验、影响分析与异常监控</p>
       </div>
+      <div class="header-actions">
+        <SyncStatus
+          @status="handleStatus"
+          @unavailable="disabled = true"
+          @error="serviceError = $event"
+        />
+        <button class="btn-secondary btn-sm" :disabled="graphLoading" @click="refresh">
+          {{ graphLoading ? '刷新中...' : '刷新' }}
+        </button>
+      </div>
+    </header>
+
+    <nav class="workbench-tabs">
+      <button
+        v-for="tab in tabs"
+        :key="tab.id"
+        type="button"
+        class="tab-button"
+        :class="{ active: activeTab === tab.id }"
+        @click="activeTab = tab.id"
+      >
+        {{ tab.label }}
+      </button>
+    </nav>
+
+    <div v-if="activeTab === 'explorer'" class="explorer-layout">
+      <GraphExplorer
+        :nodes="graphNodes"
+        :edges="graphEdges"
+        :selected="selectedUri"
+        :loading="graphLoading"
+        :max-nodes="400"
+        @select="selectEntity"
+        @depth-change="handleDepthChange"
+        @refresh="refresh"
+      />
+      <EntityDetail
+        :entity="entity"
+        :explanation="explanation"
+        :loading="detailLoading"
+        :error="detailError"
+        @select="selectEntity"
+      />
     </div>
 
-    <div class="card nl-input-section" style="padding:10px 18px">
-      <div class="nl-input-row">
-        <input v-model="searchQuery" placeholder="搜索节点..." class="input-sm" style="max-width:240px" @input="filterGraph" />
-        <button class="btn-text btn-sm" @click="showManualAdd = !showManualAdd">{{ showManualAdd ? '收起' : '+ 手动添加' }}</button>
-        <span class="text-muted" style="font-size:0.78rem;margin-left:auto">节点: {{ stats.nodes }} · 边: {{ stats.edges }}</span>
-        <button class="btn-secondary btn-sm" @click="resetGraph">重置视图</button>
-      </div>
-    </div>
+    <ValidationPanel
+      v-else-if="activeTab === 'validate'"
+      @select="openEntity"
+    />
+    <ImpactPanel
+      v-else-if="activeTab === 'impact'"
+      @select="openEntity"
+    />
+    <AnomalyPanel
+      v-else
+      @select="openEntity"
+    />
 
-    <div v-if="showManualAdd" class="card manual-add-section">
-      <div class="manual-row">
-        <input v-model="newNodeUri" placeholder="URI (如 person/zhangsan)" class="input-sm" />
-        <input v-model="newNodeType" placeholder="类型 (如 Person)" class="input-sm" />
-        <input v-model="newNodeProps" placeholder='属性 (JSON, 如 {"name":"张三"})' class="input-sm" />
-        <button class="btn-secondary btn-sm" @click="addNode">+ 节点</button>
+    <section v-if="isAdmin" class="admin-tools card">
+      <button type="button" class="admin-toggle" @click="showAdmin = !showAdmin">
+        {{ showAdmin ? '收起管理员工具' : '展开管理员工具（手动编辑）' }}
+      </button>
+      <div v-if="showAdmin" class="admin-body">
+        <p class="admin-hint">
+          手动编辑在 ONTOLOGY_V2=on/shadow 时写入 <code>urn:sse:manual</code> 并持久化为快照；
+          关闭 v2 时仍写入旧版本体库。保存成功后图谱会立即刷新。
+        </p>
+        <div class="admin-row">
+          <input v-model="newNodeUri" class="input-sm" placeholder="URI（如 person/zhangsan）" />
+          <input v-model="newNodeType" class="input-sm" placeholder="类型（如 Person）" />
+          <input v-model="newNodeProps" class="input-sm" placeholder='属性 JSON（如 {"name":"张三"}）' />
+          <button class="btn-secondary btn-sm" @click="addNode">+ 节点</button>
+        </div>
+        <div class="admin-row">
+          <input v-model="newRelFrom" class="input-sm" placeholder="来源 URI" />
+          <input v-model="newRelPredicate" class="input-sm" placeholder="关系谓词" />
+          <input v-model="newRelTo" class="input-sm" placeholder="目标 URI" />
+          <button class="btn-secondary btn-sm" @click="addRelation">+ 关系</button>
+        </div>
+        <div class="admin-row nl-row">
+          <input
+            v-model="nlText"
+            class="input-sm"
+            placeholder="自然语言生成图谱，例如：张三属于技术部，提交了报销单 RE-001"
+            @keyup.enter="generateFromText"
+          />
+          <button class="btn-primary btn-sm" :disabled="generating || !nlText.trim()" @click="generateFromText">
+            {{ generating ? '生成中...' : '生成本体' }}
+          </button>
+        </div>
+        <p
+          v-if="adminMessage"
+          class="admin-message"
+          :class="{ 'admin-message-warning': adminWarning }"
+        >{{ adminMessage }}</p>
       </div>
-      <div class="manual-row" style="margin-top:8px">
-        <input v-model="newRelFrom" placeholder="来源" class="input-sm" />
-        <input v-model="newRelPredicate" placeholder="关系" class="input-sm" />
-        <input v-model="newRelTo" placeholder="目标" class="input-sm" />
-        <button class="btn-secondary btn-sm" @click="addRelation">+ 关系</button>
-      </div>
-    </div>
-
-    <div v-if="warnings.length > 0" class="warnings-panel">
-      <strong>共 {{ warnings.length }} 个问题</strong>
-      <ul>
-        <li v-for="(w, i) in warnings" :key="i">{{ w }}</li>
-      </ul>
-    </div>
-
-    <div class="card graph-container" ref="graphContainer"></div>
-
-    <div v-if="selectedNode" class="card properties-panel">
-      <h4>{{ selectedNode.label }}</h4>
-      <div class="prop-item"><span class="prop-label">URI：</span>{{ selectedNode.id }}</div>
-      <div class="prop-item"><span class="prop-label">类型：</span>{{ selectedNode.type }}</div>
-      <div v-for="(val, key) in editableProps" :key="key" class="prop-item prop-editable">
-        <span class="prop-label">{{ key }}：</span>
-        <input v-model="editableProps[key]" class="input-sm" />
-      </div>
-      <div class="prop-actions">
-        <button class="btn-primary btn-sm" @click="saveNode">保存</button>
-        <button class="btn-danger btn-sm" @click="deleteSelectedNode">删除</button>
-      </div>
-    </div>
-
-    <div class="card legend-panel">
-      <h4>图例</h4>
-      <div class="legend-grid">
-        <div class="legend-item"><span class="legend-shape shape-dot" style="background:#e878b0"></span> Person (人员)</div>
-        <div class="legend-item"><span class="legend-shape shape-diamond" style="background:#5898e0"></span> Department (部门)</div>
-        <div class="legend-item"><span class="legend-shape shape-box" style="background:#e8c820"></span> ExpenseItem (费用项)</div>
-        <div class="legend-item"><span class="legend-shape shape-dot" style="background:#48b8a8"></span> Report (报销单)</div>
-        <div class="legend-item"><span class="legend-shape shape-star" style="background:#e87870"></span> Invoice (发票)</div>
-        <div class="legend-item"><span class="legend-shape shape-square" style="background:#c080e0"></span> ApprovalRule (规则)</div>
-        <div class="legend-item"><span class="legend-shape shape-dot" style="background:#48b0c8"></span> Approver (审批人)</div>
-        <div class="legend-item"><span class="legend-shape shape-hexagon" style="background:#88c040"></span> Company (公司)</div>
-      </div>
-    </div>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { Network } from 'vis-network'
-import { DataSet } from 'vis-data'
+import { computed, onMounted, ref } from 'vue'
 import api from '../api/index'
+import {
+  ontologyApi,
+  type EntityDetail as EntityDetailModel,
+  type Explanation,
+  type GraphNode,
+  type NetworkResult,
+  type OntologyGraphResponse,
+  type OntologyStatus,
+} from '../api/ontology'
+import { useAuthStore } from '../stores/auth'
+import GraphExplorer from '../components/ontology/GraphExplorer.vue'
+import EntityDetail from '../components/ontology/EntityDetail.vue'
+import ValidationPanel from '../components/ontology/ValidationPanel.vue'
+import ImpactPanel from '../components/ontology/ImpactPanel.vue'
+import AnomalyPanel from '../components/ontology/AnomalyPanel.vue'
+import SyncStatus from '../components/ontology/SyncStatus.vue'
+import { entityLabel } from '../components/ontology/utils'
 
-const graphContainer = ref<HTMLElement | null>(null)
-const graph = ref<{ nodes: any[]; edges: any[] }>({ nodes: [], edges: [] })
-const warnings = ref<string[]>([])
-const stats = reactive({ nodes: 0, edges: 0 })
-const selectedNode = ref<any>(null)
-const editableProps = reactive<Record<string, string>>({})
-const generating = ref(false)
-const syncing = ref(false)
-const nlText = ref('')
-const searchQuery = ref('')
-const showManualAdd = ref(false)
+type TabId = 'explorer' | 'validate' | 'impact' | 'anomalies'
+
+interface WorkbenchNode {
+  id: string
+  uri: string
+  label: string
+  type: string
+  properties: Record<string, string>
+}
+
+interface WorkbenchEdge {
+  id: string
+  from: string
+  to: string
+  predicate?: string
+  label: string
+}
+
+const tabs: Array<{ id: TabId; label: string }> = [
+  { id: 'explorer', label: '图谱' },
+  { id: 'validate', label: '校验' },
+  { id: 'impact', label: '影响分析' },
+  { id: 'anomalies', label: '异常' },
+]
+
+const auth = useAuthStore()
+const activeTab = ref<TabId>('explorer')
+const graphNodes = ref<WorkbenchNode[]>([])
+const graphEdges = ref<WorkbenchEdge[]>([])
+const graphLoading = ref(false)
+const selectedUri = ref<string | null>(null)
+const entity = ref<EntityDetailModel | null>(null)
+const explanation = ref<Explanation | null>(null)
+const detailLoading = ref(false)
+const detailError = ref<string | null>(null)
+const depth = ref(2)
+const disabled = ref(false)
+const serviceError = ref<string | null>(null)
+
+const showAdmin = ref(false)
 const newNodeUri = ref('')
 const newNodeType = ref('')
 const newNodeProps = ref('')
 const newRelFrom = ref('')
 const newRelPredicate = ref('')
 const newRelTo = ref('')
+const nlText = ref('')
+const generating = ref(false)
+const adminMessage = ref('')
+const adminWarning = ref(false)
 
-let network: Network | null = null
-let nodesData: DataSet<any> | null = null
-let edgesData: DataSet<any> | null = null
+const isAdmin = computed(() => auth.user?.role === 'admin')
 
-const COLORS: Record<string, string> = {
-  Person: '#e878b0', Department: '#5898e0', Company: '#88c040',
-  Report: '#48b8a8', DraftReport: '#48b8a8', PendingReport: '#48b8a8',
-  ApprovedReport: '#48b8a8', ExpenseItem: '#e8c820', Invoice: '#e87870',
-  ApprovalRule: '#c080e0', Approver: '#48b0c8', Unknown: '#999',
-}
-
-const SHAPES: Record<string, string> = {
-  Person: 'dot', Department: 'diamond', Company: 'hexagon',
-  ExpenseItem: 'box', Invoice: 'star', ApprovalRule: 'square',
-  Approver: 'dot', Unknown: 'dot',
-}
-
-watch(selectedNode, (node) => {
-  if (!node) return
-  for (const k of Object.keys(editableProps)) delete editableProps[k]
-  for (const [k, v] of Object.entries(node.properties || {})) editableProps[k] = v as string
-})
-
-function nodeLabel(node: any): string {
-  const p = node.properties || {}
-  switch (node.type) {
-    case 'Person': return p.name || p.phone || node.label
-    case 'Department': return p.name || node.label
-    case 'Company': return p.name || node.label
-    case 'Approver': return p.name || node.label
-    case 'Report': case 'DraftReport': case 'PendingReport': case 'ApprovedReport':
-      return p.title || p.serialNo || node.label
-    case 'ExpenseItem': {
-      const cat = p.category || ''
-      const amt = p.amount ? `¥${p.amount}` : ''
-      return [cat, amt].filter(Boolean).join(' ') || node.label
-    }
-    case 'Invoice': return p.file_name || node.label
-    case 'ApprovalRule': return p.name || node.label
-    default: return node.label || node.id.split('/').pop()
+function errorMessage(err: unknown): string {
+  const anyErr = err as {
+    response?: { data?: { error?: { message?: string }; message?: string } }
+    message?: string
   }
+  return (
+    anyErr?.response?.data?.error?.message ||
+    anyErr?.response?.data?.message ||
+    anyErr?.message ||
+    '请求失败'
+  )
 }
 
-function nodeTitle(node: any): string {
-  const p = node.properties || {}
-  const label = nodeLabel(node)
-  if (node.type === 'ExpenseItem') {
-    const lines = [
-      `费用项: ${p.category || '—'}  ¥${p.amount || '—'}`,
-      `描述: ${p.description || '—'}`,
-      `日期: ${p.date || p.expenseDate || '—'}`,
-    ]
-    return lines.join('\n')
+function isUnavailable(err: unknown): boolean {
+  const anyErr = err as {
+    response?: { status?: number; data?: { error?: { code?: string } } }
   }
-  return `${node.type}: ${label}\n${JSON.stringify(p, null, 2)}`
+  return (
+    anyErr?.response?.status === 503 ||
+    anyErr?.response?.data?.error?.code === 'ONTOLOGY_V2_UNAVAILABLE'
+  )
 }
 
-function buildVisData() {
-  const nodes = graph.value.nodes.map((n: any) => {
-    const bg = COLORS[n.type] || COLORS.Unknown
-    const label = nodeLabel(n)
-    const shape = SHAPES[n.type] || 'dot'
-    const avatar = n.properties?.avatarUrl
+function normalizeGraph(payload: OntologyGraphResponse): { nodes: WorkbenchNode[]; edges: WorkbenchEdge[] } {
+  const rawNodes = payload.graph?.nodes ?? payload.nodes ?? []
+  const rawEdges = payload.graph?.edges ?? payload.edges ?? []
 
-    if (n.type === 'Person' && avatar) {
-      const uid = n.properties?.userId || n.properties?.externalId || ''
-      return {
-        id: n.id,
-        label,
-        shape: 'circularImage',
-        image: `/api/auth/profile/avatar?userId=${encodeURIComponent(uid)}`,
-        borderWidth: 3,
-        borderWidthSelected: 5,
-        color: {
-          border: bg,
-          background: bg,
-          highlight: { border: bg, background: bg },
-        },
-        size: 24,
-        shadow: { enabled: true, color: 'rgba(0,0,0,0.2)', size: 18, x: 0, y: 2 },
-        title: nodeTitle(n),
-      }
-    }
-
-    const node: any = {
-      id: n.id,
-      label,
-      color: { background: bg, border: bg, highlight: { background: bg, border: bg } },
-      shape,
-      borderWidth: 0,
-      shadow: { enabled: true, color: 'rgba(0,0,0,0.2)', size: 18, x: 0, y: 2 },
-      title: nodeTitle(n),
-    }
-    if (shape === 'box') {
-      node.widthConstraint = { maximum: 80 }
-      node.heightConstraint = { maximum: 20 }
-      node.size = undefined
-    } else {
-      node.size = 20
-    }
-    return node
-  })
-  const edges = graph.value.edges.map((e: any) => ({
-    id: e.id, from: e.from, to: e.to, label: e.label,
-    arrows: { to: { enabled: true, scaleFactor: 0.5 } },
-    color: { color: '#999', highlight: '#666' },
-    font: { color: '#666', size: 11, align: 'horizontal', background: 'rgba(255,255,255,0.6)' },
-    smooth: false,
-    width: 1,
+  const nodes = rawNodes.map((node: GraphNode) => ({
+    id: node.id || node.uri,
+    uri: node.uri || node.id,
+    label: node.label || entityLabel(node),
+    type: node.type || '',
+    properties: node.properties ?? {},
   }))
-  return { nodes: new DataSet(nodes), edges: new DataSet(edges) }
+  const ids = new Set(nodes.map((node) => node.id))
+  const edges = rawEdges
+    .filter((edge) => ids.has(edge.from) && ids.has(edge.to))
+    .map((edge) => ({
+      id: edge.id,
+      from: edge.from,
+      to: edge.to,
+      predicate: edge.predicate,
+      label: edge.label || edge.predicate || '',
+    }))
+
+  return { nodes, edges }
 }
 
-function initNetwork() {
-  if (!graphContainer.value) return
-  if (network) { network.destroy(); network = null }
-  const { nodes, edges } = buildVisData()
-  nodesData = nodes; edgesData = edges
-  network = new Network(graphContainer.value, { nodes, edges }, {
-    physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -50, centralGravity: 0.01, springLength: 150, springConstant: 0.08 } },
-    interaction: { hover: true, tooltipDelay: 200, navigationButtons: true, keyboard: true },
-    nodes: {
-      font: { color: '#333', size: 13, face: 'sans-serif', align: 'below' },
-    },
-    edges: { smooth: false },
-    layout: { improvedLayout: true },
-  })
-  network.on('click', (params: any) => {
-    if (params.nodes.length > 0) {
-      const nodeId = params.nodes[0]
-      const n = graph.value.nodes.find((n: any) => n.id === nodeId)
-      if (n) selectedNode.value = { id: n.id, label: nodeLabel(n), type: n.type, properties: { ...n.properties } }
-    } else {
-      selectedNode.value = null
-    }
-  })
-  network.on('doubleClick', (params: any) => {
-    if (params.nodes.length > 0 && network) {
-      const connectedNodes = network.getConnectedNodes(params.nodes[0])
-      const allNodes = nodesData!.getIds() as string[]
-      const grayIds = allNodes.filter(id => !connectedNodes.includes(id) && id !== params.nodes[0])
-      const updates = grayIds.map(id => ({ id, opacity: 0.1 }))
-      updates.push(...connectedNodes.map(id => ({ id, opacity: 1 })))
-      updates.push({ id: params.nodes[0], opacity: 1 })
-      nodesData!.update(updates)
-      network.fit({ nodes: [params.nodes[0], ...connectedNodes], animation: true })
-    }
-  })
-  setTimeout(() => { if (network) network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } }) }, 300)
+function handleStatus(_status: OntologyStatus): void {
+  disabled.value = false
+  serviceError.value = null
 }
 
-async function fetchGraph() {
+async function loadGraph(): Promise<void> {
+  graphLoading.value = true
   try {
-    const res = await api.get('/ontology/graph')
-    graph.value = res.data
-    stats.nodes = res.data.nodes.length
-    stats.edges = res.data.edges.length
-    warnings.value = []
-    await nextTick()
-    initNetwork()
-  } catch (err: any) { console.error('加载图谱失败', err) }
+    const response = await ontologyApi.graph()
+    const normalized = normalizeGraph(response.data)
+    graphNodes.value = normalized.nodes
+    graphEdges.value = normalized.edges
+    serviceError.value = null
+  } catch (err) {
+    if (isUnavailable(err)) disabled.value = true
+    serviceError.value = errorMessage(err)
+    graphNodes.value = []
+    graphEdges.value = []
+  } finally {
+    graphLoading.value = false
+  }
 }
 
-async function generateFromText() {
+let entityRequestId = 0
+
+async function loadEntity(uri: string): Promise<void> {
+  const requestId = ++entityRequestId
+  detailLoading.value = true
+  detailError.value = null
+  explanation.value = null
+  try {
+    const response = await ontologyApi.entity(uri)
+    if (requestId !== entityRequestId) return
+    entity.value = response.data
+    if (isReport(response.data)) {
+      await loadExplanation(uri, requestId)
+    }
+  } catch (err) {
+    if (requestId !== entityRequestId) return
+    entity.value = null
+    detailError.value = errorMessage(err)
+    if (isUnavailable(err)) disabled.value = true
+  } finally {
+    if (requestId === entityRequestId) detailLoading.value = false
+  }
+}
+
+function isReport(detail: EntityDetailModel): boolean {
+  return detail.type === 'ExpenseReport' || detail.uri.includes('/report/')
+}
+
+async function loadExplanation(uri: string, requestId: number): Promise<void> {
+  try {
+    const response = await ontologyApi.explain(uri)
+    if (requestId !== entityRequestId) return
+    explanation.value = response.data
+  } catch (err) {
+    if (requestId !== entityRequestId) return
+    if (isUnavailable(err)) disabled.value = true
+    explanation.value = null
+  }
+}
+
+async function selectEntity(uri: string): Promise<void> {
+  if (!uri || selectedUri.value === uri) return
+  selectedUri.value = uri
+  await loadEntity(uri)
+}
+
+async function loadNetwork(uri: string): Promise<void> {
+  graphLoading.value = true
+  try {
+    const response = await ontologyApi.network(uri, depth.value, 'both')
+    const normalized = normalizeNetwork(response.data)
+    graphNodes.value = normalized.nodes
+    graphEdges.value = normalized.edges
+    serviceError.value = null
+  } catch (err) {
+    serviceError.value = errorMessage(err)
+    if (isUnavailable(err)) disabled.value = true
+  } finally {
+    graphLoading.value = false
+  }
+}
+
+function normalizeNetwork(payload: NetworkResult): { nodes: WorkbenchNode[]; edges: WorkbenchEdge[] } {
+  const nodes = payload.nodes.map((node) => ({
+    id: node.id || node.uri,
+    uri: node.uri,
+    label: node.label || entityLabel(node),
+    type: node.type || '',
+    properties: node.properties ?? {},
+  }))
+  const ids = new Set(nodes.map((node) => node.id))
+  const edges = payload.edges
+    .filter((edge) => ids.has(edge.from) && ids.has(edge.to))
+    .map((edge) => ({
+      id: edge.id,
+      from: edge.from,
+      to: edge.to,
+      predicate: edge.predicate,
+      label: edge.label || edge.predicate || '',
+    }))
+  return { nodes, edges }
+}
+
+async function handleDepthChange(nextDepth: number): Promise<void> {
+  depth.value = nextDepth
+  if (selectedUri.value) {
+    await loadNetwork(selectedUri.value)
+  }
+}
+
+async function openEntity(uri: string): Promise<void> {
+  activeTab.value = 'explorer'
+  if (selectedUri.value === uri) {
+    await loadEntity(uri)
+    return
+  }
+  await selectEntity(uri)
+}
+
+async function refresh(): Promise<void> {
+  serviceError.value = null
+  disabled.value = false
+  await loadGraph()
+  if (selectedUri.value) {
+    await loadEntity(selectedUri.value)
+  }
+}
+
+async function addNode(): Promise<void> {
+  if (!newNodeUri.value || !newNodeType.value) {
+    adminMessage.value = '请填写 URI 和类型'
+    return
+  }
+  let properties: Record<string, string> = {}
+  try {
+    if (newNodeProps.value.trim()) properties = JSON.parse(newNodeProps.value)
+  } catch {
+    adminMessage.value = '属性 JSON 格式错误'
+    return
+  }
+  adminWarning.value = false
+  try {
+    const response = await api.put('/ontology/entity', {
+      uri: newNodeUri.value,
+      type: newNodeType.value,
+      properties,
+    })
+    newNodeUri.value = ''
+    newNodeType.value = ''
+    newNodeProps.value = ''
+    adminWarning.value = response.data?.persisted === false
+    adminMessage.value = adminWarning.value
+      ? '节点已写入内存，但快照持久化失败；服务重启或重建后可能丢失'
+      : '节点已保存'
+    await loadGraph()
+  } catch (err) {
+    adminWarning.value = false
+    adminMessage.value = `保存失败：${errorMessage(err)}`
+  }
+}
+
+async function addRelation(): Promise<void> {
+  if (!newRelFrom.value || !newRelPredicate.value || !newRelTo.value) {
+    adminMessage.value = '请填写完整的关系信息'
+    return
+  }
+  adminWarning.value = false
+  try {
+    const response = await api.post('/ontology/relation', {
+      from: newRelFrom.value,
+      predicate: newRelPredicate.value,
+      to: newRelTo.value,
+    })
+    newRelFrom.value = ''
+    newRelPredicate.value = ''
+    newRelTo.value = ''
+    adminWarning.value = response.data?.persisted === false
+    adminMessage.value = adminWarning.value
+      ? '关系已写入内存，但快照持久化失败；服务重启或重建后可能丢失'
+      : '关系已保存'
+    await loadGraph()
+  } catch (err) {
+    adminWarning.value = false
+    adminMessage.value = `保存失败：${errorMessage(err)}`
+  }
+}
+
+async function generateFromText(): Promise<void> {
   if (!nlText.value.trim()) return
   generating.value = true
+  adminMessage.value = ''
+  adminWarning.value = false
   try {
-    const res = await api.post('/ontology/from-text', { text: nlText.value })
-    graph.value = res.data.graph
-    warnings.value = res.data.warnings || []
-    stats.nodes = res.data.graph.nodes.length
-    stats.edges = res.data.graph.edges.length
+    const response = await api.post('/ontology/from-text', { text: nlText.value })
     nlText.value = ''
-    await nextTick()
-    initNetwork()
-  } catch (err: any) { alert('生成失败: ' + (err.response?.data?.message || err.message)) }
-  finally { generating.value = false }
+    adminWarning.value = response.data?.persisted === false
+    adminMessage.value = adminWarning.value
+      ? '本体已生成到内存，但快照持久化失败；服务重启或重建后可能丢失'
+      : '本体已生成'
+    await loadGraph()
+  } catch (err) {
+    adminWarning.value = false
+    adminMessage.value = `生成失败：${errorMessage(err)}`
+  } finally {
+    generating.value = false
+  }
 }
 
-async function syncFromDB() {
-  syncing.value = true
-  try {
-    const res = await api.get('/ontology/sync')
-    graph.value = res.data.graph
-    warnings.value = res.data.warnings || []
-    stats.nodes = res.data.graph.nodes.length
-    stats.edges = res.data.graph.edges.length
-    await nextTick()
-    initNetwork()
-  } catch (err: any) { alert('同步失败: ' + (err.response?.data?.message || err.message)) }
-  finally { syncing.value = false }
-}
-
-function filterGraph() {
-  if (!network || !nodesData) return
-  const q = searchQuery.value.toLowerCase()
-  const allIds = nodesData.getIds() as string[]
-  const updates = allIds.map(id => ({
-    id,
-    hidden: q ? !String(id).toLowerCase().includes(q) && !String(nodesData!.get(id)?.label).toLowerCase().includes(q) : false,
-    opacity: 1,
-  }))
-  nodesData.update(updates)
-}
-
-function resetGraph() {
-  if (!nodesData) return
-  const allIds = nodesData.getIds() as string[]
-  nodesData.update(allIds.map(id => ({ id, hidden: false, opacity: 1 })))
-  if (network) network.fit({ animation: true })
-  searchQuery.value = ''
-}
-
-async function saveNode() {
-  if (!selectedNode.value) return
-  try {
-    const props: Record<string, string> = {}
-    for (const [k, v] of Object.entries(editableProps)) { if (v) props[k] = v as string }
-    await api.put('/ontology/entity', { uri: selectedNode.value.id, type: selectedNode.value.type, properties: props })
-    if (selectedNode.value) selectedNode.value.properties = { ...props }
-    await fetchGraph()
-  } catch (err: any) { alert('保存失败: ' + (err.response?.data?.message || err.message)) }
-}
-
-async function deleteSelectedNode() {
-  if (!selectedNode.value) return
-  if (!confirm('确定删除此节点？')) return
-  try {
-    await api.delete(`/ontology/entity?uri=${encodeURIComponent(selectedNode.value.id)}`)
-    selectedNode.value = null
-    await fetchGraph()
-  } catch (err: any) { alert('删除失败: ' + (err.response?.data?.message || err.message)) }
-}
-
-async function addNode() {
-  if (!newNodeUri.value || !newNodeType.value) { alert('请填写 URI 和类型'); return }
-  let props: Record<string, string> = {}
-  try { if (newNodeProps.value.trim()) props = JSON.parse(newNodeProps.value) } catch { alert('属性 JSON 格式错误'); return }
-  try {
-    await api.put('/ontology/entity', { uri: newNodeUri.value, type: newNodeType.value, properties: props })
-    newNodeUri.value = ''; newNodeType.value = ''; newNodeProps.value = ''
-    await fetchGraph()
-  } catch (err: any) { alert('添加失败: ' + (err.response?.data?.message || err.message)) }
-}
-
-async function addRelation() {
-  if (!newRelFrom.value || !newRelTo.value || !newRelPredicate.value) { alert('请填写完整'); return }
-  try {
-    await api.post('/ontology/relation', { from: newRelFrom.value, to: newRelTo.value, predicate: newRelPredicate.value })
-    newRelFrom.value = ''; newRelTo.value = ''; newRelPredicate.value = ''
-    await fetchGraph()
-  } catch (err: any) { alert('添加失败: ' + (err.response?.data?.message || err.message)) }
-}
-
-onMounted(async () => { await fetchGraph() })
-onUnmounted(() => { if (network) network.destroy() })
+onMounted(async () => {
+  await loadGraph()
+})
 </script>
 
 <style scoped>
-.ontology-page { max-width: 100%; }
-.ontology-title-row { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
-.ontology-title { font-family: Georgia, 'Times New Roman', serif; font-weight: bold; font-size: 30px; color: #111; margin: 0; line-height: 1.1; }
-.ontology-subtitle { font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 16px; color: #666; margin: 0 0 2px; }
-.header-spacer { flex: 1; }
-.nl-input-section { margin-bottom: 12px; padding: 14px 18px; }
-.nl-input-section label { font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 8px; color: var(--text-primary); }
-.nl-input-row { display: flex; gap: 8px; align-items: center; }
-.nl-input-row input { flex: 1; }
-.manual-add-section { margin-bottom: 12px; padding: 12px 18px; }
-.manual-row { display: flex; gap: 8px; align-items: center; }
-.manual-row input { flex: 1; }
-.input-sm { height: 32px; font-size: 0.82rem; padding: 0 8px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-card); color: var(--text-primary); }
-.warnings-panel {
-  margin-bottom: 12px; padding: 10px 16px; border-radius: var(--radius-sm);
-  background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3);
-  color: var(--text-primary); font-size: 0.85rem;
+.ontology-page {
+  max-width: 100%;
 }
-.warnings-panel ul { margin: 4px 0 0 16px; padding: 0; }
-.warnings-panel li { margin-bottom: 2px; }
-.graph-container { height: 540px; padding: 0; overflow: hidden; border-radius: var(--radius-md); background: #fafbfc; border: 1px solid #e5e7eb; box-shadow: inset 0 0 30px rgba(0,0,0,0.03); }
-.properties-panel { margin-top: 12px; padding: 16px 20px; }
-.properties-panel h4 { margin: 0 0 10px; font-size: 0.95rem; color: var(--accent-coral); }
-.prop-item { margin-bottom: 6px; font-size: 0.85rem; display: flex; align-items: center; }
-.prop-label { font-weight: 600; color: var(--text-secondary); min-width: 70px; }
-.prop-editable input { flex: 1; }
-.prop-actions { margin-top: 12px; display: flex; gap: 8px; }
-.legend-panel { margin-top: 12px; padding: 14px 18px; }
-.legend-panel h4 { margin: 0 0 8px; font-size: 0.88rem; color: var(--text-secondary); }
-.legend-grid { display: flex; flex-wrap: wrap; gap: 12px 20px; }
-.legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--text-secondary); }
-.legend-shape { width: 18px; height: 18px; flex-shrink: 0; }
-.shape-dot { border-radius: 50%; }
-.shape-diamond { border-radius: 2px; transform: rotate(45deg); width: 14px; height: 14px; margin: 2px; }
-.shape-hexagon { border-radius: 2px; clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); }
-.shape-square { border-radius: 2px; }
-.shape-star { clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
-.shape-box { border-radius: 2px; height: 10px; margin: 4px 0; }
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: baseline;
+  padding: 10px 16px;
+  margin-bottom: 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.84rem;
+}
+.banner-warning {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+.banner-error {
+  background: rgba(220, 38, 38, 0.1);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+}
+.workbench-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.workbench-title {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: bold;
+  font-size: 30px;
+  color: #111;
+  margin: 0;
+  line-height: 1.1;
+}
+.workbench-subtitle {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-size: 15px;
+  color: #666;
+  margin: 2px 0 0;
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.workbench-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+.tab-button {
+  border: none;
+  background: none;
+  padding: 8px 16px;
+  font-size: 0.86rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab-button.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent-coral);
+  font-weight: 600;
+}
+.explorer-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.admin-tools {
+  margin-top: 16px;
+  padding: 12px 16px;
+}
+.admin-toggle {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.admin-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.admin-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.admin-row .input-sm {
+  flex: 1 1 160px;
+  height: 32px;
+  font-size: 0.8rem;
+  padding: 0 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+.nl-row {
+  margin-top: 4px;
+}
+.admin-hint {
+  margin: 0 0 6px;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.admin-hint code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 0.74rem;
+}
+.admin-message {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--accent-coral);
+}
+.admin-message-warning {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #b45309;
+}
+@media (max-width: 1024px) {
+  .explorer-layout {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

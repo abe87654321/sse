@@ -1,6 +1,8 @@
 # SSE MCP 测试用例集
 
-> 日期：2026-07-29 | 版本：v1.0
+> 日期：2026-07-29 | 版本：v1.1 | 工具总数：**22**（18 现有 + 4 新增）
+
+> **本体工具依赖**：`query_ontology`、`get_entity_network`、`query_sparql`、`validate_expense`、`explain_expense`、`impact_analysis`、`find_anomalies`、`get_ontology_schema` 均通过 REST API 访问图服务。运行 API 时需设置 `ONTOLOGY_V2=on`（或 `shadow`），MCP 不再直接读取本地图快照。
 
 ---
 
@@ -149,40 +151,35 @@ curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
 
 ---
 
-## 只读工具 — 本体图谱（3 个）
+## 只读工具 — 本体图谱（7 个）
 
 ### TC-7: query_ontology — 查询本体图谱
 
 ```bash
-# 全图谱
+# 按类型查询（GET /ontology/entities?type=...，MCP 返回 {type,count,entities}）
 curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "http://localhost:3000/ontology/graph" \
-  | python3 -c "import json,sys; d=json.load(sys.stdin); print(f\"节点: {len(d['nodes'])}, 边: {len(d['edges'])}\")"
-
-# 按类型查询
-curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "http://localhost:3000/ontology/query?type=Person" \
+  "http://localhost:3000/ontology/entities?type=Person" \
   | python3 -m json.tool
 
-# 预期: 返回图谱数据，Person 节点含 avatarUrl 属性
+# 组合过滤（POST /ontology/query）
+curl -s -X POST "http://localhost:3000/ontology/query" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -d '{"status":"pending","department":"研发","page":1,"page_size":20}' \
+  | python3 -m json.tool
+
+# 预期: 按类型返回 [{uri, properties}]；组合过滤返回 {results, total}
 ```
 
 ### TC-8: get_entity_network — 获取实体 N 跳网络
 
 ```bash
-# 先获取一个报告 URI（从 sync 后的图谱中找）
+# 实体 URI 需 URL 编码；direction 可为 both/out/in，depth 最大 5
 curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "http://localhost:3000/ontology/graph" \
-  | python3 -c "
-import json,sys
-d = json.load(sys.stdin)
-for n in d['nodes']:
-    if n['type'] in ('Report','DraftReport','PendingReport','ApprovedReport','PaidReport'):
-        print(f\"URI: {n['id']}, Title: {n['properties'].get('title','')}\")
-        break
-"
+  "http://localhost:3000/ontology/entities/https%3A%2F%2Fsse.local%2Freport%2Fr1/network?depth=2&direction=both" \
+  | python3 -m json.tool
 
-# 预期: 返回实体及其 N 跳关系网络
+# 预期: 返回 { nodes, edges }
 ```
 
 ### TC-9: query_sparql — SPARQL 跨域查询
@@ -191,10 +188,54 @@ for n in d['nodes']:
 curl -s -X POST http://localhost:3000/ontology/sparql \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -d '{"query":"SELECT ?s ?p ?o WHERE { ?s ?p ?o } LIMIT 10"}' \
+  -d '{"query":"SELECT ?s WHERE { GRAPH <urn:sse:data> { ?s ?p ?o } } LIMIT 10"}' \
   | python3 -m json.tool
 
-# 预期: 返回查询结果数组
+# 预期: { results, count }；仅 admin/finance 可调用
+```
+
+### TC-15: explain_expense — 解释报销决策（新增）
+
+```bash
+curl -s -X POST "http://localhost:3000/ontology/explain" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -d '{"report_id":"<report_id>"}' \
+  | python3 -m json.tool
+
+# 预期: 匹配规则、审批链、证据 URI；不存在或越权时 404 NOT_FOUND
+```
+
+### TC-16: impact_analysis — 规则/金额影响分析（新增）
+
+```bash
+curl -s -X POST "http://localhost:3000/ontology/impact" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -d '{"department":"研发","min_amount":100,"max_amount":5000,"amount_delta":100}' \
+  | python3 -m json.tool
+
+# 预期: 受影响报销单/规则与汇总；过滤条件均可选
+```
+
+### TC-17: find_anomalies — 异常扫描（新增）
+
+```bash
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "http://localhost:3000/ontology/anomalies?codes=amount_mismatch,duplicate_invoice_no&limit=5" \
+  | python3 -m json.tool
+
+# 预期: { anomalies, summary }；code 包括 amount_mismatch / duplicate_invoice_no / missing_approver
+```
+
+### TC-18: get_ontology_schema — 本体模式（新增）
+
+```bash
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "http://localhost:3000/ontology/schema" \
+  | python3 -m json.tool
+
+# 预期: { classes, properties }
 ```
 
 ---
@@ -334,14 +375,19 @@ curl -sf -H "Authorization: Bearer $TOKEN" "$BASE/statistics" > /dev/null && ech
 # 待审批
 curl -sf -H "Authorization: Bearer $TOKEN" "$BASE/approvals/pending" > /dev/null && echo "✅ list_pending_approvals" && ((PASS++)) || { echo "❌ list_pending_approvals"; ((FAIL++)); }
 
-# 本体图谱
-curl -sf -H "Authorization: Bearer $TOKEN" "$BASE/ontology/graph" > /dev/null && echo "✅ query_ontology" && ((PASS++)) || { echo "❌ query_ontology"; ((FAIL++)); }
+# 本体图谱（需 ONTOLOGY_V2=on）
+curl -sf -H "Authorization: Bearer $TOKEN" "$BASE/ontology/entities?type=Person" > /dev/null && echo "✅ query_ontology" && ((PASS++)) || { echo "❌ query_ontology"; ((FAIL++)); }
 
 # SPARQL
 curl -sf -X POST "$BASE/ontology/sparql" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
-  -d '{"query":"SELECT ?s ?p ?o WHERE { ?s ?p ?o } LIMIT 5"}' > /dev/null && echo "✅ query_sparql" && ((PASS++)) || { echo "❌ query_sparql"; ((FAIL++)); }
+  -d '{"query":"SELECT ?s WHERE { GRAPH <urn:sse:data> { ?s ?p ?o } } LIMIT 1"}' > /dev/null && echo "✅ query_sparql" && ((PASS++)) || { echo "❌ query_sparql"; ((FAIL++)); }
+
+# 新增分析工具
+curl -sf -H "Authorization: Bearer $TOKEN" "$BASE/ontology/schema" > /dev/null && echo "✅ get_ontology_schema" && ((PASS++)) || { echo "❌ get_ontology_schema"; ((FAIL++)); }
+
+curl -sf -H "Authorization: Bearer $TOKEN" "$BASE/ontology/anomalies?limit=5" > /dev/null && echo "✅ find_anomalies" && ((PASS++)) || { echo "❌ find_anomalies"; ((FAIL++)); }
 
 # NL 提交
 curl -sf -X POST "$BASE/ontology/submit-from-text" \

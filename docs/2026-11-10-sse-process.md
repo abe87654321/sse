@@ -102,8 +102,8 @@ pnpm test   → core 41 · auth 19 · db 13 · ai 100 · notifications 29 · ont
 冒烟验证：
 
 - Streamable HTTP（`:3099`）：`/healthz` 正常；`initialize` 返回 2025-06-18 + session id；
-  `tools/list` 返回 18 个工具。
-- stdio：`initialize` + `tools/list` 返回 18 个工具。
+  `tools/list` 返回 18 个工具（本次会话前；本体 v2 合并后为 22 个）。
+- stdio：`initialize` + `tools/list` 返回 18 个工具（本体 v2 合并后为 22 个）。
 - `GET /openapi.json`：HTTP 200、`openapi: 3.1.0`、19 个路径、JSON 可解析（无 DB 也可访问该端点）。
 
 ---
@@ -124,11 +124,12 @@ curl -s http://127.0.0.1:3001/healthz
 
 ---
 
-## 四、MCP 工具清单（18）
+## 四、MCP 工具清单（22）
 
 只读：`search_expenses`、`get_expense_detail`、`get_approval_status`、`get_statistics`、
 `get_user_summary`、`list_pending_approvals`、`query_expense_status`、`explain_decision`、
-`validate_expense`、`query_ontology`、`get_entity_network`、`query_sparql`。
+`validate_expense`、`query_ontology`、`get_entity_network`、`query_sparql`、
+`explain_expense`、`impact_analysis`、`find_anomalies`、`get_ontology_schema`。
 
 写入：`submit_expense_from_text`、`submit_expense_from_invoice`、`approve_expense`、
 `reject_expense`、`upload_invoice`、`verify_expense`。
@@ -137,11 +138,19 @@ curl -s http://127.0.0.1:3001/healthz
 
 ## 五、下一会话待办
 
-### P0：密码安全（仍未修）
+### P0：密码安全（已修复）
 
-- `packages/api/src/routes/auth.ts` 登录只校验手机号存在与状态，**完全不校验密码**。
-- `packages/api/src/routes/admin.ts` 创建用户时忽略传入的 `password`。
-- `packages/api/src/routes/auth.ts` 修改密码明文写入 `password_hash`（无 bcrypt）。
+- `packages/api/src/routes/auth.ts` 登录改为通过 `findCredentialsByPhone` 读取 `password_hash` 并用 bcrypt 校验；手机号不存在与密码错误统一返回 401「手机号或密码错误」，不存在账号也会执行一次固定 bcrypt 比较以降低时序差异。
+- `packages/auth/src/password.ts` 新增 `hashPassword` / `verifyPassword` / `validatePassword`（6–72 位）。历史明文密码在成功登录后会被**机会性重哈希**为 bcrypt（`needsRehash`）；重哈希失败只写 stderr，不阻塞登录。
+- `packages/api/src/routes/auth.ts` 的 `PUT /password` 现在强制校验 `oldPassword`，新密码经 bcrypt 哈希后写入 `password_hash`，不再保存明文。
+- `packages/api/src/routes/admin.ts` 创建用户时**必须提供密码**并写入 bcrypt 哈希；编辑用户可选重置密码。管理员创建的账号不再允许空密码。
+- `packages/web/src/pages/AdminUsers.vue` 新建/编辑弹窗增加密码字段：新建必填，编辑留空表示不修改。
+- **外部身份哨兵加固**：`verifyPassword` 永久拒绝 `scim_managed_no_pwd`、`mdm_managed_no_pwd`、`!`、空串与纯空白值；SCIM/MDM 创建的用户改写入不可用哨兵 `!`（不再是可登录凭据）。迁移 `018_disable_external_password_sentinels.sql` 把历史哨兵/空哈希统一改为 `!`，只匹配精确哨兵值，不改动合法 bcrypt。
+- **明文开关**：历史明文密码仅在 `ALLOW_LEGACY_PLAINTEXT_PASSWORDS=1` 时允许比较并机会性重哈希，默认关闭；生产不得开启。
+- **SCIM/Webhook 鉴权**：`/scim`、`/webhook` 增加服务令牌中间件，接受 `Authorization: Bearer <token>` 或 `X-Service-Token: <token>`；令牌来自 `SCIM_TOKEN` 与 `MDM_TOKEN`（或 `WEBHOOK_TOKEN`）。生产未配置令牌时返回 503 `SERVICE_TOKEN_NOT_CONFIGURED`，非生产记录告警后放行。
+- **登录防护**：`POST /auth/login` 按 `ip + phone` 固定窗口限流（10 次 / 15 分钟，429 `RATE_LIMITED`），成功登录清除计数；先校验密码再判断账号状态，避免通过 403 枚举禁用账号；bcrypt 72 UTF-8 字节上限同时应用于设置密码与登录输入；`BCRYPT_ROUNDS` 限制在 10–14 且与 dummy hash 使用同一 cost。
+
+> 以上为代码层修复。仍需在目标环境用真实种子账号和管理员新建账号做一次登录冒烟测试，确认 `JWT_SECRET`、bcrypt 原生模块等部署配置正常，不能仅凭单元测试宣称生产已完全安全。
 
 ### P1：Agent 接入加固
 
@@ -152,7 +161,7 @@ curl -s http://127.0.0.1:3001/healthz
   - 前置：管理端 MCP key 管理页/接口（目前只能直接改 `mcp_api_keys` 表）。
 - 为 `@sse/mcp` 增加独立测试（目前仍以构建 + 现有套件验证）。
 - 工具契约：`outputSchema`、`annotations`（只读/破坏性提示）、统一错误信封。
-- 更新 `docs/2026-07-29-mcp-test-cases.md` 与 `docs/2026-07-31-mcp-pi-test-cases.md`（14 → 18 工具、HTTP 传输）。
+- 更新 `docs/2026-07-29-mcp-test-cases.md` 与 `docs/2026-07-31-mcp-pi-test-cases.md`（14 → 22 工具、HTTP 传输）。
 
 ### P2：其余
 
@@ -180,4 +189,94 @@ curl -s http://127.0.0.1:3001/healthz
 - 外部 Agent 可任选：**Streamable HTTP MCP（`/mcp`）** 或 **OpenAPI REST（`/openapi.json`）**，
   两者共用同一套 API key → 角色/部门数据范围。
 - Agent 已能完成：发票 OCR 建单 → 发票入库 → AI 核对 → 读摘要 → 审批/驳回 → 查询统计。
-- 未完成（下一会话）：MCP key 作用域、轮换端点、哈希存储；P0 密码安全。
+- 未完成（下一会话）：MCP key 作用域、轮换端点、哈希存储。
+- P0 密码安全已在后续会话修复（见第五节），但部署后仍需按 runbook 做登录冒烟验证。
+
+---
+
+## 八、本体 v2：影子比对、健康检查与安全下线（Phase 7）
+
+**架构**：PostgreSQL 仍是系统记录源。行触发器把映射表的变更写入
+`ontology_outbox`；API 进程内的 `GraphProjector` 把事件投影到嵌入式 Oxigraph
+图，并按版本写入 `ontology_graph_snapshots`。`ONTOLOGY_V2=0|shadow|on` 控制
+行为：`0` 保持旧路径；`shadow` 挂载 v2 路由提供读取，同时把写入镜像到旧
+`OwlStore` 并按 SQL 真值比对；`on` 完全使用 v2 图。
+
+### 影子比对（shadow）
+
+- 新增 `packages/ontology/src/projection/shadow.ts`：直接以 PostgreSQL 为真值，
+  不依赖旧的 `SemanticMapper`。
+- 每张表比对 `COUNT(*)` 与图节点数；按 id keyset 每表最多抽样
+  `ONTOLOGY_SHADOW_SAMPLE_ROWS`（默认 200）行比对白名单字段；比对状态分布与
+  6 个关系计数（`submittedBy`、`containsItem`、`hasCategory`、`hasInvoice`、
+  `hasApproval`、`hasPaymentReceipt`）。关系计数按三元组计数，1:N 关系与 SQL
+  行数语义一致。
+- `ONTOLOGY_V2=shadow` 时启动即执行，之后每
+  `ONTOLOGY_SHADOW_INTERVAL_MS`（默认 300000）执行一次；上一次比对未结束时跳过
+  本轮。stderr 只输出聚合计数 `[ontology-shadow]`（差异总数、按类型/按表计数），
+  不输出行值；完整 diff 仅挂在 `GET /ontology/status` 的 `shadow` 字段（仅 admin）。
+
+### 状态、指标与健康
+
+- `GET /ontology/status`：`engine`、`counts`、`outbox`、`version`、
+  `failuresLastHour`，shadow 模式额外返回
+  `shadow: { equal, differences, checkedAt }`（admin-only）。
+- 投影器每次处理事件输出
+  `[ontology-projector] {"processed":n,"failed":n,"lag_ms":n,"duration_ms":n}`，
+  不输出行内容。
+- `GET /health` 与 `GET /healthz`：`ONTOLOGY_V2=on` 且
+  `outbox.oldestPendingAgeSeconds > 300` 时返回 503；其余情况保持 200。
+  非 v2 的 health 载荷不变。
+
+### 兼容与安全下线
+
+- `SemanticMapper.syncReportToOntology` / `syncAll` 仅在 `on` 下为 no-op 并输出
+  弃用日志；`shadow` 与 `0` 均保留旧写入，保证 shadow 期间旧查询不失效。
+- `GET /ontology/sync` 在 `on` 时触发 reconcile job；`GET /ontology/query?type=`
+  和 `GET /ontology/graph` 在 `on` 时返回 v2 视图（旧 `[{uri,properties}]` /
+  图结构保持兼容），`0` 时回退旧实现。
+- `ensureOntologyLoaded` 仍保留（提交类工具仍在用），但 v2 下不再加载旧快照。
+- `executeSparql`、`OwlStore` 和旧端点**暂不删除**，保证 `ONTOLOGY_V2=0`
+  可回滚；完整删除需在 24h 生产 shadow 通过且有一个干净发布后进行，详见
+  `docs/2026-11-10-ontology-v2-runbook.md`。
+
+### 端点与工具速查
+
+| 类型 | 名称 |
+|---|---|
+| 状态 | `GET /ontology/status`（含 `shadow`）、`GET /health`、`GET /healthz` |
+| 查询 | `GET /ontology/entities[?type=]`、`POST /ontology/query`、`POST /ontology/sparql` |
+| 证据 | `POST /ontology/explain`、`POST /ontology/validate`、`POST /ontology/impact`、`GET /ontology/anomalies` |
+| 运维 | `POST /ontology/reconcile`、`GET /ontology/reconcile/:jobId`、`GET /ontology/sync` |
+| MCP | `query_ontology`、`get_entity_network`、`query_sparql`、`explain_expense`、`impact_analysis`、`find_anomalies`、`get_ontology_schema` |
+
+环境变量已补入 `.env.example`：`ONTOLOGY_V2`、`ONTOLOGY_PROJECT_INTERVAL_MS`、
+`ONTOLOGY_SNAPSHOT_INTERVAL_MS`、`ONTOLOGY_SPARQL_TIMEOUT_MS`、
+`ONTOLOGY_SPARQL_MAX_RESULTS`、`ONTOLOGY_OUTBOX_RETENTION_DAYS`、
+`ONTOLOGY_ANOMALY_INTERVAL_MS`、`ONTOLOGY_MAX_OUTBOX_BATCH`、
+`ONTOLOGY_GRAPH_CALL_TIMEOUT_MS`、`ONTOLOGY_SHADOW_INTERVAL_MS`、
+`ONTOLOGY_SHADOW_SAMPLE_ROWS`、`ONTOLOGY_WORKER_PATH`。
+
+---
+
+## 九、本体 v2 全量执行进度（分支 `feat/ontology-platform-overhaul`）
+
+> 状态：代码与文档已完成，测试全绿；未推送、未合并 `master`。
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| 0 | ADR、依赖、测试基线 | 完成 |
+| 1 | GraphStore 端口、Oxigraph worker、TBox、快照 | 完成 |
+| 2 | 触发器 outbox、全表映射、projector、reconcile | 完成 |
+| 3 | 真 SPARQL 1.1、类型化查询、scope、分页 | 完成 |
+| 4 | CONSTRUCT 规则、SHACL、explain/validate/impact/anomalies | 完成 |
+| 5 | MCP 瘦客户端、22 工具、超时/审计 | 完成 |
+| 6 | Web 本体工作台、同步健康、手动图 | 完成 |
+| 7 | shadow SQL 真值、health、runbook、安全下线 | 完成 |
+| P0 | bcrypt 登录/改密/建用户、限流、SCIM/MDM 令牌、哨兵清理 | 完成 |
+
+- 基线 `6d039f1`，当前分支 HEAD 约 69 个提交；工作区干净。
+- 验证：`pnpm -r build` 通过；`pnpm -r test` 595 tests，0 failures。
+- 计划与执行记录：`docs/superpowers/plans/2026-11-10-ontology-platform-overhaul.md`。
+- 生产 cutover：`docs/2026-11-10-ontology-v2-cutover-checklist.md`、`deploy/preflight-ontology-v2.sql`。
+- 仍需运维执行：备份、迁移 `015`-`018`、`shadow` 24h、MCP 冒烟、切 `on`；生产要求单 API 副本。
