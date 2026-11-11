@@ -40,7 +40,26 @@
       <span v-if="selected" class="selected-note"> · 已选中 {{ selectedLabel }}</span>
     </p>
 
-    <div ref="graphContainer" class="graph-canvas"></div>
+    <div ref="graphWrapper" class="graph-canvas-wrap">
+      <div ref="graphContainer" class="graph-canvas"></div>
+      <div
+        v-if="tooltip.visible"
+        class="graph-tooltip"
+        :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }"
+        role="tooltip"
+      >
+        <div class="graph-tooltip-type">
+          {{ tooltip.type }}<span v-if="tooltip.typeLabel"> · {{ tooltip.typeLabel }}</span>
+        </div>
+        <div class="graph-tooltip-label">{{ tooltip.label }}</div>
+        <dl v-if="tooltip.props.length" class="graph-tooltip-props">
+          <template v-for="prop in tooltip.props" :key="prop.key">
+            <dt>{{ prop.key }}</dt>
+            <dd>{{ prop.value }}</dd>
+          </template>
+        </dl>
+      </div>
+    </div>
 
     <div v-if="loading" class="graph-overlay">加载图谱中...</div>
     <div v-else-if="nodes.length === 0" class="graph-overlay">暂无图谱数据</div>
@@ -58,6 +77,11 @@ import {
   selectVisibleGraphNodes,
   type GraphFilters,
 } from './utils'
+import {
+  GRAPH_COLORS as COLORS,
+  GRAPH_SHAPES as SHAPES,
+  GRAPH_TYPE_LABELS,
+} from './graph-style'
 
 export interface ExplorerNode {
   id?: string
@@ -96,41 +120,9 @@ const emit = defineEmits<{
   (event: 'refresh'): void
 }>()
 
-const COLORS: Record<string, string> = {
-  Person: '#e878b0',
-  Department: '#5898e0',
-  Company: '#88c040',
-  ExpenseReport: '#48b8a8',
-  Report: '#48b8a8',
-  DraftReport: '#48b8a8',
-  PendingReport: '#48b8a8',
-  ApprovedReport: '#48b8a8',
-  RejectedReport: '#e87870',
-  PaidReport: '#88c040',
-  ExpenseItem: '#e8c820',
-  Invoice: '#e87870',
-  ApprovalRule: '#c080e0',
-  ApprovalRecord: '#48b0c8',
-  Approver: '#48b0c8',
-  PaymentReceipt: '#88c040',
-  Unknown: '#999',
-}
 
-const SHAPES: Record<string, string> = {
-  Person: 'dot',
-  Department: 'diamond',
-  Company: 'hexagon',
-  ExpenseReport: 'dot',
-  Report: 'dot',
-  ExpenseItem: 'box',
-  Invoice: 'star',
-  ApprovalRule: 'square',
-  ApprovalRecord: 'dot',
-  Approver: 'dot',
-  PaymentReceipt: 'hexagon',
-  Unknown: 'dot',
-}
 
+const graphWrapper = ref<HTMLElement | null>(null)
 const graphContainer = ref<HTMLElement | null>(null)
 const searchInput = ref('')
 const searchTerm = ref('')
@@ -139,10 +131,33 @@ const statusFilter = ref('')
 const departmentFilter = ref('')
 const depth = ref(2)
 
+interface NodeTooltip {
+  visible: boolean
+  x: number
+  y: number
+  type: string
+  typeLabel: string
+  label: string
+  props: Array<{ key: string; value: string }>
+}
+
+const tooltip = ref<NodeTooltip>({
+  visible: false,
+  x: 0,
+  y: 0,
+  type: '',
+  typeLabel: '',
+  label: '',
+  props: [],
+})
+let tooltipTimer: ReturnType<typeof setTimeout> | null = null
+const TOOLTIP_DURATION_MS = 3000
+
 let network: Network | null = null
 let nodesData: DataSet<any> | null = null
 let edgesData: DataSet<any> | null = null
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
+let resizeObserver: ResizeObserver | null = null
 let lastSignature = ''
 
 const nodeId = (node: ExplorerNode): string => graphNodeId(node)
@@ -182,6 +197,48 @@ const selectedLabel = computed(() => {
 
 const displayedCount = computed(() => renderedCount.value)
 
+function hideTooltip(): void {
+  if (tooltipTimer) {
+    clearTimeout(tooltipTimer)
+    tooltipTimer = null
+  }
+  tooltip.value.visible = false
+}
+
+function showTooltip(nodeKey: string): void {
+  if (!network || !graphContainer.value) return
+  const node = props.nodes.find((candidate) => nodeId(candidate) === nodeKey)
+  if (!node) return
+  const position = network.getPositions([nodeKey])[nodeKey]
+  if (!position) return
+  const dom = network.canvasToDOM(position)
+  const canvasRect = graphContainer.value.getBoundingClientRect()
+  const wrapRect = graphWrapper.value?.getBoundingClientRect()
+  const offsetX = wrapRect ? canvasRect.left - wrapRect.left : 0
+  const offsetY = wrapRect ? canvasRect.top - wrapRect.top : 0
+  const width = graphWrapper.value?.clientWidth || graphContainer.value.clientWidth || 0
+  const x = width > 0 ? Math.min(Math.max(dom.x + offsetX, 90), width - 90) : dom.x + offsetX
+  const y = Math.max(12, dom.y + offsetY - 18)
+  const entries = Object.entries(node.properties ?? {}).slice(0, 6)
+  tooltip.value = {
+    visible: true,
+    x,
+    y,
+    type: node.type || 'Unknown',
+    typeLabel: GRAPH_TYPE_LABELS[node.type] ?? '',
+    label: entityLabel(node),
+    props: entries.map(([key, value]) => ({
+      key,
+      value: String(value).length > 80 ? `${String(value).slice(0, 77)}...` : String(value),
+    })),
+  }
+  if (tooltipTimer) clearTimeout(tooltipTimer)
+  tooltipTimer = setTimeout(() => {
+    tooltip.value.visible = false
+    tooltipTimer = null
+  }, TOOLTIP_DURATION_MS)
+}
+
 function unique(values: string[]): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b))
 }
@@ -195,7 +252,6 @@ function nodeVisual(node: ExplorerNode): Record<string, unknown> {
   const visual: Record<string, unknown> = {
     id,
     label,
-    title: `${node.type}: ${label}\n${JSON.stringify(node.properties ?? {}, null, 2)}`,
     color: {
       background: color,
       border: color,
@@ -270,6 +326,7 @@ function relayout(): void {
   network.stabilize(60)
   network.once('stabilizationIterationsDone', () => {
     network?.setOptions({ physics: { enabled: false } })
+    network?.fit({ animation: false })
   })
 }
 
@@ -308,14 +365,35 @@ onMounted(() => {
   )
 
   network.on('click', (params: { nodes: string[] }) => {
+    hideTooltip()
     if (params.nodes.length > 0) selectNode(params.nodes[0])
   })
+  network.on('hoverNode', (params: { node: string }) => showTooltip(params.node))
+  network.on('blurNode', () => hideTooltip())
+  network.on('dragStart', () => hideTooltip())
+  network.on('zoom', () => hideTooltip())
+
+  // vis-network keeps the initial container size; observe layout changes so the
+  // canvas fills the card instead of rendering into a short strip.
+  resizeObserver = new ResizeObserver(() => {
+    if (!network || !graphContainer.value) return
+    const width = graphContainer.value.clientWidth
+    const height = graphContainer.value.clientHeight
+    if (width > 0 && height > 0) {
+      network.setSize(`${width}px`, `${height}px`)
+      network.redraw()
+    }
+  })
+  resizeObserver.observe(graphContainer.value)
 
   syncData()
 })
 
 onUnmounted(() => {
   if (debounceTimer) clearTimeout(debounceTimer)
+  if (tooltipTimer) clearTimeout(tooltipTimer)
+  resizeObserver?.disconnect()
+  resizeObserver = null
   if (network) {
     network.destroy()
     network = null
@@ -391,13 +469,61 @@ watch([searchTerm, typeFilter, statusFilter, departmentFilter], () => syncData()
 .selected-note {
   color: var(--text-primary);
 }
-.graph-canvas {
-  flex: 1;
+.graph-canvas-wrap {
+  position: relative;
+  flex: 0 0 560px;
+  height: 560px;
   min-height: 460px;
+}
+.graph-canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
   border-radius: var(--radius-md);
   background: #fafbfc;
   border: 1px solid #e5e7eb;
   box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.03);
+}
+.graph-tooltip {
+  position: absolute;
+  z-index: 20;
+  transform: translate(-50%, -100%);
+  min-width: 120px;
+  max-width: 280px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  pointer-events: none;
+  white-space: normal;
+}
+.graph-tooltip-type {
+  font-weight: 600;
+}
+.graph-tooltip-label {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+.graph-tooltip-props {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+}
+.graph-tooltip-props dt {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.graph-tooltip-props dd {
+  margin: 0;
+  word-break: break-all;
 }
 .graph-overlay {
   position: absolute;

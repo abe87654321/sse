@@ -39,24 +39,35 @@
       </button>
     </nav>
 
-    <div v-if="activeTab === 'explorer'" class="explorer-layout">
-      <GraphExplorer
-        :nodes="graphNodes"
-        :edges="graphEdges"
-        :selected="selectedUri"
-        :loading="graphLoading"
-        :max-nodes="400"
-        @select="selectEntity"
-        @depth-change="handleDepthChange"
-        @refresh="refresh"
-      />
-      <EntityDetail
-        :entity="entity"
-        :explanation="explanation"
-        :loading="detailLoading"
-        :error="detailError"
-        @select="selectEntity"
-      />
+    <div v-if="activeTab === 'explorer'" class="explorer-tab">
+      <div class="explorer-layout">
+        <GraphExplorer
+          :nodes="graphNodes"
+          :edges="graphEdges"
+          :selected="selectedUri"
+          :loading="graphLoading"
+          :max-nodes="400"
+          @select="selectEntity"
+          @depth-change="handleDepthChange"
+          @refresh="refresh"
+        />
+        <EntityDetail
+          :entity="entity"
+          :explanation="explanation"
+          :loading="detailLoading"
+          :error="detailError"
+          @select="selectEntity"
+        />
+      </div>
+      <section class="card legend-panel" aria-label="图例">
+        <h4>图例</h4>
+        <div class="legend-grid">
+          <div v-for="item in legendItems" :key="item.type" class="legend-item">
+            <span class="legend-dot" :style="{ background: item.color }"></span>
+            <span>{{ item.type }}<template v-if="item.label"> ({{ item.label }})</template></span>
+          </div>
+        </div>
+      </section>
     </div>
 
     <ValidationPanel
@@ -134,6 +145,7 @@ import ImpactPanel from '../components/ontology/ImpactPanel.vue'
 import AnomalyPanel from '../components/ontology/AnomalyPanel.vue'
 import SyncStatus from '../components/ontology/SyncStatus.vue'
 import { entityLabel } from '../components/ontology/utils'
+import { graphLegendItems } from '../components/ontology/graph-style'
 
 type TabId = 'explorer' | 'validate' | 'impact' | 'anomalies'
 
@@ -164,6 +176,7 @@ const auth = useAuthStore()
 const activeTab = ref<TabId>('explorer')
 const graphNodes = ref<WorkbenchNode[]>([])
 const graphEdges = ref<WorkbenchEdge[]>([])
+const legendItems = computed(() => graphLegendItems(graphNodes.value.map((node) => node.type)))
 const graphLoading = ref(false)
 const selectedUri = ref<string | null>(null)
 const entity = ref<EntityDetailModel | null>(null)
@@ -530,6 +543,33 @@ onMounted(async () => {
   grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
   gap: 14px;
   align-items: start;
+}
+.legend-panel {
+  margin-top: 12px;
+  padding: 14px 18px;
+}
+.legend-panel h4 {
+  margin: 0 0 8px;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+}
+.legend-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  flex-shrink: 0;
 }
 .admin-tools {
   margin-top: 16px;
