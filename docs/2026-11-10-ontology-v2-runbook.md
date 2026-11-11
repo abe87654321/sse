@@ -102,7 +102,7 @@ it starts the same reconcile job instead of running the old `SemanticMapper`.
    relation counts for `submittedBy`, `containsItem`, `hasCategory`,
    `hasInvoice`, `hasApproval`, and `hasPaymentReceipt`.
 3. Each run logs `[ontology-shadow] {...}` to stderr and updates
-   `GET /ontology/status.shadow`.
+   the `shadow` field of `GET /ontology/status`.
 4. Gate: **24 consecutive hours** with `shadow.equal = true`,
    `outbox.pending = 0`, no dead letters, and no projector crash loops.
    Investigate every difference; do not waive a persistent diff.
@@ -126,7 +126,10 @@ path:
 ONTOLOGY_V2=0
 
 # 2) Stop outbox growth until a projector is intentionally re-enabled.
-psql "$DATABASE_URL" -c "UPDATE ontology_settings SET value='false' WHERE key='outbox_enabled';"
+PGPASSWORD="$DB_PASSWORD" psql \
+  -h "${DB_HOST:-localhost}" -p "${DB_PORT:-5433}" \
+  -U "${DB_USER:-sse}" -d "${DB_NAME:-sse}" \
+  -c "UPDATE ontology_settings SET value='false' WHERE key='outbox_enabled';"
 
 # 3) Restart the API (and MCP).
 ```

@@ -349,7 +349,7 @@ Postgres rows ──triggers──▶ ontology_outbox ──GraphProjector──
 - `ONTOLOGY_V2=0` — legacy path only (default).
 - `ONTOLOGY_V2=shadow` — projector writes the graph while queries stay on the
   legacy path. A SQL-truth comparator runs every 5 minutes and exposes
-  `GET /ontology/status.shadow` (admin-only).
+  the `shadow` field of `GET /ontology/status` (admin-only).
 - `ONTOLOGY_V2=on` — typed queries, SPARQL, explain/validate/impact/anomalies and
   MCP ontology tools use the v2 graph. `/health` and `/healthz` return `503` when
   the outbox is more than 300s behind.
@@ -392,7 +392,7 @@ troubleshooting: [Ontology v2 runbook](docs/2026-11-10-ontology-v2-runbook.md).
 ## 🆕 Recent Updates / 最近更新
 
 - **2026-11-10** — Ontology v2 rollout tooling:
-  - SQL-truth shadow comparator, admin-only `GET /ontology/status.shadow`, and
+  - SQL-truth shadow comparator, admin-only `shadow` status field, and
     `[ontology-shadow]` stderr diffs
   - `[ontology-projector]` tick metrics and 503-capable `/health` + `/healthz`
     when the outbox is >300s behind with `ONTOLOGY_V2=on`

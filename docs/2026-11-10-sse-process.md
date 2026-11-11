@@ -200,7 +200,7 @@ curl -s http://127.0.0.1:3001/healthz
   `hasInvoice`、`hasApproval`、`hasPaymentReceipt`）。
 - `ONTOLOGY_V2=shadow` 时启动即执行，之后每
   `ONTOLOGY_SHADOW_INTERVAL_MS`（默认 300000）执行一次，stderr 输出
-  `[ontology-shadow]`，结果挂在 `GET /ontology/status.shadow`（仅 admin）。
+  `[ontology-shadow]`，结果挂在 `GET /ontology/status` 的 `shadow` 字段（仅 admin）。
 
 ### 状态、指标与健康
 
