@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { OntologyEngine, scopeGraphForUser } from '@sse/ontology';
-import { authMiddleware } from '@sse/auth';
+import { OntologyEngine, getQueryService, scopeGraphForUser } from '@sse/ontology';
+import { authMiddleware, resolveDataScope } from '@sse/auth';
 import { UserRole } from '@sse/shared';
 import { AppError } from '../middleware/error';
 import { PgUserRepo, pool } from '@sse/db';
@@ -22,6 +22,27 @@ function scopedGraph(req: Request) {
     userId: req.user!.userId,
     department: req.user!.department,
   });
+}
+
+/** Legacy endpoints only switch to the v2 graph once the flag is fully on. */
+function v2On(): boolean {
+  return process.env.ONTOLOGY_V2 === 'on';
+}
+
+function v2Scope(req: Request) {
+  return resolveDataScope({
+    role: req.user!.role,
+    userId: req.user!.userId,
+    department: req.user!.department,
+  });
+}
+
+function v2QueryService() {
+  try {
+    return getQueryService();
+  } catch {
+    throw new AppError(503, 'ONTOLOGY_V2_UNAVAILABLE', '本体查询服务尚未初始化');
+  }
 }
 
 function assertOntologyAdmin(role: string) {
@@ -61,6 +82,18 @@ router.post('/submit-from-text', asyncWrap(async (req, res) => {
 
 router.get('/sync', asyncWrap(async (req, res) => {
   assertOntologyAdmin(req.user!.role);
+
+  if (v2On()) {
+    const { startReconcileJob } = await import('@sse/ontology');
+    const job = startReconcileJob();
+    res.status(202).json({
+      message: '本体 v2 重建任务已启动',
+      job_id: job.id,
+      state: job.state,
+    });
+    return;
+  }
+
   const store = getEngine().store;
   await getEngine().mapper.syncAll();
   const warnings = store.validateGraph();
@@ -79,6 +112,16 @@ router.get('/sync', asyncWrap(async (req, res) => {
 router.get('/query', asyncWrap(async (req, res) => {
   const type = req.query.type as string;
   if (!type) throw new AppError(400, 'INVALID_PARAMS', '请提供 type 参数');
+
+  if (v2On()) {
+    const result = await v2QueryService().listEntities({ type, scope: v2Scope(req) });
+    res.json(result.results.map((entity) => ({
+      uri: entity.uri,
+      properties: entity.properties,
+    })));
+    return;
+  }
+
   const nodes = scopedGraph(req).nodes
     .filter(node => node.type === type)
     .map(node => ({ uri: node.id, properties: node.properties }));
@@ -127,6 +170,23 @@ router.post('/from-text', asyncWrap(async (req, res) => {
 }));
 
 router.get('/graph', asyncWrap(async (req, res) => {
+  if (v2On()) {
+    const { nodes, edges } = await v2QueryService().graph(v2Scope(req));
+    const typeCounts: Record<string, number> = {};
+    for (const node of nodes) {
+      typeCounts[node.type] = (typeCounts[node.type] || 0) + 1;
+    }
+    res.json({
+      summary: {
+        total_nodes: nodes.length,
+        total_edges: edges.length,
+        type_counts: typeCounts,
+      },
+      graph: { nodes, edges },
+    });
+    return;
+  }
+
   const graph = scopedGraph(req);
   await attachAvatars(graph);
   res.json(graph);
