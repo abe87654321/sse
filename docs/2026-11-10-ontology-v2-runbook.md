@@ -8,6 +8,14 @@ PostgreSQL is the system of record. Row triggers write every mapped change to
 and persists versioned N-Quads snapshots in `ontology_graph_snapshots`.
 The graph is rebuildable at any time from Postgres.
 
+Companions:
+
+- [Cutover checklist](./2026-11-10-ontology-v2-cutover-checklist.md) — ordered
+  commands for preconditions, shadow, cutover, rollback, and post-cutover auth.
+- [Preflight SQL](../deploy/preflight-ontology-v2.sql) — read-only evidence
+  collection (migrations, password hygiene, default admin, ontology state,
+  entity counts, rule seed).
+
 ## 1. Preconditions
 
 1. A database backup has been taken and verified.
@@ -38,24 +46,36 @@ The graph is rebuildable at any time from Postgres.
    (created before this fix) cannot log in and must have an admin reset their
    password. This remains a code-level fix: the live login smoke test is still
    required.
-   Additional pre-cutover password checks:
+   Authentication gates (all required before cutover):
+   - `NODE_ENV=production` so unset service tokens fail closed with 503 instead
+     of being allowed through with a development warning.
+   - `TRUST_PROXY=1` (or the exact proxy hop count) when behind a reverse proxy,
+     and nginx must forward `X-Forwarded-For`. Otherwise `req.ip` is the proxy
+     address and login throttling keys every request to the same value.
+   - Rotate the seeded default admin (`13800000000` / `admin123`). The preflight
+     SQL flags both the pre-repair and current seed hashes; either one must be
+     changed with `PUT /auth/password` before cutover.
    - `ALLOW_LEGACY_PLAINTEXT_PASSWORDS` must be unset or `0` in production. Only
      set it to `1` for a short migration window if plaintext rows still exist,
      then remove it.
    - Apply migration `018_disable_external_password_sentinels.sql`; it converts
      `scim_managed_no_pwd`, `mdm_managed_no_pwd`, and empty hashes to the
-     unusable sentinel `!`. Confirm no user still has an empty/sentinel hash:
-     `SELECT id, phone, password_hash FROM users WHERE password_hash IN ('', '!', 'scim_managed_no_pwd', 'mdm_managed_no_pwd');`
-     Any remaining provisioning user must have an admin-set password before
-     they can log in.
+     unusable sentinel `!`. Confirm no user still has an empty/sentinel hash
+     (`deploy/preflight-ontology-v2.sql`, section 2 must report
+     `total_affected = 0`). Any remaining provisioning user must have an
+     admin-set password before they can log in.
    - Set `SCIM_TOKEN` and `MDM_TOKEN` (or `WEBHOOK_TOKEN`) before cutover.
      Without them, `/scim` and `/webhook` return 503
-     `SERVICE_TOKEN_NOT_CONFIGURED` in production.
+     `SERVICE_TOKEN_NOT_CONFIGURED` in production; with them configured, a
+     missing/wrong token returns 401.
 6. **Exactly one API replica** may run with `ONTOLOGY_V2=shadow|on`. Each
    process owns an independent in-memory Oxigraph graph and only the advisory
    lock winner drains the outbox, so additional replicas serve stale/divergent
    graphs. A shared graph store or leader election is a production prerequisite
-   before horizontal scaling.
+   before horizontal scaling. The login rate limiter (10 attempts per ip+phone
+   per 15 minutes) is also **per-process**: multiple replicas each keep their own
+   counter, so the single-replica constraint is required for the limit to be
+   enforced consistently. A shared limiter is a prerequisite for scaling out.
 7. The outbox triggers are still disabled (`ontology_settings.outbox_enabled =
    'false'`) until a projector is running. `startOntologyProjector()` disables
    them while starting and enables them only after TBox load, snapshot
@@ -191,12 +211,17 @@ PGPASSWORD="$DB_PASSWORD" psql \
 
 # 3) Restart the API (and MCP).
 
-# 4) After restart with ONTOLOGY_V2=0, rebuild the legacy graph if v2 manual
-#    edits must survive the rollback. Manual v2 edits live only in
-#    urn:sse:manual / the v2 snapshot and are not written to the legacy OwlStore.
+# 4) Re-run the legacy /ontology/sync after the restart so the old OwlStore is
+#    rebuilt from Postgres. This is required for legacy reads to be warm and is
+#    the only rollback step that repopulates the legacy graph.
 curl -s http://127.0.0.1:3000/ontology/sync \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
+
+The legacy `/ontology/sync` step runs only after the API is back on
+`ONTOLOGY_V2=0`. Manual v2 edits live only in `urn:sse:manual` / the v2 snapshot
+and are not written to the legacy `OwlStore`, so this sync rebuilds row-derived
+data but cannot recover manual edits.
 
 The legacy `SemanticMapper` and `executeSparql`/`OwlStore` paths remain intact,
 so rollback does not require a data migration. The v2 graph and snapshots can be
