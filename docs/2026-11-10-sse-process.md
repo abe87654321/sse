@@ -189,23 +189,28 @@ curl -s http://127.0.0.1:3001/healthz
 **架构**：PostgreSQL 仍是系统记录源。行触发器把映射表的变更写入
 `ontology_outbox`；API 进程内的 `GraphProjector` 把事件投影到嵌入式 Oxigraph
 图，并按版本写入 `ontology_graph_snapshots`。`ONTOLOGY_V2=0|shadow|on` 控制
-行为：`0` 保持旧路径，`shadow` 双写并按 SQL 真值比对，`on` 使用 v2 图查询。
+行为：`0` 保持旧路径；`shadow` 挂载 v2 路由提供读取，同时把写入镜像到旧
+`OwlStore` 并按 SQL 真值比对；`on` 完全使用 v2 图。
 
 ### 影子比对（shadow）
 
 - 新增 `packages/ontology/src/projection/shadow.ts`：直接以 PostgreSQL 为真值，
   不依赖旧的 `SemanticMapper`。
-- 每张表比对 `COUNT(*)` 与图节点数；按 id keyset 抽样 200 行比对白名单字段；
-  比对状态分布与 6 个关系计数（`submittedBy`、`containsItem`、`hasCategory`、
-  `hasInvoice`、`hasApproval`、`hasPaymentReceipt`）。
+- 每张表比对 `COUNT(*)` 与图节点数；按 id keyset 每表最多抽样
+  `ONTOLOGY_SHADOW_SAMPLE_ROWS`（默认 200）行比对白名单字段；比对状态分布与
+  6 个关系计数（`submittedBy`、`containsItem`、`hasCategory`、`hasInvoice`、
+  `hasApproval`、`hasPaymentReceipt`）。关系计数按三元组计数，1:N 关系与 SQL
+  行数语义一致。
 - `ONTOLOGY_V2=shadow` 时启动即执行，之后每
-  `ONTOLOGY_SHADOW_INTERVAL_MS`（默认 300000）执行一次，stderr 输出
-  `[ontology-shadow]`，结果挂在 `GET /ontology/status` 的 `shadow` 字段（仅 admin）。
+  `ONTOLOGY_SHADOW_INTERVAL_MS`（默认 300000）执行一次；上一次比对未结束时跳过
+  本轮。stderr 只输出聚合计数 `[ontology-shadow]`（差异总数、按类型/按表计数），
+  不输出行值；完整 diff 仅挂在 `GET /ontology/status` 的 `shadow` 字段（仅 admin）。
 
 ### 状态、指标与健康
 
-- `GET /ontology/status`：`engine`、`counts`、`outbox`、`version`，shadow 模式
-  额外返回 `shadow: { equal, differences, checkedAt }`（admin-only）。
+- `GET /ontology/status`：`engine`、`counts`、`outbox`、`version`、
+  `failuresLastHour`，shadow 模式额外返回
+  `shadow: { equal, differences, checkedAt }`（admin-only）。
 - 投影器每次处理事件输出
   `[ontology-projector] {"processed":n,"failed":n,"lag_ms":n,"duration_ms":n}`，
   不输出行内容。
@@ -215,8 +220,8 @@ curl -s http://127.0.0.1:3001/healthz
 
 ### 兼容与安全下线
 
-- `SemanticMapper.syncReportToOntology` / `syncAll` 在 `on|shadow` 下为 no-op，
-  仅输出弃用日志；`0` 时保持旧行为。
+- `SemanticMapper.syncReportToOntology` / `syncAll` 仅在 `on` 下为 no-op 并输出
+  弃用日志；`shadow` 与 `0` 均保留旧写入，保证 shadow 期间旧查询不失效。
 - `GET /ontology/sync` 在 `on` 时触发 reconcile job；`GET /ontology/query?type=`
   和 `GET /ontology/graph` 在 `on` 时返回 v2 视图（旧 `[{uri,properties}]` /
   图结构保持兼容），`0` 时回退旧实现。
@@ -239,4 +244,5 @@ curl -s http://127.0.0.1:3001/healthz
 `ONTOLOGY_SNAPSHOT_INTERVAL_MS`、`ONTOLOGY_SPARQL_TIMEOUT_MS`、
 `ONTOLOGY_SPARQL_MAX_RESULTS`、`ONTOLOGY_OUTBOX_RETENTION_DAYS`、
 `ONTOLOGY_ANOMALY_INTERVAL_MS`、`ONTOLOGY_MAX_OUTBOX_BATCH`、
-`ONTOLOGY_GRAPH_CALL_TIMEOUT_MS`、`ONTOLOGY_SHADOW_INTERVAL_MS`。
+`ONTOLOGY_GRAPH_CALL_TIMEOUT_MS`、`ONTOLOGY_SHADOW_INTERVAL_MS`、
+`ONTOLOGY_SHADOW_SAMPLE_ROWS`、`ONTOLOGY_WORKER_PATH`。

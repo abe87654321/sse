@@ -101,6 +101,7 @@ export interface OntologyStatus {
   outboxPending: number;
   deadLettered: number;
   lagSeconds: number;
+  failuresLastHour: number;
   outbox: {
     pending: number;
     deadLettered: number;
@@ -687,6 +688,7 @@ ORDER BY ?property`);
         outboxPending: 0,
         deadLettered: 0,
         lagSeconds: 0,
+        failuresLastHour: 0,
         outbox: {
           pending: 0,
           deadLettered: 0,
@@ -701,6 +703,11 @@ ORDER BY ?property`);
         `SELECT
            COUNT(*) FILTER (WHERE processed_at IS NULL AND dead_letter = false)::int AS pending,
            COUNT(*) FILTER (WHERE dead_letter = true)::int AS dead_lettered,
+           COUNT(*) FILTER (
+             WHERE processed_at IS NULL
+               AND attempts > 0
+               AND occurred_at > NOW() - INTERVAL '1 hour'
+           )::int AS failures_last_hour,
            COALESCE(
              EXTRACT(EPOCH FROM (
                NOW() - MIN(occurred_at) FILTER (WHERE processed_at IS NULL AND dead_letter = false)
@@ -719,6 +726,7 @@ ORDER BY ?property`);
     const pending = Number(row.pending ?? 0);
     const deadLettered = Number(row.dead_lettered ?? 0);
     const lagSeconds = Number(row.lag_seconds ?? 0);
+    const failuresLastHour = Number(row.failures_last_hour ?? 0);
     const version = Number(versionResult.rows[0]?.last_snapshot_version ?? 0);
 
     return {
@@ -728,6 +736,7 @@ ORDER BY ?property`);
       outboxPending: pending,
       deadLettered,
       lagSeconds,
+      failuresLastHour,
       outbox: {
         pending,
         deadLettered,

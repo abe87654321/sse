@@ -347,9 +347,10 @@ Postgres rows ──triggers──▶ ontology_outbox ──GraphProjector──
 - Named graphs: `urn:sse:tbox`, `urn:sse:data`, `urn:sse:inferred`,
   `urn:sse:history`, `urn:sse:manual`.
 - `ONTOLOGY_V2=0` — legacy path only (default).
-- `ONTOLOGY_V2=shadow` — projector writes the graph while queries stay on the
-  legacy path. A SQL-truth comparator runs every 5 minutes and exposes
-  the `shadow` field of `GET /ontology/status` (admin-only).
+- `ONTOLOGY_V2=shadow` — v2 routes are mounted and serve reads, while writes are
+  mirrored to the legacy `OwlStore` so legacy queries stay current and rollback
+  stays safe. A SQL-truth comparator runs every 5 minutes and exposes the
+  `shadow` field of `GET /ontology/status` (admin-only).
 - `ONTOLOGY_V2=on` — typed queries, SPARQL, explain/validate/impact/anomalies and
   MCP ontology tools use the v2 graph. `/health` and `/healthz` return `503` when
   the outbox is more than 300s behind.
@@ -393,11 +394,11 @@ troubleshooting: [Ontology v2 runbook](docs/2026-11-10-ontology-v2-runbook.md).
 
 - **2026-11-10** — Ontology v2 rollout tooling:
   - SQL-truth shadow comparator, admin-only `shadow` status field, and
-    `[ontology-shadow]` stderr diffs
+    aggregate `[ontology-shadow]` stderr metrics (full diff is admin-only)
   - `[ontology-projector]` tick metrics and 503-capable `/health` + `/healthz`
     when the outbox is >300s behind with `ONTOLOGY_V2=on`
   - Flag-gated legacy aliases (`/ontology/sync`, `/ontology/query`, `/ontology/graph`)
-    and deprecated `SemanticMapper` writes; `ONTOLOGY_V2=0` rollback preserved
+    and `SemanticMapper` no-op on `on` only (`shadow`/`0` keep legacy writes)
   - Runbook for backfill, 24h shadow gate, cutover, rollback and decommission
 - **2026-11-10** — MCP agent integration:
   - Streamable HTTP transport at `/mcp` (legacy `/sse` retained), `/healthz`, graceful shutdown

@@ -10,6 +10,7 @@ import {
   reconcile,
   setGraphContext,
   setLastShadowReport,
+  type ShadowReport,
 } from '@sse/ontology';
 
 export interface ProjectorDeps {
@@ -25,6 +26,47 @@ export interface ProjectorDeps {
 }
 
 const PURGE_INTERVAL_MS = 60 * 60 * 1000;
+
+export function maxOutboxBatch(env: NodeJS.ProcessEnv = process.env): number {
+  return Math.max(1, Number(env.ONTOLOGY_MAX_OUTBOX_BATCH) || 200);
+}
+
+export function outboxRetentionDays(env: NodeJS.ProcessEnv = process.env): number {
+  return Math.max(1, Number(env.ONTOLOGY_OUTBOX_RETENTION_DAYS) || 7);
+}
+
+export function shadowSampleRows(env: NodeJS.ProcessEnv = process.env): number {
+  return Math.max(1, Math.min(1000, Math.floor(Number(env.ONTOLOGY_SHADOW_SAMPLE_ROWS) || 200)));
+}
+
+export interface ShadowLogSummary {
+  equal: boolean;
+  checkedAt: string;
+  differences: number;
+  byKind: Record<string, number>;
+  byTable: Record<string, number>;
+}
+
+/** Aggregate-only shape: row IDs and values must never reach stderr. */
+export function shadowLogSummary(report: ShadowReport): ShadowLogSummary {
+  const byKind: Record<string, number> = {};
+  const byTable: Record<string, number> = {};
+  for (const difference of report.differences) {
+    byKind[difference.kind] = (byKind[difference.kind] ?? 0) + 1;
+    byTable[difference.table] = (byTable[difference.table] ?? 0) + 1;
+  }
+  return {
+    equal: report.equal,
+    checkedAt: report.checkedAt,
+    differences: report.differences.length,
+    byKind,
+    byTable,
+  };
+}
+
+export function logShadowReport(report: ShadowReport): void {
+  console.error(`[ontology-shadow] ${JSON.stringify(shadowLogSummary(report))}`);
+}
 
 export class ProjectorRunner {
   private timer?: NodeJS.Timeout;
@@ -115,6 +157,7 @@ export class ProjectorRunner {
 let runner: ProjectorRunner | undefined;
 let liveStore: OxigraphStore | undefined;
 let shadowTimer: NodeJS.Timeout | undefined;
+let shadowInFlight = false;
 
 async function outboxLagMs(): Promise<number> {
   const { rows } = await pool.query(
@@ -130,18 +173,19 @@ async function outboxLagMs(): Promise<number> {
 }
 
 async function runShadowComparison(store: OxigraphStore): Promise<void> {
+  if (shadowInFlight) {
+    console.error('[ontology-shadow] skipped: previous comparison is still running');
+    return;
+  }
+  shadowInFlight = true;
   try {
-    const report = await compareShadow(store, pool);
+    const report = await compareShadow(store, pool, { sampleSize: shadowSampleRows() });
     setLastShadowReport(report);
-    console.error(
-      `[ontology-shadow] ${JSON.stringify({
-        equal: report.equal,
-        checkedAt: report.checkedAt,
-        differences: report.differences,
-      })}`,
-    );
+    logShadowReport(report);
   } catch (err: any) {
     console.error(`[ontology-shadow] comparison failed: ${err?.message ?? err}`);
+  } finally {
+    shadowInFlight = false;
   }
 }
 
@@ -197,16 +241,14 @@ export async function startOntologyProjector(): Promise<void> {
   liveStore = store;
 
   const projector = new GraphProjector(store, pool, {
-    batchSize: Math.max(1, Number(process.env.ONTOLOGY_MAX_OUTBOX_BATCH) || 200),
+    batchSize: maxOutboxBatch(),
   });
   const rules = new RuleEngine(store, pool);
   const graphNames = [GRAPH.tbox, GRAPH.data, GRAPH.inferred, GRAPH.history, GRAPH.manual];
 
   runner = new ProjectorRunner({
     drain: (n) => projector.drain(n),
-    purgeOldEvents: (d) => projector.purgeOldEvents(
-      d ?? Math.max(1, Number(process.env.ONTOLOGY_OUTBOX_RETENTION_DAYS) || 7),
-    ),
+    purgeOldEvents: (d) => projector.purgeOldEvents(d ?? outboxRetentionDays()),
     runRules: () => rules.materialize(),
     snapshot: async () => {
       const nquads = await store.dump(graphNames);
@@ -240,6 +282,7 @@ export async function stopOntologyProjector(): Promise<void> {
     clearInterval(shadowTimer);
     shadowTimer = undefined;
   }
+  shadowInFlight = false;
   setLastShadowReport(null);
   await runner?.stop();
   runner = undefined;

@@ -22,7 +22,7 @@ import { webhookRoutes } from './routes/webhook';
 import { errorHandler } from './middleware/error';
 import { buildOpenApiDocument } from './openapi';
 import { processPendingPaymentReceipts } from './services/payment-receipt-verifier';
-import { decideHealth } from './services/health';
+import { healthHandler } from './services/health';
 import {
   anomalyIntervalMs,
   defaultAnomalyScan,
@@ -58,46 +58,6 @@ app.get('/categories', async (_req, res, next) => {
     res.json(rows);
   } catch (e) { next(e); }
 });
-
-async function healthHandler(_req: express.Request, res: express.Response) {
-  const timestamp = new Date().toISOString();
-  const mode = process.env.ONTOLOGY_V2;
-
-  // Keep the pre-v2 liveness payload unchanged (and DB-free).
-  if (mode !== 'on') {
-    res.status(200).json({ status: 'ok', timestamp });
-    return;
-  }
-
-  let oldestPendingAgeSeconds = 0;
-  let error: string | undefined;
-  try {
-    const { pool } = await import('@sse/db');
-    const { rows } = await pool.query(
-      `SELECT COALESCE(
-         EXTRACT(EPOCH FROM (NOW() - MIN(occurred_at))) FILTER (
-           WHERE processed_at IS NULL AND dead_letter = false
-         ),
-         0
-       ) AS oldest_pending_age_seconds
-         FROM ontology_outbox`,
-    );
-    oldestPendingAgeSeconds = Number(rows[0]?.oldest_pending_age_seconds ?? 0);
-  } catch (err: any) {
-    error = err?.message || 'ontology outbox unavailable';
-  }
-
-  const decision = decideHealth({ mode, oldestPendingAgeSeconds, error });
-  res.status(decision.statusCode).json({
-    status: decision.healthy ? 'ok' : 'degraded',
-    timestamp,
-    ontology: {
-      status: decision.healthy ? 'ok' : 'degraded',
-      outbox: { oldestPendingAgeSeconds },
-      ...(decision.reason ? { reason: decision.reason } : {}),
-    },
-  });
-}
 
 app.get('/health', healthHandler);
 app.get('/healthz', healthHandler);

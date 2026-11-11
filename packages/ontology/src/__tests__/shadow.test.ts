@@ -1,6 +1,6 @@
 import { MemoryGraphStore } from '../graph/memory-store';
 import { projectRow, type MappedTable } from '../projection/entity-mapper';
-import { compareShadow, type ShadowPool } from '../projection/shadow';
+import { compareShadow, graphRelationCount, type ShadowPool } from '../projection/shadow';
 
 const U1 = '00000000-0000-0000-0000-000000000001';
 const C1 = '00000000-0000-0000-0000-000000000002';
@@ -96,10 +96,13 @@ const DB: Record<string, any[]> = {
 };
 
 class FakeShadowPool implements ShadowPool {
+  readonly calls: Array<{ sql: string; params: any[] }> = [];
+
   constructor(private readonly data: Record<string, any[]>) {}
 
   async query(sql: string, params: any[] = []): Promise<{ rows: any[] }> {
     const statement = sql.replace(/\s+/g, ' ').trim();
+    this.calls.push({ sql: statement, params });
 
     const group = /FROM (\w+) WHERE (\w+) IS NOT NULL GROUP BY/.exec(statement);
     if (group) {
@@ -212,6 +215,57 @@ describe('compareShadow', () => {
         }),
       ]),
     );
+  });
+
+  it('matches one-to-many relation counts exactly like SQL', async () => {
+    const items = [1, 2, 3].map((index) => ({
+      id: `00000000-0000-0000-0000-00000000001${index}`,
+      report_id: R1,
+      category_id: C1,
+      amount: '10.00',
+      expense_date: '2026-11-10',
+      description: `item ${index}`,
+    }));
+    const data = {
+      ...DB,
+      expense_items: items,
+      invoices: [],
+      approval_records: [],
+      payment_receipts: [],
+    };
+    const store = await buildGraph(data);
+    const pool = new FakeShadowPool(data);
+
+    const report = await compareShadow(store, pool);
+    const { rows } = await pool.query(
+      'SELECT COUNT(*)::int AS count FROM expense_items WHERE report_id IS NOT NULL',
+    );
+
+    expect(Number(rows[0].count)).toBe(3);
+    expect(await graphRelationCount(store, 'containsItem')).toBe(3);
+    expect(report.equal).toBe(true);
+    expect(report.differences).toEqual([]);
+  });
+
+  it('samples at most the configured number of rows per table', async () => {
+    const categories = Array.from({ length: 5 }, (_, index) => ({
+      id: `00000000-0000-0000-0000-00000000002${index}`,
+      name: `category ${index}`,
+      sort_order: index,
+      is_active: true,
+    }));
+    const data = { ...DB, expense_categories: categories };
+    const store = await buildGraph(data);
+    const pool = new FakeShadowPool(data);
+
+    const report = await compareShadow(store, pool, { sampleSize: 2 });
+
+    expect(report.equal).toBe(true);
+    const categorySamples = pool.calls.filter((call) =>
+      call.sql.includes('FROM expense_categories WHERE id > $1'),
+    );
+    expect(categorySamples).toHaveLength(1);
+    expect(categorySamples[0].params[1]).toBe(2);
   });
 
   it('uses an injectable clock for checkedAt', async () => {

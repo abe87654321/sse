@@ -296,9 +296,14 @@ WHERE { ?s <${RDF_TYPE}> <${sse(graphClass)}> }`);
   return result.kind === 'select' ? asNumber(result.rows[0]?.count) : 0;
 }
 
-async function graphRelationCount(store: GraphStore, predicate: string): Promise<number> {
+/**
+ * Relation counts must mirror the SQL truth exactly: one row with a non-null
+ * foreign key produces one relation triple. Counting triples (not distinct
+ * subjects) keeps one-to-many predicates such as `containsItem` comparable.
+ */
+export async function graphRelationCount(store: GraphStore, predicate: string): Promise<number> {
   const result = await store.query(`
-SELECT (COUNT(DISTINCT ?s) AS ?count) FROM <${GRAPH.data}>
+SELECT (COUNT(*) AS ?count) FROM <${GRAPH.data}>
 WHERE { ?s <${sse(predicate)}> ?o }`);
   return result.kind === 'select' ? asNumber(result.rows[0]?.count) : 0;
 }
@@ -459,11 +464,15 @@ async function compareSampleRows(
   const columns = [...spec.columns.map((column) => column.column), ...(spec.extraSelect ?? [])];
   const selectList = ['id', ...columns].join(', ');
   let lastId = ZERO_UUID;
+  let sampled = 0;
 
-  for (;;) {
+  // Keyset-paginate, but never read more than the configured sample. A slow
+  // table must not turn the shadow scan into a full-table export.
+  while (sampled < sampleSize) {
+    const limit = sampleSize - sampled;
     const { rows } = await pool.query(
       `SELECT ${selectList} FROM ${spec.table} WHERE id > $1 ORDER BY id LIMIT $2`,
-      [lastId, sampleSize],
+      [lastId, limit],
     );
     if (rows.length === 0) return;
 
@@ -496,8 +505,9 @@ async function compareSampleRows(
       }
     }
 
+    sampled += rows.length;
     lastId = String(rows[rows.length - 1].id);
-    if (rows.length < sampleSize) return;
+    if (rows.length < limit) return;
   }
 }
 

@@ -54,7 +54,8 @@ it starts the same reconcile job instead of running the old `SemanticMapper`.
    ```
 
    Confirm `engine = "oxigraph"`, non-zero `counts`, `outbox.pending = 0`,
-   `outbox.deadLettered = 0`, and (in shadow mode) `shadow.equal = true`.
+   `outbox.deadLettered = 0`, `failuresLastHour = 0`, and (in shadow mode)
+   `shadow.equal = true`.
    Full `shadow.differences` are admin-only because they contain record IDs and
    whitelisted values. Other callers receive the status without the diff.
 
@@ -94,18 +95,27 @@ it starts the same reconcile job instead of running the old `SemanticMapper`.
 
 ## 4. Shadow 24h gate
 
-1. Set `ONTOLOGY_V2=shadow` and restart the API. Queries keep using the legacy
-   path until `on`; the v2 projector writes the graph in parallel.
+1. Set `ONTOLOGY_V2=shadow` and restart the API. The v2 routes are mounted for
+   `on|shadow` and serve reads, while writes are mirrored to the legacy
+   `OwlStore` so legacy queries stay current and rollback stays safe.
 2. The SQL-truth comparator runs immediately and then every
    `ONTOLOGY_SHADOW_INTERVAL_MS` (default `300000`, i.e. 5 minutes). It compares
-   per-table `COUNT(*)`, sampled rows (200/table), status distributions, and
-   relation counts for `submittedBy`, `containsItem`, `hasCategory`,
-   `hasInvoice`, `hasApproval`, and `hasPaymentReceipt`.
-3. Each run logs `[ontology-shadow] {...}` to stderr and updates
-   the `shadow` field of `GET /ontology/status`.
+   per-table `COUNT(*)`, samples up to 200 rows/table
+   (`ONTOLOGY_SHADOW_SAMPLE_ROWS`), status distributions, and relation counts
+   for `submittedBy`, `containsItem`, `hasCategory`, `hasInvoice`,
+   `hasApproval`, and `hasPaymentReceipt`.
+3. Each run logs only aggregate `[ontology-shadow]` counts (difference totals,
+   per-kind and per-table counts) to stderr and updates the `shadow` field of
+   `GET /ontology/status`. The full diff, including row values, is admin-only
+   and never written to stderr.
 4. Gate: **24 consecutive hours** with `shadow.equal = true`,
    `outbox.pending = 0`, no dead letters, and no projector crash loops.
    Investigate every difference; do not waive a persistent diff.
+
+   Counts and sampled rows are read sequentially from Postgres and the graph.
+   Under continuous writes a single run can report a transient difference (a row
+   written between the two reads). Require consecutive clean runs, or run the
+   gate during a low-write window, before cutover.
 
 ## 5. Cutover
 
@@ -187,8 +197,8 @@ Legacy removal is intentionally deferred until rollback risk is low.
 2. Collect evidence: `shadow.equal = true`, zero pending/dead letters, and a
    successful reconcile checksum.
 3. Only then remove the legacy path:
-   - `SemanticMapper.syncReportToOntology` / `syncAll` (already deprecated no-ops
-     while `ONTOLOGY_V2=on|shadow`);
+   - `SemanticMapper.syncReportToOntology` / `syncAll` (already deprecated
+     no-ops while `ONTOLOGY_V2=on`; `shadow` and `0` still write legacy);
    - `executeSparql` and `OwlStore` (kept during migration so `ONTOLOGY_V2=0`
      rollback works);
    - legacy `/ontology/sync`, `/ontology/query`, `/ontology/graph` branches.

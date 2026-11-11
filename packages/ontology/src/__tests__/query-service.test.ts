@@ -582,6 +582,7 @@ describe('OntologyQueryService', () => {
       outboxPending: 0,
       deadLettered: 0,
       lagSeconds: 0,
+      failuresLastHour: 0,
     });
   });
 
@@ -600,6 +601,7 @@ describe('OntologyQueryService', () => {
             pending: '2',
             dead_lettered: '1',
             lag_seconds: '7.5',
+            failures_last_hour: '3',
             last_error: 'boom',
           }],
         };
@@ -612,7 +614,9 @@ describe('OntologyQueryService', () => {
       outboxPending: 2,
       deadLettered: 1,
       lagSeconds: 7.5,
+      failuresLastHour: 3,
     });
     expect(calls.some((sql) => sql.includes('ontology_outbox'))).toBe(true);
+    expect(calls.some((sql) => sql.includes('attempts > 0'))).toBe(true);
   });
 });

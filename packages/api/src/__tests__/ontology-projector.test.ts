@@ -1,4 +1,10 @@
-import { ProjectorRunner } from '../services/ontology-projector';
+import {
+  ProjectorRunner,
+  logShadowReport,
+  maxOutboxBatch,
+  outboxRetentionDays,
+  shadowSampleRows,
+} from '../services/ontology-projector';
 
 const result = { processed: 1, failed: 0, deadLettered: 0 };
 
@@ -146,5 +152,82 @@ describe('ProjectorRunner', () => {
 
     expect(purges).toBe(1);
     await runner.stop();
+  });
+});
+
+describe('shadow logging', () => {
+  it('writes aggregate counts to stderr without row values', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    logShadowReport({
+      equal: false,
+      checkedAt: '2026-11-10T12:00:00.000Z',
+      differences: [
+        {
+          kind: 'row',
+          table: 'invoices',
+          id: '00000000-0000-0000-0000-0000000000aa',
+          sql: { file_name: 'secret-invoice.pdf' },
+          graph: { fileName: null },
+        },
+        {
+          kind: 'relation',
+          table: 'expense_reports',
+          sql: 3,
+          graph: 1,
+        },
+      ],
+    });
+
+    const line = String(errorSpy.mock.calls[0][0]);
+    expect(line).toContain('[ontology-shadow]');
+    expect(line).not.toContain('secret-invoice.pdf');
+    expect(line).not.toContain('00000000-0000-0000-0000-0000000000aa');
+    expect(line).toContain('"differences":2');
+    expect(line).toContain('"row":1');
+    expect(line).toContain('"invoices":1');
+
+    errorSpy.mockRestore();
+  });
+});
+
+describe('projector env settings', () => {
+  const keys = [
+    'ONTOLOGY_MAX_OUTBOX_BATCH',
+    'ONTOLOGY_OUTBOX_RETENTION_DAYS',
+    'ONTOLOGY_SHADOW_SAMPLE_ROWS',
+  ] as const;
+  const original = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+
+  afterEach(() => {
+    for (const key of keys) {
+      const value = original[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  it('honors ONTOLOGY_MAX_OUTBOX_BATCH', () => {
+    process.env.ONTOLOGY_MAX_OUTBOX_BATCH = '37';
+    expect(maxOutboxBatch()).toBe(37);
+
+    process.env.ONTOLOGY_MAX_OUTBOX_BATCH = '0';
+    expect(maxOutboxBatch()).toBe(200);
+  });
+
+  it('honors ONTOLOGY_OUTBOX_RETENTION_DAYS', () => {
+    process.env.ONTOLOGY_OUTBOX_RETENTION_DAYS = '14';
+    expect(outboxRetentionDays()).toBe(14);
+
+    process.env.ONTOLOGY_OUTBOX_RETENTION_DAYS = '';
+    expect(outboxRetentionDays()).toBe(7);
+  });
+
+  it('honors ONTOLOGY_SHADOW_SAMPLE_ROWS', () => {
+    process.env.ONTOLOGY_SHADOW_SAMPLE_ROWS = '50';
+    expect(shadowSampleRows()).toBe(50);
+
+    process.env.ONTOLOGY_SHADOW_SAMPLE_ROWS = '5000';
+    expect(shadowSampleRows()).toBe(1000);
   });
 });

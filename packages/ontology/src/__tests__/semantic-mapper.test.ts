@@ -29,25 +29,22 @@ describe('SemanticMapper legacy aliases', () => {
     errorSpy.mockRestore();
   });
 
-  it.each(['on', 'shadow'])(
-    'is a no-op with a deprecation log when ONTOLOGY_V2=%s',
-    async (mode) => {
-      process.env.ONTOLOGY_V2 = mode;
-      const store = fakeStore();
-      const mapper = new SemanticMapper(store);
+  it('is a no-op with a deprecation log only when ONTOLOGY_V2=on', async () => {
+    process.env.ONTOLOGY_V2 = 'on';
+    const store = fakeStore();
+    const mapper = new SemanticMapper(store);
 
-      await mapper.syncReportToOntology('r1');
-      await mapper.syncAll();
+    await mapper.syncReportToOntology('r1');
+    await mapper.syncAll();
 
-      expect(query).not.toHaveBeenCalled();
-      expect(store.addEntity).not.toHaveBeenCalled();
-      expect(errorSpy).toHaveBeenCalledTimes(2);
-      expect(String(errorSpy.mock.calls[0][0])).toContain('deprecated');
-    },
-  );
+    expect(query).not.toHaveBeenCalled();
+    expect(store.addEntity).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledTimes(2);
+    expect(String(errorSpy.mock.calls[0][0])).toContain('ONTOLOGY_V2=on');
+  });
 
-  it('keeps the legacy report sync when ONTOLOGY_V2 is disabled', async () => {
-    process.env.ONTOLOGY_V2 = '0';
+  it.each(['0', 'shadow'])('keeps the legacy report sync when ONTOLOGY_V2=%s', async (mode) => {
+    process.env.ONTOLOGY_V2 = mode;
     query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM expense_reports WHERE id = $1')) {
         return {
@@ -82,8 +79,8 @@ describe('SemanticMapper legacy aliases', () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it('keeps the legacy bulk sync when ONTOLOGY_V2 is disabled', async () => {
-    process.env.ONTOLOGY_V2 = '0';
+  it.each(['0', 'shadow'])('keeps the legacy bulk sync when ONTOLOGY_V2=%s', async (mode) => {
+    process.env.ONTOLOGY_V2 = mode;
     query.mockImplementation(async (sql: string) => {
       if (sql.startsWith('SELECT id FROM expense_reports')) return { rows: [{ id: 'r1' }] };
       if (sql.includes('FROM expense_reports WHERE id = $1')) {

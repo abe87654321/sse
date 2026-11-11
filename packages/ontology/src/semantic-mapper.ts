@@ -1,14 +1,14 @@
 import { pool } from '@sse/db';
 import type { OwlStore } from './owl-store';
 
-function isV2Active(): boolean {
-  return process.env.ONTOLOGY_V2 === 'on' || process.env.ONTOLOGY_V2 === 'shadow';
+function isV2On(): boolean {
+  return process.env.ONTOLOGY_V2 === 'on';
 }
 
 function warnDeprecated(method: string): void {
   console.error(
-    `[ontology] SemanticMapper.${method} is deprecated and skipped while ONTOLOGY_V2=on|shadow; ` +
-      'the outbox projector owns graph writes. Set ONTOLOGY_V2=0 to restore the legacy path.',
+    `[ontology] SemanticMapper.${method} is deprecated and skipped while ONTOLOGY_V2=on; ` +
+      'the outbox projector owns graph writes. Set ONTOLOGY_V2=0 or shadow to restore the legacy path.',
   );
 }
 
@@ -16,7 +16,7 @@ export class SemanticMapper {
   constructor(private store: OwlStore) {}
 
   async syncReportToOntology(reportId: string): Promise<void> {
-    if (isV2Active()) {
+    if (isV2On()) {
       warnDeprecated('syncReportToOntology');
       return;
     }
@@ -74,7 +74,7 @@ export class SemanticMapper {
   }
 
   async syncAll(): Promise<void> {
-    if (isV2Active()) {
+    if (isV2On()) {
       warnDeprecated('syncAll');
       return;
     }

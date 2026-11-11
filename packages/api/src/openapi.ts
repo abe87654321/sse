@@ -995,6 +995,7 @@ export function buildOpenApiDocument(): Record<string, unknown> {
                 "outboxPending",
                 "deadLettered",
                 "lagSeconds",
+                "failuresLastHour",
               ],
               properties: {
                 engine: { type: "string", enum: ["oxigraph"] },
@@ -1020,6 +1021,11 @@ export function buildOpenApiDocument(): Record<string, unknown> {
                 outboxPending: { type: "integer" },
                 deadLettered: { type: "integer" },
                 lagSeconds: { type: "number" },
+                failuresLastHour: {
+                  type: "integer",
+                  description:
+                    "Unprocessed outbox rows with at least one failed attempt that occurred in the last hour",
+                },
               },
             }),
             "401": error("Unauthorized"),
