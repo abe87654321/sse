@@ -225,6 +225,20 @@ re-enter those if rollback must preserve them.
 - Do not mark dead letters processed by hand without fixing the cause; the next
   write will fail the same way.
 
+### Outbox PII denylist (remaining work)
+
+The trigger function uses a denylist, not an allowlist. It currently drops
+`password_hash`, `phone`, `email`, `storage_key`, `storage_bucket`,
+`ocr_result`, `verification_result`, `payment_comment`, and `avatar_url`.
+Any **new** text column on a mapped table is written to `ontology_outbox` until
+it is added to that array.
+
+Replacing the denylist with an explicit per-table allowlist is remaining
+pre-production work; until then, review every new column on `users`,
+`expense_categories`, `expense_reports`, `expense_items`, `invoices`,
+`approval_rules`, `approval_records`, and `payment_receipts` and extend the
+denylist or drop the column from the projection.
+
 ### Worker crashes / timeouts
 
 - A SPARQL timeout terminates and respawns the worker; the adapter restores the
