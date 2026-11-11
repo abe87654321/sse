@@ -9,6 +9,7 @@ import {
   explainReport,
   findAnomalies,
   getGraphStore,
+  getLastShadowReport,
   getPool,
   getQueryService,
   impactAnalysis,
@@ -221,8 +222,25 @@ async function persistManualSnapshot(): Promise<ManualPersistence> {
 
 router.use(authMiddleware);
 
-router.get('/status', asyncWrap(async (_req, res) => {
-  res.json(await queryService().status());
+router.get('/status', asyncWrap(async (req, res) => {
+  const status = await queryService().status();
+  const shadow = getLastShadowReport();
+
+  // Shadow comparisons contain record IDs and whitelisted values. Expose them
+  // only to admins; every other caller gets the same status without the diff.
+  if (shadow && req.user!.role === 'admin') {
+    res.json({
+      ...status,
+      shadow: {
+        equal: shadow.equal,
+        differences: shadow.differences,
+        checkedAt: shadow.checkedAt,
+      },
+    });
+    return;
+  }
+
+  res.json(status);
 }));
 
 router.get('/schema', asyncWrap(async (_req, res) => {

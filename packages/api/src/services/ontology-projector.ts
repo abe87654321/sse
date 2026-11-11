@@ -5,9 +5,11 @@ import {
   OxigraphStore,
   RuleEngine,
   SnapshotRepo,
+  compareShadow,
   loadTBox,
   reconcile,
   setGraphContext,
+  setLastShadowReport,
 } from '@sse/ontology';
 
 export interface ProjectorDeps {
@@ -18,6 +20,8 @@ export interface ProjectorDeps {
   /** True after a worker timeout/respawn; the runner must reconcile from DB. */
   needsRebuild: () => boolean;
   reconcile: () => Promise<void>;
+  /** Current oldest pending outbox age in milliseconds (metrics only). */
+  outboxLagMs?: () => Promise<number>;
 }
 
 const PURGE_INTERVAL_MS = 60 * 60 * 1000;
@@ -61,6 +65,7 @@ export class ProjectorRunner {
 
   private async runOnce(): Promise<void> {
     if (this.stopped) return;
+    const startedAt = Date.now();
     try {
       await this.maybePurge();
       if (this.deps.needsRebuild()) {
@@ -71,8 +76,25 @@ export class ProjectorRunner {
       if (processed > 0) await this.deps.runRules();
       this.ticks++;
       if (processed > 0 && this.ticks % this.opts.snapshotEvery === 0) await this.deps.snapshot();
-      if (failed > 0) console.error(`[ontology] projector failures: ${failed}`);
       if (deadLettered > 0) console.error(`[ontology] dead-lettered rows: ${deadLettered}`);
+      if (processed > 0) {
+        let lagMs = 0;
+        if (this.deps.outboxLagMs) {
+          try {
+            lagMs = await this.deps.outboxLagMs();
+          } catch {
+            lagMs = 0;
+          }
+        }
+        console.error(
+          `[ontology-projector] ${JSON.stringify({
+            processed,
+            failed,
+            lag_ms: lagMs,
+            duration_ms: Date.now() - startedAt,
+          })}`,
+        );
+      }
     } catch (err: any) {
       console.error(`[ontology] projector tick failed: ${err?.message ?? err}`);
     }
@@ -92,6 +114,47 @@ export class ProjectorRunner {
 
 let runner: ProjectorRunner | undefined;
 let liveStore: OxigraphStore | undefined;
+let shadowTimer: NodeJS.Timeout | undefined;
+
+async function outboxLagMs(): Promise<number> {
+  const { rows } = await pool.query(
+    `SELECT COALESCE(
+       EXTRACT(EPOCH FROM (NOW() - MIN(occurred_at))) FILTER (
+         WHERE processed_at IS NULL AND dead_letter = false
+       ),
+       0
+     ) AS oldest_pending_age_seconds
+       FROM ontology_outbox`,
+  );
+  return Number(rows[0]?.oldest_pending_age_seconds ?? 0) * 1000;
+}
+
+async function runShadowComparison(store: OxigraphStore): Promise<void> {
+  try {
+    const report = await compareShadow(store, pool);
+    setLastShadowReport(report);
+    console.error(
+      `[ontology-shadow] ${JSON.stringify({
+        equal: report.equal,
+        checkedAt: report.checkedAt,
+        differences: report.differences,
+      })}`,
+    );
+  } catch (err: any) {
+    console.error(`[ontology-shadow] comparison failed: ${err?.message ?? err}`);
+  }
+}
+
+function startShadowComparison(store: OxigraphStore): void {
+  const intervalMs = Math.max(
+    1000,
+    Number(process.env.ONTOLOGY_SHADOW_INTERVAL_MS) || 300000,
+  );
+  void runShadowComparison(store);
+  shadowTimer = setInterval(() => { void runShadowComparison(store); }, intervalMs);
+  shadowTimer.unref?.();
+  console.error(`[ontology-shadow] comparison scheduled every ${intervalMs}ms`);
+}
 
 export async function startOntologyProjector(): Promise<void> {
   if (runner) return;
@@ -150,6 +213,7 @@ export async function startOntologyProjector(): Promise<void> {
     },
     needsRebuild: () => store.needsRebuild(),
     reconcile: async () => { await reconcile(store, pool); },
+    outboxLagMs,
   }, {
     intervalMs: Number(process.env.ONTOLOGY_PROJECT_INTERVAL_MS) || 1000,
     snapshotEvery: Math.max(
@@ -161,9 +225,18 @@ export async function startOntologyProjector(): Promise<void> {
     ),
   });
   runner.start();
+
+  if (mode === 'shadow') {
+    startShadowComparison(store);
+  }
 }
 
 export async function stopOntologyProjector(): Promise<void> {
+  if (shadowTimer) {
+    clearInterval(shadowTimer);
+    shadowTimer = undefined;
+  }
+  setLastShadowReport(null);
   await runner?.stop();
   runner = undefined;
   if (liveStore) {

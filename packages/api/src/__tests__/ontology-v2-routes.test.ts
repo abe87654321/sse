@@ -2,7 +2,12 @@ import express from 'express';
 import type { AddressInfo } from 'net';
 import type { Server } from 'http';
 import { signToken } from '@sse/auth';
-import { MemoryGraphStore, loadTBox, setGraphContext } from '@sse/ontology';
+import {
+  MemoryGraphStore,
+  loadTBox,
+  setGraphContext,
+  setLastShadowReport,
+} from '@sse/ontology';
 import {
   ontologyV2Routes,
   ontologyV2UnavailableRoutes,
@@ -115,6 +120,7 @@ describe('ontology v2 routes', () => {
   });
 
   afterAll(async () => {
+    setLastShadowReport(null);
     await close(server);
     (console.error as jest.Mock).mockRestore();
   });
@@ -176,6 +182,38 @@ describe('ontology v2 routes', () => {
       oldestPendingAgeSeconds: 2,
       lastError: null,
     });
+  });
+
+  it('exposes the latest shadow diff to admins only', async () => {
+    const checkedAt = '2026-11-10T00:00:00.000Z';
+    setLastShadowReport({
+      equal: false,
+      checkedAt,
+      differences: [{
+        kind: 'count',
+        table: 'expense_reports',
+        sql: 2,
+        graph: 1,
+      }],
+    });
+
+    const admin = await get('/ontology/status', adminToken);
+    expect(admin.status).toBe(200);
+    const adminBody: any = await admin.json();
+    expect(adminBody.shadow).toEqual({
+      equal: false,
+      checkedAt,
+      differences: [{
+        kind: 'count',
+        table: 'expense_reports',
+        sql: 2,
+        graph: 1,
+      }],
+    });
+
+    const employee = await get('/ontology/status', employeeToken);
+    expect(employee.status).toBe(200);
+    expect(((await employee.json()) as any).shadow).toBeUndefined();
   });
 
   it('returns the scoped graph snapshot with a legacy summary', async () => {
