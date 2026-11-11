@@ -181,3 +181,62 @@ curl -s http://127.0.0.1:3001/healthz
   两者共用同一套 API key → 角色/部门数据范围。
 - Agent 已能完成：发票 OCR 建单 → 发票入库 → AI 核对 → 读摘要 → 审批/驳回 → 查询统计。
 - 未完成（下一会话）：MCP key 作用域、轮换端点、哈希存储；P0 密码安全。
+
+---
+
+## 八、本体 v2：影子比对、健康检查与安全下线（Phase 7）
+
+**架构**：PostgreSQL 仍是系统记录源。行触发器把映射表的变更写入
+`ontology_outbox`；API 进程内的 `GraphProjector` 把事件投影到嵌入式 Oxigraph
+图，并按版本写入 `ontology_graph_snapshots`。`ONTOLOGY_V2=0|shadow|on` 控制
+行为：`0` 保持旧路径，`shadow` 双写并按 SQL 真值比对，`on` 使用 v2 图查询。
+
+### 影子比对（shadow）
+
+- 新增 `packages/ontology/src/projection/shadow.ts`：直接以 PostgreSQL 为真值，
+  不依赖旧的 `SemanticMapper`。
+- 每张表比对 `COUNT(*)` 与图节点数；按 id keyset 抽样 200 行比对白名单字段；
+  比对状态分布与 6 个关系计数（`submittedBy`、`containsItem`、`hasCategory`、
+  `hasInvoice`、`hasApproval`、`hasPaymentReceipt`）。
+- `ONTOLOGY_V2=shadow` 时启动即执行，之后每
+  `ONTOLOGY_SHADOW_INTERVAL_MS`（默认 300000）执行一次，stderr 输出
+  `[ontology-shadow]`，结果挂在 `GET /ontology/status.shadow`（仅 admin）。
+
+### 状态、指标与健康
+
+- `GET /ontology/status`：`engine`、`counts`、`outbox`、`version`，shadow 模式
+  额外返回 `shadow: { equal, differences, checkedAt }`（admin-only）。
+- 投影器每次处理事件输出
+  `[ontology-projector] {"processed":n,"failed":n,"lag_ms":n,"duration_ms":n}`，
+  不输出行内容。
+- `GET /health` 与 `GET /healthz`：`ONTOLOGY_V2=on` 且
+  `outbox.oldestPendingAgeSeconds > 300` 时返回 503；其余情况保持 200。
+  非 v2 的 health 载荷不变。
+
+### 兼容与安全下线
+
+- `SemanticMapper.syncReportToOntology` / `syncAll` 在 `on|shadow` 下为 no-op，
+  仅输出弃用日志；`0` 时保持旧行为。
+- `GET /ontology/sync` 在 `on` 时触发 reconcile job；`GET /ontology/query?type=`
+  和 `GET /ontology/graph` 在 `on` 时返回 v2 视图（旧 `[{uri,properties}]` /
+  图结构保持兼容），`0` 时回退旧实现。
+- `ensureOntologyLoaded` 仍保留（提交类工具仍在用），但 v2 下不再加载旧快照。
+- `executeSparql`、`OwlStore` 和旧端点**暂不删除**，保证 `ONTOLOGY_V2=0`
+  可回滚；完整删除需在 24h 生产 shadow 通过且有一个干净发布后进行，详见
+  `docs/2026-11-10-ontology-v2-runbook.md`。
+
+### 端点与工具速查
+
+| 类型 | 名称 |
+|---|---|
+| 状态 | `GET /ontology/status`（含 `shadow`）、`GET /health`、`GET /healthz` |
+| 查询 | `GET /ontology/entities[?type=]`、`POST /ontology/query`、`POST /ontology/sparql` |
+| 证据 | `POST /ontology/explain`、`POST /ontology/validate`、`POST /ontology/impact`、`GET /ontology/anomalies` |
+| 运维 | `POST /ontology/reconcile`、`GET /ontology/reconcile/:jobId`、`GET /ontology/sync` |
+| MCP | `query_ontology`、`get_entity_network`、`query_sparql`、`explain_expense`、`impact_analysis`、`find_anomalies`、`get_ontology_schema` |
+
+环境变量已补入 `.env.example`：`ONTOLOGY_V2`、`ONTOLOGY_PROJECT_INTERVAL_MS`、
+`ONTOLOGY_SNAPSHOT_INTERVAL_MS`、`ONTOLOGY_SPARQL_TIMEOUT_MS`、
+`ONTOLOGY_SPARQL_MAX_RESULTS`、`ONTOLOGY_OUTBOX_RETENTION_DAYS`、
+`ONTOLOGY_ANOMALY_INTERVAL_MS`、`ONTOLOGY_MAX_OUTBOX_BATCH`、
+`ONTOLOGY_GRAPH_CALL_TIMEOUT_MS`、`ONTOLOGY_SHADOW_INTERVAL_MS`。

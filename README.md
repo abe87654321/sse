@@ -331,6 +331,38 @@ External Systems (HR / LDAP / 企业微信)
 
 ---
 
+## 🧬 Ontology v2 / 本体 v2
+
+PostgreSQL remains the system of record. Row triggers append every mapped change
+to `ontology_outbox`; the API projector drains it into an embedded Oxigraph
+store (real SPARQL 1.1, worker thread with timeout/respawn) and persists versioned
+N-Quads snapshots. MCP and Web read the API instead of owning their own graph.
+
+```
+Postgres rows ──triggers──▶ ontology_outbox ──GraphProjector──▶ Oxigraph
+                 │                                              │
+                 └── ontology_graph_snapshots (version/checksum)┘
+```
+
+- Named graphs: `urn:sse:tbox`, `urn:sse:data`, `urn:sse:inferred`,
+  `urn:sse:history`, `urn:sse:manual`.
+- `ONTOLOGY_V2=0` — legacy path only (default).
+- `ONTOLOGY_V2=shadow` — projector writes the graph while queries stay on the
+  legacy path. A SQL-truth comparator runs every 5 minutes and exposes
+  `GET /ontology/status.shadow` (admin-only).
+- `ONTOLOGY_V2=on` — typed queries, SPARQL, explain/validate/impact/anomalies and
+  MCP ontology tools use the v2 graph. `/health` and `/healthz` return `503` when
+  the outbox is more than 300s behind.
+- Rollback is `ONTOLOGY_V2=0` + restart, then
+  `UPDATE ontology_settings SET value='false' WHERE key='outbox_enabled';`.
+  The legacy `executeSparql`/`OwlStore` paths are kept until after the production
+  shadow gate.
+
+Enable with the `ONTOLOGY_*` variables in `.env.example`. Cutover, rollback and
+troubleshooting: [Ontology v2 runbook](docs/2026-11-10-ontology-v2-runbook.md).
+
+---
+
 ## 📖 Documentation / 文档
 
 | Doc | Content |
@@ -339,6 +371,7 @@ External Systems (HR / LDAP / 企业微信)
 | [部署文档](docs/2026-11-09-sse-deployment.md) | Beginner-first install, offline MinIO, AI/OCR, notifications, MCP stdio + Streamable HTTP, OpenAPI, systemd, production & troubleshooting |
 | [MinIO 本地镜像](images/minio/sse-minio-local.meta.txt) | Bundled image version, SHA-256, offline load & verification |
 | [本体层设计](docs/2026-07-26-ontology-design.md) | OWL ontology + semantic orchestration engine |
+| [本体 v2 运行手册](docs/2026-11-10-ontology-v2-runbook.md) | Shadow comparison, 24h gate, cutover, rollback, troubleshooting, decommission |
 | [MDM 整合设计](docs/2026-07-26-mdm-design.md) | SCIM 2.0 + MDM Webhook + Identity Bridge |
 | [通知系统设计](docs/2026-07-26-notification-system-design.md) | In-app + SMS + Email notification system |
 | [UserPicker 设计](docs/2026-07-26-userpicker-design.md) | Reusable user search/select component |
@@ -358,6 +391,14 @@ External Systems (HR / LDAP / 企业微信)
 
 ## 🆕 Recent Updates / 最近更新
 
+- **2026-11-10** — Ontology v2 rollout tooling:
+  - SQL-truth shadow comparator, admin-only `GET /ontology/status.shadow`, and
+    `[ontology-shadow]` stderr diffs
+  - `[ontology-projector]` tick metrics and 503-capable `/health` + `/healthz`
+    when the outbox is >300s behind with `ONTOLOGY_V2=on`
+  - Flag-gated legacy aliases (`/ontology/sync`, `/ontology/query`, `/ontology/graph`)
+    and deprecated `SemanticMapper` writes; `ONTOLOGY_V2=0` rollback preserved
+  - Runbook for backfill, 24h shadow gate, cutover, rollback and decommission
 - **2026-11-10** — MCP agent integration:
   - Streamable HTTP transport at `/mcp` (legacy `/sse` retained), `/healthz`, graceful shutdown
   - Per-request API-key identity for HTTP (no shared default key); ontology loads the latest DB snapshot
