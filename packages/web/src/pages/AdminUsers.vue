@@ -214,6 +214,24 @@
               <span v-if="formErrors.role" class="error">{{ formErrors.role }}</span>
             </div>
 
+            <div class="field">
+              <label for="user-password">
+                密码 <span v-if="!isEditing" class="required">*</span>
+              </label>
+              <input
+                id="user-password"
+                v-model="form.password"
+                type="password"
+                :required="!isEditing"
+                minlength="6"
+                maxlength="72"
+                autocomplete="new-password"
+                :placeholder="isEditing ? '留空则不修改密码' : '请输入初始密码（6-72位）'"
+              />
+              <span v-if="formErrors.password" class="error">{{ formErrors.password }}</span>
+              <p class="field-hint">管理员可在此为用户设置或重置密码（6-72 位）。</p>
+            </div>
+
             <div class="modal-actions">
               <button type="button" class="btn-secondary" @click="closeModal">取消</button>
               <button type="submit" class="btn-primary" :disabled="submitting">
@@ -265,8 +283,8 @@ const editingId = ref<string | null>(null)
 const submitting = ref(false)
 const nameInputRef = ref<HTMLInputElement | null>(null)
 
-const form = reactive({ name: '', phone: '', email: '', department: '', role: '' })
-const formErrors = reactive({ name: '', phone: '', role: '' })
+const form = reactive({ name: '', phone: '', email: '', department: '', role: '', password: '' })
+const formErrors = reactive({ name: '', phone: '', role: '', password: '' })
 
 const filteredUsers = computed(() => {
   let list = users.value
@@ -323,6 +341,7 @@ function validateForm() {
   formErrors.name = ''
   formErrors.phone = ''
   formErrors.role = ''
+  formErrors.password = ''
 
   if (!form.name) {
     formErrors.name = '请输入姓名'
@@ -345,6 +364,19 @@ function validateForm() {
     valid = false
   }
 
+  if (!isEditing.value || form.password) {
+    if (!form.password) {
+      formErrors.password = '请输入密码'
+      valid = false
+    } else if (form.password.length < 6) {
+      formErrors.password = '密码长度至少6位'
+      valid = false
+    } else if (form.password.length > 72) {
+      formErrors.password = '密码长度不能超过72位'
+      valid = false
+    }
+  }
+
   return valid
 }
 
@@ -356,9 +388,11 @@ function openCreateModal() {
   form.email = ''
   form.department = ''
   form.role = ''
+  form.password = ''
   formErrors.name = ''
   formErrors.phone = ''
   formErrors.role = ''
+  formErrors.password = ''
   showModal.value = true
   nextTick(() => nameInputRef.value?.focus())
 }
@@ -371,9 +405,11 @@ function openEditModal(u: any) {
   form.email = u.email || ''
   form.department = u.department || ''
   form.role = u.role || ''
+  form.password = ''
   formErrors.name = ''
   formErrors.phone = ''
   formErrors.role = ''
+  formErrors.password = ''
   showModal.value = true
   nextTick(() => nameInputRef.value?.focus())
 }
@@ -389,12 +425,15 @@ async function submitForm() {
 
   submitting.value = true
   try {
-    const payload = {
+    const payload: Record<string, string> = {
       name: form.name,
       phone: form.phone,
       email: form.email,
       department: form.department,
       role: form.role
+    }
+    if (form.password) {
+      payload.password = form.password
     }
 
     if (isEditing.value && editingId.value) {
@@ -680,6 +719,11 @@ function formatDate(d?: string) {
 }
 .required {
   color: var(--accent-coral);
+}
+.field-hint {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
 }
 
 .modal-actions {
