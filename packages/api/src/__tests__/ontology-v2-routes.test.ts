@@ -184,6 +184,34 @@ describe('ontology v2 routes', () => {
     });
   });
 
+  it('hides raw outbox errors from non-admins', async () => {
+    const errorPool = {
+      query: async (sql: string) => {
+        if (sql.includes('ontology_projector_state')) {
+          return { rows: [{ last_snapshot_version: '3' }] };
+        }
+        return {
+          rows: [{
+            pending: '1',
+            dead_lettered: '0',
+            lag_seconds: '2',
+            last_error: 'secret row value',
+          }],
+        };
+      },
+    };
+    setGraphContext(store, errorPool);
+    try {
+      const admin = await get('/ontology/status', adminToken);
+      expect(((await admin.json()) as any).outbox.lastError).toBe('secret row value');
+
+      const employee = await get('/ontology/status', employeeToken);
+      expect(((await employee.json()) as any).outbox.lastError).toBeNull();
+    } finally {
+      setGraphContext(store, pool);
+    }
+  });
+
   it('exposes the latest shadow diff to admins only', async () => {
     const checkedAt = '2026-11-10T00:00:00.000Z';
     setLastShadowReport({

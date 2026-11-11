@@ -42,6 +42,7 @@ describe('legacy ontology aliases', () => {
   let url: string;
   let server: Server;
   let store: MemoryGraphStore;
+  let pool: any;
 
   beforeAll(async () => {
     jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -50,7 +51,7 @@ describe('legacy ontology aliases', () => {
     await loadTBox(store);
     await store.load(NQ);
 
-    const pool = {
+    pool = {
       query: async (sql: string) => {
         if (sql.includes('nextval')) return { rows: [{ version: '1' }] };
         if (sql.includes('MAX(id)')) return { rows: [{ max_id: '0' }] };
@@ -96,6 +97,27 @@ describe('legacy ontology aliases', () => {
         }),
       },
     ]);
+  });
+
+  it('returns every match for legacy /ontology/query?type= without a 20-row cap', async () => {
+    const many = new MemoryGraphStore();
+    await loadTBox(many);
+    await many.load(
+      Array.from({ length: 25 }, (_, index) => {
+        const id = `bulk-${index + 1}`;
+        return `<https://sse.local/report/${id}> <${RDF}type> <${SSE}ExpenseReport> <${DATA}> .
+<https://sse.local/report/${id}> <${SSE}status> "pending" <${DATA}> .`;
+      }).join('\n'),
+    );
+    setGraphContext(many, pool);
+    process.env.ONTOLOGY_V2 = 'on';
+    try {
+      const res = await get('/ontology/query?type=ExpenseReport');
+      expect(res.status).toBe(200);
+      expect((await res.json()) as any[]).toHaveLength(25);
+    } finally {
+      setGraphContext(store, pool);
+    }
   });
 
   it('falls back to the legacy /ontology/query when the flag is off', async () => {

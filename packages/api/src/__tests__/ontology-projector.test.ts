@@ -3,7 +3,9 @@ import {
   logShadowReport,
   maxOutboxBatch,
   outboxRetentionDays,
+  persistGraphSnapshot,
   shadowSampleRows,
+  startOntologyProjectorWith,
 } from '../services/ontology-projector';
 
 const result = { processed: 1, failed: 0, deadLettered: 0 };
@@ -157,6 +159,106 @@ describe('ProjectorRunner', () => {
 
     expect(purges).toBe(1);
     await runner.stop();
+  });
+});
+
+describe('snapshot watermark ordering', () => {
+  it('reads the watermark before dumping so a mid-dump advance cannot skip rows', async () => {
+    let watermark = 10;
+    const saved: number[] = [];
+    const store = {
+      dump: async () => {
+        watermark = 20;
+        return 'nquads';
+      },
+      checkpoint: () => {},
+    };
+    const pool = {
+      query: async () => ({ rows: [{ last_outbox_id: String(watermark) }] }),
+    };
+    const snapshots = {
+      save: async (_graphs: string[], _nquads: string, id: number) => {
+        saved.push(id);
+      },
+    };
+
+    const result = await persistGraphSnapshot({
+      store,
+      pool,
+      snapshots,
+      graphNames: ['urn:sse:data'],
+    });
+
+    expect(result).toBe(10);
+    expect(saved).toEqual([10]);
+  });
+});
+
+describe('projector startup ordering', () => {
+  const fakeStore = {
+    dump: async () => '',
+    checkpoint: () => {},
+    replaceAll: async () => {},
+  };
+
+  it('enables the outbox only after restore/reconcile and runner start', async () => {
+    const order: string[] = [];
+    const pool = {
+      query: async (sql: string, params?: any[]) => {
+        if (sql.includes('ontology_settings')) order.push(`outbox:${params?.[0]}`);
+        if (sql.includes('ontology_projector_state')) order.push('restore');
+        return { rows: [] };
+      },
+    };
+
+    await startOntologyProjectorWith({
+      pool,
+      store: fakeStore,
+      snapshots: { latest: async () => null },
+      loadTBox: async () => { order.push('tbox'); },
+      reconcile: async () => { order.push('reconcile'); },
+      setContext: () => { order.push('context'); },
+      runner: { start: () => { order.push('runner'); } },
+    });
+
+    expect(order).toEqual([
+      'outbox:false',
+      'tbox',
+      'reconcile',
+      'context',
+      'runner',
+      'outbox:true',
+    ]);
+  });
+
+  it('disables the outbox and rethrows when startup fails', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const updates: Array<{ sql: string; params?: any[] }> = [];
+    const pool = {
+      query: async (sql: string, params?: any[]) => {
+        updates.push({ sql, params });
+        return { rows: [] };
+      },
+    };
+
+    await expect(startOntologyProjectorWith({
+      pool,
+      store: fakeStore,
+      snapshots: { latest: async () => { throw new Error('snapshot down'); } },
+      loadTBox: async () => {},
+      reconcile: async () => { throw new Error('reconcile down'); },
+      setContext: () => {},
+      runner: { start: () => {} },
+    })).rejects.toThrow('reconcile down');
+
+    const outboxUpdates = updates.filter((update) => update.sql.includes('ontology_settings'));
+    expect(outboxUpdates.length).toBeGreaterThanOrEqual(2);
+    expect(outboxUpdates[0].params).toEqual(['false']);
+    expect(outboxUpdates[outboxUpdates.length - 1].params).toEqual(['false']);
+    expect(errorSpy.mock.calls.map((call) => String(call[0])).join('\n')).toContain(
+      'outbox triggers disabled',
+    );
+    errorSpy.mockRestore();
   });
 });
 

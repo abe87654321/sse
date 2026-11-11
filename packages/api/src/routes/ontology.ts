@@ -114,7 +114,14 @@ router.get('/query', asyncWrap(async (req, res) => {
   if (!type) throw new AppError(400, 'INVALID_PARAMS', '请提供 type 参数');
 
   if (v2On()) {
-    const result = await v2QueryService().listEntities({ type, scope: v2Scope(req) });
+    // Legacy `/ontology/query?type=` returned every match. Page size 1000 keeps
+    // that contract without silently truncating at the v2 default of 20.
+    const result = await v2QueryService().listEntities({
+      type,
+      scope: v2Scope(req),
+      page: 1,
+      pageSize: 1000,
+    });
     res.json(result.results.map((entity) => ({
       uri: entity.uri,
       properties: entity.properties,

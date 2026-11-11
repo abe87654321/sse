@@ -68,6 +68,115 @@ export function logShadowReport(report: ShadowReport): void {
   console.error(`[ontology-shadow] ${JSON.stringify(shadowLogSummary(report))}`);
 }
 
+export interface SnapshotStoreLike {
+  dump(graphs: string[]): Promise<string>;
+  checkpoint(nquads: string): void;
+}
+
+export interface SnapshotSaverLike {
+  save(graphNames: string[], nquads: string, lastOutboxId: number): Promise<unknown>;
+}
+
+export interface SnapshotPoolLike {
+  query(sql: string, params?: any[]): Promise<{ rows: any[] }>;
+}
+
+/**
+ * Persist a graph snapshot with a deliberate watermark ordering.
+ *
+ * The watermark is read before the dump. A watermark that is older than the
+ * dumped content is safe because replaying outbox rows is idempotent; a
+ * watermark ahead of the dump would skip rows and lose data. `SnapshotRepo.save`
+ * also advances the projector watermark with GREATEST(...), so a slower
+ * concurrent drain cannot move it backwards.
+ */
+export async function persistGraphSnapshot(opts: {
+  store: SnapshotStoreLike;
+  pool: SnapshotPoolLike;
+  snapshots: SnapshotSaverLike;
+  graphNames: string[];
+}): Promise<number> {
+  const state = await opts.pool.query(
+    `SELECT last_outbox_id FROM ontology_projector_state WHERE id = 'default'`,
+  );
+  const lastOutboxId = Number(state.rows[0]?.last_outbox_id ?? 0) || 0;
+  const nquads = await opts.store.dump(opts.graphNames);
+  opts.store.checkpoint(nquads);
+  await opts.snapshots.save(opts.graphNames, nquads, lastOutboxId);
+  return lastOutboxId;
+}
+
+export interface ProjectorStartupDeps {
+  pool: SnapshotPoolLike;
+  store: SnapshotStoreLike & { replaceAll(nquads: string): Promise<void> };
+  snapshots: {
+    latest(): Promise<{ nquads: string; lastOutboxId: number } | null>;
+  };
+  loadTBox: (store: any) => Promise<unknown>;
+  reconcile: (store: any, pool: any) => Promise<unknown>;
+  setContext: (store: any, pool: any) => void;
+  runner: { start(): void };
+  startShadow?: (store: any) => void;
+}
+
+async function setOutboxEnabled(pool: SnapshotPoolLike, enabled: boolean): Promise<void> {
+  await pool.query(
+    `UPDATE ontology_settings SET value = $1, updated_at = NOW() WHERE key = 'outbox_enabled'`,
+    [enabled ? 'true' : 'false'],
+  );
+}
+
+/**
+ * Startup sequence with injectable dependencies so the failure path is testable.
+ *
+ * Triggers stay disabled until the TBox, snapshot restore/reconcile and runner
+ * are all healthy. Any failure disables them again and rethrows; leaving
+ * triggers enabled without a projector would grow the outbox forever.
+ */
+export async function startOntologyProjectorWith(deps: ProjectorStartupDeps): Promise<void> {
+  await setOutboxEnabled(deps.pool, false);
+
+  try {
+    // The snapshot already includes the TBox, so restoring the full snapshot
+    // afterwards leaves the respawn checkpoint complete.
+    await deps.loadTBox(deps.store);
+
+    let restored = false;
+    try {
+      const latest = await deps.snapshots.latest();
+      if (latest) {
+        await deps.store.replaceAll(latest.nquads);
+        await deps.pool.query(
+          `UPDATE ontology_projector_state
+              SET last_outbox_id = GREATEST(last_outbox_id, $1), updated_at = NOW()
+            WHERE id = 'default'`,
+          [latest.lastOutboxId],
+        );
+        restored = true;
+      }
+    } catch (err: any) {
+      console.error(`[ontology] snapshot restore failed; falling back to reconcile: ${err?.message ?? err}`);
+    }
+
+    if (!restored) {
+      await deps.reconcile(deps.store, deps.pool);
+    }
+
+    deps.setContext(deps.store, deps.pool);
+    deps.runner.start();
+    await setOutboxEnabled(deps.pool, true);
+    deps.startShadow?.(deps.store);
+  } catch (err: any) {
+    try {
+      await setOutboxEnabled(deps.pool, false);
+    } catch (disableErr: any) {
+      console.error(`[ontology] failed to disable outbox triggers after startup failure: ${disableErr?.message ?? disableErr}`);
+    }
+    console.error(`[ontology] projector startup failed; outbox triggers disabled: ${err?.message ?? err}`);
+    throw err;
+  }
+}
+
 export class ProjectorRunner {
   private timer?: NodeJS.Timeout;
   private ticks = 0;
@@ -206,74 +315,67 @@ export async function startOntologyProjector(): Promise<void> {
   const mode = process.env.ONTOLOGY_V2;
   if (mode !== 'on' && mode !== 'shadow') return;
 
-  // Enable the outbox triggers only now that a projector is running.
-  await pool.query(`UPDATE ontology_settings SET value = 'true', updated_at = NOW() WHERE key = 'outbox_enabled'`);
+  console.error(
+    '[ontology] v2 requires a single API instance; multi-replica deployments serve stale graphs unless a shared graph store is used',
+  );
 
-  const store = new OxigraphStore();
-  const snapshots = new SnapshotRepo(pool);
-
-  // Load the TBox first. The snapshot already includes the TBox, so restoring
-  // the full snapshot afterwards leaves the respawn checkpoint complete.
-  await loadTBox(store);
-
-  let restored = false;
+  let createdStore: OxigraphStore | undefined;
   try {
-    const latest = await snapshots.latest();
-    if (latest) {
-      await store.replaceAll(latest.nquads);
-      await pool.query(
-        `UPDATE ontology_projector_state
-            SET last_outbox_id = GREATEST(last_outbox_id, $1), updated_at = NOW()
-          WHERE id = 'default'`,
-        [latest.lastOutboxId],
-      );
-      restored = true;
-    }
-  } catch (err: any) {
-    console.error(`[ontology] snapshot restore failed; falling back to reconcile: ${err?.message ?? err}`);
-  }
+    const store = new OxigraphStore();
+    createdStore = store;
+    const snapshots = new SnapshotRepo(pool);
 
-  if (!restored) {
-    await reconcile(store, pool);
-  }
+    const projector = new GraphProjector(store, pool, {
+      batchSize: maxOutboxBatch(),
+    });
+    const rules = new RuleEngine(store, pool);
+    const graphNames = [GRAPH.tbox, GRAPH.data, GRAPH.inferred, GRAPH.history, GRAPH.manual];
 
-  setGraphContext(store, pool);
-  liveStore = store;
-
-  const projector = new GraphProjector(store, pool, {
-    batchSize: maxOutboxBatch(),
-  });
-  const rules = new RuleEngine(store, pool);
-  const graphNames = [GRAPH.tbox, GRAPH.data, GRAPH.inferred, GRAPH.history, GRAPH.manual];
-
-  runner = new ProjectorRunner({
-    drain: (n) => projector.drain(n),
-    purgeOldEvents: (d) => projector.purgeOldEvents(d ?? outboxRetentionDays()),
-    runRules: () => rules.materialize(),
-    snapshot: async () => {
-      const nquads = await store.dump(graphNames);
-      const state = await pool.query(`SELECT last_outbox_id FROM ontology_projector_state WHERE id = 'default'`);
-      const lastOutboxId = Number(state.rows[0]?.last_outbox_id ?? 0);
-      store.checkpoint(nquads);
-      await snapshots.save(graphNames, nquads, lastOutboxId);
-    },
-    needsRebuild: () => store.needsRebuild(),
-    reconcile: async () => { await reconcile(store, pool); },
-    outboxLagMs,
-  }, {
-    intervalMs: Number(process.env.ONTOLOGY_PROJECT_INTERVAL_MS) || 1000,
-    snapshotEvery: Math.max(
-      1,
-      Math.floor(
-        (Number(process.env.ONTOLOGY_SNAPSHOT_INTERVAL_MS) || 5000) /
-        (Number(process.env.ONTOLOGY_PROJECT_INTERVAL_MS) || 1000),
+    const nextRunner = new ProjectorRunner({
+      drain: (n) => projector.drain(n),
+      purgeOldEvents: (d) => projector.purgeOldEvents(d ?? outboxRetentionDays()),
+      runRules: () => rules.materialize(),
+      snapshot: async () => {
+        await persistGraphSnapshot({ store, pool, snapshots, graphNames });
+      },
+      needsRebuild: () => store.needsRebuild(),
+      reconcile: async () => { await reconcile(store, pool); },
+      outboxLagMs,
+    }, {
+      intervalMs: Number(process.env.ONTOLOGY_PROJECT_INTERVAL_MS) || 1000,
+      snapshotEvery: Math.max(
+        1,
+        Math.floor(
+          (Number(process.env.ONTOLOGY_SNAPSHOT_INTERVAL_MS) || 5000) /
+          (Number(process.env.ONTOLOGY_PROJECT_INTERVAL_MS) || 1000),
+        ),
       ),
-    ),
-  });
-  runner.start();
+    });
 
-  if (mode === 'shadow') {
-    startShadowComparison(store);
+    runner = nextRunner;
+    liveStore = store;
+
+    await startOntologyProjectorWith({
+      pool,
+      store,
+      snapshots,
+      loadTBox,
+      reconcile,
+      setContext: setGraphContext,
+      runner: nextRunner,
+      startShadow: mode === 'shadow' ? startShadowComparison : undefined,
+    });
+  } catch (err: any) {
+    runner = undefined;
+    liveStore = undefined;
+    if (createdStore) await createdStore.close().catch(() => undefined);
+    try {
+      await setOutboxEnabled(pool, false);
+    } catch { /* the API exits non-zero below */ }
+    console.error(
+      `[ontology] projector startup failed; outbox triggers disabled: ${err?.message ?? err}`,
+    );
+    throw err;
   }
 }
 

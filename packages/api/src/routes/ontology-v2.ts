@@ -21,6 +21,7 @@ import {
 } from '@sse/ontology';
 import { requireRole } from '../middleware/rbac';
 import { AppError } from '../middleware/error';
+import { persistGraphSnapshot } from '../services/ontology-projector';
 import { getEngine } from './ontology-helpers';
 
 const router = Router();
@@ -194,25 +195,68 @@ export interface ManualPersistence {
 }
 
 /**
+ * Serialize manual snapshots against the projector's drain when the pool
+ * supports connections. The projector uses a try-lock too, so this never blocks
+ * it; it just avoids dumping while a batch is being applied.
+ */
+async function withManualSnapshotLock<T>(
+  pool: any,
+  fn: (db: any | undefined) => Promise<T>,
+): Promise<T> {
+  if (typeof pool?.connect !== 'function') return fn(undefined);
+  let client: any;
+  try {
+    client = await pool.connect();
+  } catch {
+    return fn(undefined);
+  }
+  try {
+    await client.query('BEGIN');
+    const lock = await client.query('SELECT pg_try_advisory_xact_lock(728001) AS ok');
+    if (!lock.rows[0]?.ok) {
+      await client.query('ROLLBACK');
+      const unlocked = client;
+      client = undefined;
+      unlocked.release();
+      return fn(undefined);
+    }
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    if (client) await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    if (client) client.release();
+  }
+}
+
+/**
  * Manual writes bypass the outbox, so persist the graph snapshot immediately.
- * The projector will keep snapshotting afterwards as usual. The in-memory write
- * always stands; the returned flag only reports whether it reached the DB.
+ * The watermark is read before the dump: a watermark behind the dump is safe
+ * (idempotent replay), while one ahead would lose outbox rows.
+ * The in-memory write always stands; the returned flag only reports whether it
+ * reached the DB.
  */
 async function persistManualSnapshot(): Promise<ManualPersistence> {
   const store = graphStore();
   const pool = graphPool();
-  const nquads = await store.dump(MANUAL_GRAPH_NAMES);
-  store.checkpoint(nquads);
   if (!pool) {
+    const nquads = await store.dump(MANUAL_GRAPH_NAMES);
+    store.checkpoint(nquads);
     console.error('[ontology] manual snapshot not persisted: graph pool unavailable');
     return { persisted: false };
   }
   try {
-    const state = await pool.query(
-      `SELECT last_outbox_id FROM ontology_projector_state WHERE id = 'default'`,
-    );
-    const lastOutboxId = Number(state.rows[0]?.last_outbox_id ?? 0) || 0;
-    await new SnapshotRepo(pool).save(MANUAL_GRAPH_NAMES, nquads, lastOutboxId);
+    await withManualSnapshotLock(pool, (db) => {
+      const target = db ?? pool;
+      return persistGraphSnapshot({
+        store,
+        pool: target,
+        snapshots: new SnapshotRepo(target),
+        graphNames: MANUAL_GRAPH_NAMES,
+      });
+    });
     return { persisted: true };
   } catch (err: any) {
     console.error(`[ontology] manual snapshot persistence failed: ${err?.message ?? err}`);
@@ -225,12 +269,19 @@ router.use(authMiddleware);
 router.get('/status', asyncWrap(async (req, res) => {
   const status = await queryService().status();
   const shadow = getLastShadowReport();
+  const isAdmin = req.user!.role === 'admin';
+
+  // Raw projector errors can contain row values or database details. Only
+  // admins get the message; other callers get a null marker.
+  const safeStatus = isAdmin
+    ? status
+    : { ...status, outbox: { ...status.outbox, lastError: null } };
 
   // Shadow comparisons contain record IDs and whitelisted values. Expose them
   // only to admins; every other caller gets the same status without the diff.
-  if (shadow && req.user!.role === 'admin') {
+  if (shadow && isAdmin) {
     res.json({
-      ...status,
+      ...safeStatus,
       shadow: {
         equal: shadow.equal,
         differences: shadow.differences,
@@ -240,7 +291,7 @@ router.get('/status', asyncWrap(async (req, res) => {
     return;
   }
 
-  res.json(status);
+  res.json(safeStatus);
 }));
 
 router.get('/schema', asyncWrap(async (_req, res) => {
@@ -358,13 +409,16 @@ router.post('/from-text', requireRole('admin'), asyncWrap(async (req, res) => {
 
 router.get('/entities', asyncWrap(async (req, res) => {
   const type = queryParam(req.query.type);
+  const explicitPageSize = queryParam(req.query.page_size ?? req.query.pageSize);
   const result = await queryService().listEntities({
     type,
     status: queryParam(req.query.status),
     department: queryParam(req.query.department),
     q: queryParam(req.query.q),
     page: pageNumber(req.query.page),
-    pageSize: pageSize(req.query.page_size ?? req.query.pageSize),
+    // The legacy `type` shape returned every match; only apply pagination when
+    // the caller explicitly asks for it.
+    pageSize: type && explicitPageSize === undefined ? 1000 : pageSize(explicitPageSize),
     scope: toScope(req),
   });
 

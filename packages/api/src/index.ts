@@ -142,8 +142,16 @@ async function initOntology() {
 const server = app.listen(PORT, '0.0.0.0', async () => {
   await initOntology();
   if (process.env.ONTOLOGY_V2 === 'on' || process.env.ONTOLOGY_V2 === 'shadow') {
-    const { startOntologyProjector } = await import('./services/ontology-projector');
-    await startOntologyProjector();
+    try {
+      const { startOntologyProjector } = await import('./services/ontology-projector');
+      await startOntologyProjector();
+    } catch (err: any) {
+      console.error(
+        `[ontology] failed to start the v2 projector; refusing to run with outbox triggers enabled: ${err?.message ?? err}`,
+      );
+      process.exit(1);
+      return;
+    }
     anomalyTimer = startAnomalyScheduler(defaultAnomalyScan, anomalyIntervalMs());
     if (anomalyTimer) {
       console.error(`[ontology] anomaly scan scheduled every ${anomalyIntervalMs()}ms`);
