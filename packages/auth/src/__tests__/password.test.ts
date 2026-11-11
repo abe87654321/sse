@@ -25,15 +25,46 @@ describe('password helpers', () => {
     });
   });
 
-  it('accepts legacy plaintext and asks for a rehash', async () => {
+  it('rejects legacy plaintext by default', async () => {
+    delete process.env.ALLOW_LEGACY_PLAINTEXT_PASSWORDS;
     await expect(verifyPassword('legacy-secret', 'legacy-secret')).resolves.toEqual({
-      ok: true,
-      needsRehash: true,
-    });
-    await expect(verifyPassword('other-secret', 'legacy-secret')).resolves.toEqual({
       ok: false,
       needsRehash: false,
     });
+  });
+
+  it('accepts legacy plaintext only when explicitly enabled and asks for a rehash', async () => {
+    const previous = process.env.ALLOW_LEGACY_PLAINTEXT_PASSWORDS;
+    process.env.ALLOW_LEGACY_PLAINTEXT_PASSWORDS = '1';
+    try {
+      await expect(verifyPassword('legacy-secret', 'legacy-secret')).resolves.toEqual({
+        ok: true,
+        needsRehash: true,
+      });
+      await expect(verifyPassword('other-secret', 'legacy-secret')).resolves.toEqual({
+        ok: false,
+        needsRehash: false,
+      });
+    } finally {
+      if (previous === undefined) delete process.env.ALLOW_LEGACY_PLAINTEXT_PASSWORDS;
+      else process.env.ALLOW_LEGACY_PLAINTEXT_PASSWORDS = previous;
+    }
+  });
+
+  it('rejects known provisioning sentinels even when legacy plaintext is enabled', async () => {
+    const previous = process.env.ALLOW_LEGACY_PLAINTEXT_PASSWORDS;
+    process.env.ALLOW_LEGACY_PLAINTEXT_PASSWORDS = '1';
+    try {
+      for (const sentinel of ['scim_managed_no_pwd', 'mdm_managed_no_pwd', '!', '   ']) {
+        await expect(verifyPassword(sentinel, sentinel)).resolves.toEqual({
+          ok: false,
+          needsRehash: false,
+        });
+      }
+    } finally {
+      if (previous === undefined) delete process.env.ALLOW_LEGACY_PLAINTEXT_PASSWORDS;
+      else process.env.ALLOW_LEGACY_PLAINTEXT_PASSWORDS = previous;
+    }
   });
 
   it('returns no match for an empty or missing hash', async () => {
@@ -57,11 +88,24 @@ describe('password helpers', () => {
     });
   });
 
-  it('enforces the 6 to 72 character limit', () => {
+  it('enforces the 6 character minimum and 72 UTF-8 byte maximum', () => {
     expect(validatePassword('a'.repeat(6))).toBeNull();
     expect(validatePassword('a'.repeat(72))).toBeNull();
     expect(validatePassword('a'.repeat(5))).toContain('至少6位');
     expect(validatePassword('a'.repeat(73))).toContain('不能超过72位');
+  });
+
+  it('counts multibyte characters by UTF-8 byte length', () => {
+    // 24 Chinese characters = 72 UTF-8 bytes: allowed.
+    expect(validatePassword('密'.repeat(24))).toBeNull();
+    // 25 Chinese characters = 75 UTF-8 bytes: rejected even though it is only
+    // 25 characters long.
+    expect(validatePassword('密'.repeat(25))).toContain('不能超过72位');
+  });
+
+  it('clamps the configured bcrypt cost to the supported 10-14 range', () => {
+    expect(BCRYPT_ROUNDS).toBeGreaterThanOrEqual(10);
+    expect(BCRYPT_ROUNDS).toBeLessThanOrEqual(14);
   });
 
   it('recognises the supported bcrypt prefixes', () => {

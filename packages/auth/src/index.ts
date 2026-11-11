@@ -23,8 +23,10 @@ export { authMiddleware } from './middleware';
 
 export {
   BCRYPT_ROUNDS,
+  MAX_PASSWORD_BYTES,
   isBcryptHash,
   hashPassword,
+  dummyPasswordHash,
   verifyPassword,
   validatePassword,
 } from './password';
