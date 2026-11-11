@@ -3649,3 +3649,39 @@ Before execution, confirm:
 - [ ] No task should start until this plan is approved.
 
 **Baseline commit:** `6d039f1` (recorded 2026-11-10).
+
+---
+
+## 12. Execution status (2026-11-10)
+
+Approved and implemented on branch `feat/ontology-platform-overhaul` in worktree `E:\app\opencode\sse-ontology-v2`.
+
+| Phase | Status | Key commits |
+|---|---|---|
+| 0 | Done | `1cdc03e`, `9929254`, `d92be9c`, `ff83e55`, `83847bc` |
+| 1 | Done | `32d6ac6`, `ea1e702`, `a1b4549`, `55b1ca4`, `33acb08` |
+| 2 | Done | `44f3b2a`, `a507cdd`, `d8d5d4f`, `a2102f3`, `7c89e9f`, `5521bff` |
+| 3 | Done | `db636f6`, `2c1ac70`, `758abe0`, `753d971`, `9ca826c` |
+| 4 | Done | `532e3b1`, `953bea6`, `56e2d0f`, `fa6a2c6`, `6c1ffe3`, `7ba49d2`, `7286cb1` |
+| 5 | Done | `f6d9c77`, `694b98e`, `4d608b2`, `46a8dfe`, `326549d`, `65992d4` |
+| 6 | Done | `d4cbaca`, `02480e8`, `9e8dfc7`, `68d88af`, `9621dd9`, `7cad63c`, `6a5ba66` |
+| 7 | Done | `6f16c77`, `d14135f`, `f4080a7`, `8a890bb`, `ef09fa3`, `ca5897e`, `ed43ff6` |
+
+**Verification:** `pnpm -r build` passes (11 packages); `pnpm -r test` passes (ontology 167, api 91, mcp 55, web 22, core 41, auth 19, db 15, ai 100, notifications 29).
+
+**Deliberate deviations from the original text:**
+- MCP Jest config is `jest.config.cjs` because `@sse/mcp` is `"type": "module"`; test scripts use `--passWithNoTests` where suites are added later.
+- The `OntologyQueryService` pool is optional; `status()` degrades to graph-only counts without a DB.
+- Legacy `executeSparql`, `OwlStore`, and legacy endpoints are retained as flag-gated rollback aliases. Full removal happens after the 24h production shadow gate and one clean `on` release.
+- Anomalies v1 ships 3 checks; the other 6 are deferred to Phase 4b.
+- `urn:sse:manual` is preserved across reconcile and included in snapshots.
+- Shadow comparison uses SQL truth and `COUNT(*)` relation triples; stderr logs aggregate counts only.
+
+**Still required before production:**
+1. Backup the DB and apply migrations `015`-`017`.
+2. Run `POST /ontology/reconcile`, verify counts/checksum/outbox.
+3. Run `ONTOLOGY_V2=shadow` for 24h and require consecutive `shadow.equal=true` checks.
+4. Smoke the 22 MCP tools and `/healthz`.
+5. Cut over with `ONTOLOGY_V2=on`, restart API + MCP, monitor lag/dead letters/counts.
+6. Rollback: `ONTOLOGY_V2=0`, restart, set `ontology_settings.outbox_enabled=false`.
+7. Only after a clean release: remove `executeSparql`/`OwlStore`/legacy endpoints.
