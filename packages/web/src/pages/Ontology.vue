@@ -15,13 +15,11 @@
         <p class="workbench-subtitle">图谱探索、业务校验、影响分析与异常监控</p>
       </div>
       <div class="header-actions">
-        <div class="sync-inline" v-if="status">
-          <span>v{{ status.version }}</span>
-          <span>{{ status.counts?.quads ?? 0 }} quads</span>
-          <span>{{ status.counts?.subjects ?? 0 }} subjects</span>
-          <span :class="{ warning: status.lagSeconds > 30 }">延迟 {{ status.lagSeconds }}s</span>
-          <span :class="{ warning: status.outboxPending > 0 }">待处理 {{ status.outboxPending }}</span>
-        </div>
+        <SyncStatus
+          @status="handleStatus"
+          @unavailable="disabled = true"
+          @error="serviceError = $event"
+        />
         <button class="btn-secondary btn-sm" :disabled="graphLoading" @click="refresh">
           {{ graphLoading ? '刷新中...' : '刷新' }}
         </button>
@@ -61,9 +59,18 @@
       />
     </div>
 
-    <div v-else class="panel-stub card">
-      <p>该面板将在任务 6.3 接入。</p>
-    </div>
+    <ValidationPanel
+      v-else-if="activeTab === 'validate'"
+      @select="openEntity"
+    />
+    <ImpactPanel
+      v-else-if="activeTab === 'impact'"
+      @select="openEntity"
+    />
+    <AnomalyPanel
+      v-else
+      @select="openEntity"
+    />
 
     <section v-if="isAdmin" class="admin-tools card">
       <button type="button" class="admin-toggle" @click="showAdmin = !showAdmin">
@@ -114,6 +121,10 @@ import {
 import { useAuthStore } from '../stores/auth'
 import GraphExplorer from '../components/ontology/GraphExplorer.vue'
 import EntityDetail from '../components/ontology/EntityDetail.vue'
+import ValidationPanel from '../components/ontology/ValidationPanel.vue'
+import ImpactPanel from '../components/ontology/ImpactPanel.vue'
+import AnomalyPanel from '../components/ontology/AnomalyPanel.vue'
+import SyncStatus from '../components/ontology/SyncStatus.vue'
 import { entityLabel } from '../components/ontology/utils'
 
 type TabId = 'explorer' | 'validate' | 'impact' | 'anomalies'
@@ -143,7 +154,6 @@ const tabs: Array<{ id: TabId; label: string }> = [
 
 const auth = useAuthStore()
 const activeTab = ref<TabId>('explorer')
-const status = ref<OntologyStatus | null>(null)
 const graphNodes = ref<WorkbenchNode[]>([])
 const graphEdges = ref<WorkbenchEdge[]>([])
 const graphLoading = ref(false)
@@ -217,19 +227,9 @@ function normalizeGraph(payload: OntologyGraphResponse): { nodes: WorkbenchNode[
   return { nodes, edges }
 }
 
-async function loadStatus(): Promise<void> {
-  try {
-    const response = await ontologyApi.status()
-    status.value = response.data
-    disabled.value = false
-  } catch (err) {
-    if (isUnavailable(err)) {
-      disabled.value = true
-      status.value = null
-    } else {
-      serviceError.value = errorMessage(err)
-    }
-  }
+function handleStatus(_status: OntologyStatus): void {
+  disabled.value = false
+  serviceError.value = null
 }
 
 async function loadGraph(): Promise<void> {
@@ -239,7 +239,6 @@ async function loadGraph(): Promise<void> {
     const normalized = normalizeGraph(response.data)
     graphNodes.value = normalized.nodes
     graphEdges.value = normalized.edges
-    disabled.value = false
     serviceError.value = null
   } catch (err) {
     if (isUnavailable(err)) disabled.value = true
@@ -334,9 +333,19 @@ async function handleDepthChange(nextDepth: number): Promise<void> {
   }
 }
 
+async function openEntity(uri: string): Promise<void> {
+  activeTab.value = 'explorer'
+  if (selectedUri.value === uri) {
+    await loadEntity(uri)
+    return
+  }
+  await selectEntity(uri)
+}
+
 async function refresh(): Promise<void> {
   serviceError.value = null
-  await Promise.all([loadStatus(), loadGraph()])
+  disabled.value = false
+  await loadGraph()
   if (selectedUri.value) {
     await loadEntity(selectedUri.value)
   }
@@ -408,7 +417,7 @@ async function generateFromText(): Promise<void> {
 }
 
 onMounted(async () => {
-  await Promise.all([loadStatus(), loadGraph()])
+  await loadGraph()
 })
 </script>
 
@@ -463,17 +472,6 @@ onMounted(async () => {
   gap: 12px;
   flex-wrap: wrap;
 }
-.sync-inline {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  font-size: 0.76rem;
-  color: var(--text-secondary);
-}
-.sync-inline .warning {
-  color: #b45309;
-  font-weight: 600;
-}
 .workbench-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -501,11 +499,6 @@ onMounted(async () => {
   grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
   gap: 14px;
   align-items: start;
-}
-.panel-stub {
-  padding: 24px;
-  color: var(--text-secondary);
-  font-size: 0.86rem;
 }
 .admin-tools {
   margin-top: 16px;
