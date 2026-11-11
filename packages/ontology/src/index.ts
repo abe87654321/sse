@@ -75,8 +75,21 @@ export class OntologyEngine {
       if (rows.length > 0) extraction.person.matchedUserId = rows[0].id;
     }
     if (extraction.category) {
-      const { rows } = await pool.query('SELECT id FROM expense_categories WHERE name ILIKE $1 LIMIT 1', [`%${extraction.category}%`]);
-      if (rows.length > 0) extraction.categoryId = rows[0].id;
+      // Match tolerantly: the model may return "住宿费" while the category is
+      // "住宿", or "办公费" while the category is "办公用品".
+      const { rows } = await pool.query('SELECT id, name FROM expense_categories');
+      const raw = String(extraction.category).trim();
+      const normalized = raw.replace(/费$/, '').trim();
+      const match = rows.find((row: any) => {
+        const name = String(row.name ?? '').trim();
+        if (!name) return false;
+        return (
+          name === raw ||
+          name === normalized ||
+          (!!normalized && (name.includes(normalized) || normalized.includes(name)))
+        );
+      });
+      if (match) extraction.categoryId = match.id;
     }
 
     const { valid, error, dto } = await this.reasoner.reason(extraction);

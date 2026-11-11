@@ -82,7 +82,7 @@ export class ApprovalEngine {
     const record: Omit<ApprovalRecord, 'id'> = {
       reportId,
       step: firstStep.step,
-      approverId: firstStep.role || '',
+      approverId: firstStep.assigneeId || firstStep.role || '',
       stepStartedAt: new Date(),
       result: ApprovalResult.PENDING,
     };
@@ -114,7 +114,7 @@ export class ApprovalEngine {
     const record: Omit<ApprovalRecord, 'id'> = {
       reportId,
       step: nextStep.step,
-      approverId: nextStep.role || nextStep.assigneeId || '',
+      approverId: nextStep.assigneeId || nextStep.role || '',
       stepStartedAt: new Date(),
       result: ApprovalResult.PENDING,
     };

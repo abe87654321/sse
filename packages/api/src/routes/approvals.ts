@@ -104,7 +104,7 @@ router.post(
   asyncWrap(async (req, res) => {
     const { reportId } = req.params;
     const { comment, acknowledgeVerification } = req.body;
-    const { role, department } = req.user!;
+    const { role, department, userId } = req.user!;
 
     const report = await expenseRepo.findById(reportId);
     if (!report) {
@@ -124,7 +124,7 @@ router.post(
     const records = await recordRepo.findByReportId(reportId);
     const pendingRecord = records.find(
       (r) => r.result === ApprovalResult.PENDING &&
-        (role === UserRole.ADMIN || r.approverId === role)
+        (role === UserRole.ADMIN || r.approverId === userId)
     );
 
     if (!pendingRecord) {
@@ -220,7 +220,7 @@ router.post(
   asyncWrap(async (req, res) => {
     const { reportId } = req.params;
     const { comment } = req.body;
-    const { role, department } = req.user!;
+    const { role, department, userId } = req.user!;
 
     if (typeof comment !== 'string' || !comment.trim()) {
       throw new AppError(400, 'INVALID_PARAMS', '驳回时必须填写意见');
@@ -244,7 +244,7 @@ router.post(
     const records = await recordRepo.findByReportId(reportId);
     const pendingRecord = records.find(
       (r) => r.result === ApprovalResult.PENDING &&
-        (role === UserRole.ADMIN || r.approverId === role)
+        (role === UserRole.ADMIN || r.approverId === userId)
     );
 
     if (!pendingRecord) {

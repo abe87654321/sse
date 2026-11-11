@@ -108,8 +108,19 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
     const engine = await ensureOntologyLoaded();
     const extraction = await engine.extractor.extractFromInvoice(ocrText);
     if (!extraction.amount) return errorResult("EXTRACTION_EMPTY", "未能从发票提取到金额。OCR: " + ocrText.substring(0, 200));
-    const { rows: categories } = await pool.query("SELECT id FROM expense_categories WHERE name ILIKE $1 LIMIT 1", [`%${extraction.category || ""}%`]);
-    if (categories.length > 0) extraction.categoryId = categories[0].id;
+    const { rows: categories } = await pool.query("SELECT id, name FROM expense_categories");
+    const rawCategory = String(extraction.category || "").trim();
+    const normalizedCategory = rawCategory.replace(/费$/, "").trim();
+    const category = categories.find((row: any) => {
+      const name = String(row.name ?? "").trim();
+      if (!name) return false;
+      return (
+        name === rawCategory ||
+        name === normalizedCategory ||
+        (!!normalizedCategory && (name.includes(normalizedCategory) || normalizedCategory.includes(name)))
+      );
+    });
+    if (category) extraction.categoryId = category.id;
     let resolvedUserId = auth.userId;
     if (extraction.person?.name) {
       const { rows: users } = await pool.query("SELECT id FROM users WHERE name = $1 OR phone = $1", [extraction.person.name]);

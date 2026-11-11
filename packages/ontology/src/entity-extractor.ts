@@ -27,7 +27,7 @@ export class EntityExtractor {
 {
   "person": {"name": "姓名", "phone": "手机号(如有)"},
   "amount": 金额数字,
-  "category": "费用类别(差旅费/住宿费/交通费/餐饮费/办公费/招待费/通讯费/培训费/其他)",
+  "category": "费用类别(交通/住宿/餐饮/招待/办公用品/通讯/培训/其他)",
   "description": "费用描述",
   "date": "日期(YYYY-MM-DD, 如有)"
 }
