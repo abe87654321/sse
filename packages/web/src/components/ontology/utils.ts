@@ -14,20 +14,44 @@ export interface LabelSource {
   properties?: Record<string, string>
 }
 
+const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+const LONG_TOKEN_PATTERN = /^[A-Za-z0-9]{24,}$/
+
+function lookOpaque(value: string | undefined): boolean {
+  if (typeof value !== 'string') return true
+  const text = value.trim()
+  if (!text) return true
+  if (UUID_PATTERN.test(text)) return true
+  if (LONG_TOKEN_PATTERN.test(text) && /\d/.test(text)) return true
+  return false
+}
+
+/** True for UUIDs, URI ids such as `item/<uuid>`, checksums and long storage keys. */
+export function isOpaqueIdentifier(value: string | undefined): boolean {
+  return lookOpaque(value)
+}
+
 export function entityLabel(node: LabelSource): string {
   const properties = node.properties ?? {}
   const candidates = [
     properties.title,
     properties.serialNo,
     properties.name,
-    node.label,
+    properties.description,
+    properties.invoiceNo,
+    properties.paymentRef,
     properties.fileName,
     properties.category,
+    properties.comment,
+    node.label,
+    localName(node.uri ?? node.id),
   ]
   for (const candidate of candidates) {
-    if (candidate) return candidate
+    if (!candidate) continue
+    if (lookOpaque(candidate)) continue
+    return candidate
   }
-  return localName(node.uri ?? node.id) || node.type || 'unknown'
+  return ''
 }
 
 export interface GraphNodeLike extends LabelSource {

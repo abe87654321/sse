@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { entityLabel, selectVisibleGraphNodes, type GraphNodeLike } from '../utils'
+import {
+  entityLabel,
+  isOpaqueIdentifier,
+  selectVisibleGraphNodes,
+  type GraphNodeLike,
+} from '../utils'
+
+const UUID = '3f2a1b9c-8d7e-4f6a-9b0c-1d2e3f4a5b6c'
+const CHECKSUM = '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'
 
 function node(overrides: Partial<GraphNodeLike> & { uri: string }): GraphNodeLike {
   return { type: 'Person', properties: {}, ...overrides }
@@ -38,6 +46,68 @@ describe('entityLabel', () => {
     ).toBe('preset-label')
 
     expect(entityLabel({ uri: 'https://sse.local/person/p1', properties: {} })).toBe('p1')
+  })
+
+  it('prefers meaningful properties over an opaque backend label', () => {
+    expect(
+      entityLabel({
+        uri: `https://sse.local/item/${UUID}`,
+        label: UUID,
+        properties: { description: '住宿费', amount: '100' },
+      }),
+    ).toBe('住宿费')
+
+    expect(
+      entityLabel({
+        uri: `https://sse.local/item/${UUID}`,
+        label: `item/${UUID}`,
+        properties: { category: '住宿' },
+      }),
+    ).toBe('住宿')
+  })
+
+  it('hides UUID file names that carry no human meaning', () => {
+    expect(
+      entityLabel({
+        uri: `https://sse.local/payment/${UUID}`,
+        label: UUID,
+        properties: { fileName: `${UUID}.pdf`, checksum: CHECKSUM },
+      }),
+    ).toBe('')
+  })
+
+  it('keeps readable file names and invoice numbers', () => {
+    expect(
+      entityLabel({
+        uri: `https://sse.local/payment/${UUID}`,
+        label: UUID,
+        properties: { fileName: 'review-receipt.png' },
+      }),
+    ).toBe('review-receipt.png')
+
+    expect(
+      entityLabel({
+        uri: `https://sse.local/invoice/${UUID}`,
+        label: UUID,
+        properties: { invoiceNo: 'INV-2026-001' },
+      }),
+    ).toBe('INV-2026-001')
+  })
+})
+
+describe('isOpaqueIdentifier', () => {
+  it('detects UUIDs, URI ids, checksums and long keys', () => {
+    expect(isOpaqueIdentifier(UUID)).toBe(true)
+    expect(isOpaqueIdentifier(`item/${UUID}`)).toBe(true)
+    expect(isOpaqueIdentifier(CHECKSUM)).toBe(true)
+    expect(isOpaqueIdentifier('a1b2c3d4e5f6g7h8i9j0k1l2')).toBe(true)
+  })
+
+  it('keeps human readable values', () => {
+    expect(isOpaqueIdentifier('RE-20261111-535')).toBe(false)
+    expect(isOpaqueIdentifier('住宿费')).toBe(false)
+    expect(isOpaqueIdentifier('INV-2026-001')).toBe(false)
+    expect(isOpaqueIdentifier('review-receipt.png')).toBe(false)
   })
 })
 

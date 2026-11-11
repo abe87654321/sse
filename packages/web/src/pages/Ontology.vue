@@ -234,7 +234,7 @@ function normalizeGraph(payload: OntologyGraphResponse): { nodes: WorkbenchNode[
   const nodes = rawNodes.map((node: GraphNode) => ({
     id: node.id || node.uri,
     uri: node.uri || node.id,
-    label: node.label || entityLabel(node),
+    label: entityLabel(node),
     type: node.type || '',
     properties: node.properties ?? {},
   }))
@@ -341,7 +341,7 @@ function normalizeNetwork(payload: NetworkResult): { nodes: WorkbenchNode[]; edg
   const nodes = payload.nodes.map((node) => ({
     id: node.id || node.uri,
     uri: node.uri,
-    label: node.label || entityLabel(node),
+    label: entityLabel(node),
     type: node.type || '',
     properties: node.properties ?? {},
   }))

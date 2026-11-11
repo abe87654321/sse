@@ -171,6 +171,8 @@ let viewportPersistTimer: ReturnType<typeof setTimeout> | null = null
 let pendingViewport: GraphViewport | null = savedViewState.viewport
 let viewportRestored = !savedViewState.viewport
 let layoutGeneration = 0
+let physicsSettleTimer: ReturnType<typeof setTimeout> | null = null
+const PHYSICS_SETTLE_MS = 900
 
 const nodeId = (node: ExplorerNode): string => graphNodeId(node)
 const renderedCount = ref(0)
@@ -306,6 +308,22 @@ function scheduleViewportPersist(): void {
   }, 250)
 }
 
+function enableDragPhysics(): void {
+  if (physicsSettleTimer) {
+    clearTimeout(physicsSettleTimer)
+    physicsSettleTimer = null
+  }
+  network?.setOptions({ physics: { enabled: true } })
+}
+
+function schedulePhysicsStop(): void {
+  if (physicsSettleTimer) clearTimeout(physicsSettleTimer)
+  physicsSettleTimer = setTimeout(() => {
+    physicsSettleTimer = null
+    network?.setOptions({ physics: { enabled: false } })
+  }, PHYSICS_SETTLE_MS)
+}
+
 function flushOnPageHide(): void {
   if (filterPersistTimer) {
     clearTimeout(filterPersistTimer)
@@ -398,6 +416,10 @@ function syncData(): void {
 
 function relayout(): void {
   if (!network) return
+  if (physicsSettleTimer) {
+    clearTimeout(physicsSettleTimer)
+    physicsSettleTimer = null
+  }
   const generation = ++layoutGeneration
   network.setOptions({ physics: { enabled: true } })
   network.stabilize(60)
@@ -458,12 +480,18 @@ onMounted(() => {
   })
   network.on('hoverNode', (params: { node: string }) => showTooltip(params.node))
   network.on('blurNode', () => hideTooltip())
-  network.on('dragStart', () => hideTooltip())
+  network.on('dragStart', (params: { nodes: string[] }) => {
+    hideTooltip()
+    if (params.nodes.length > 0) enableDragPhysics()
+  })
   network.on('zoom', () => {
     hideTooltip()
     scheduleViewportPersist()
   })
-  network.on('dragEnd', () => scheduleViewportPersist())
+  network.on('dragEnd', (params: { nodes: string[] }) => {
+    scheduleViewportPersist()
+    if (params.nodes.length > 0) schedulePhysicsStop()
+  })
   window.addEventListener('pagehide', flushOnPageHide)
 
   // vis-network keeps the initial container size; observe layout changes so the
@@ -487,6 +515,7 @@ onUnmounted(() => {
   if (tooltipTimer) clearTimeout(tooltipTimer)
   if (filterPersistTimer) clearTimeout(filterPersistTimer)
   if (viewportPersistTimer) clearTimeout(viewportPersistTimer)
+  if (physicsSettleTimer) clearTimeout(physicsSettleTimer)
   window.removeEventListener('pagehide', flushOnPageHide)
   resizeObserver?.disconnect()
   resizeObserver = null
