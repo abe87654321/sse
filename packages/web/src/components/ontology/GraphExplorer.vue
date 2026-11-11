@@ -354,7 +354,7 @@ watch(
 )
 watch(
   () => props.selected,
-  () => applyFilters(),
+  () => syncData(),
 )
 watch(searchInput, (value) => {
   if (debounceTimer) clearTimeout(debounceTimer)
