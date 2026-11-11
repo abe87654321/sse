@@ -20,3 +20,11 @@ export { checkRateLimit, pruneRateLimitStore } from './rate-limit';
 export type { RateLimitOptions, RateLimitResult, RateLimitWindow } from './rate-limit';
 
 export { authMiddleware } from './middleware';
+
+export {
+  BCRYPT_ROUNDS,
+  isBcryptHash,
+  hashPassword,
+  verifyPassword,
+  validatePassword,
+} from './password';
