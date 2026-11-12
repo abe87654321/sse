@@ -422,3 +422,33 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/ontology/sync
 
 - 新规则必须提供 `construct_query`（推荐）或旧版 `conditions`；CONSTRUCT 会在下一次投影周期清空并重建 `urn:sse:inferred`。
 - 金额/类别审批匹配仍由 `matchRule` 决定；新增推理规则应做派生分类/标记，避免与审批链逻辑重复。
+
+## 十四、缺发票规则上线（2026-11-12 14:20 UTC）
+
+提交：`d0de9b9 feat(ontology): flag reports missing invoice attachments`、`376977e feat(web): style missing-invoice flag in graph`；测试机同步到 `376977e`，迁移 `020` 已应用。
+
+### 1. 规则内容
+
+- 名称 `missing-invoice-flag`，优先级 60，severity `warning`。
+- 条件：报销单至少有一条明细，且**所有明细都没有** `hasInvoice`。
+- 输出：`?r a sse:MissingInvoiceReport`；`?r sse:hasFlag ?flag`；`?flag a sse:MissingInvoiceFlag; sse:name "缺发票"; sse:description "有明细但没有任何发票附件"`。
+- 标记节点 URI：`https://sse.local/flag/missing-invoice/<report-id>`。
+- TTL 增加 `MissingInvoiceReport`、`MissingInvoiceFlag`、`hasFlag`；Web 图例增加三角形深红色“缺发票”。
+
+### 2. 重要：规则何时生效
+
+- RuleEngine 只在 projector 处理到 outbox 事件后运行（`ProjectorRunner.runOnce`：`processed > 0` 才 `runRules`）。
+- 新增/修改规则后，若没有业务写入，可调用 `POST /ontology/reconcile`（重建并 materialize 规则）立即生效，或等待下一次业务写入。
+- 本次用 reconcile 触发：job `done`，`quads 840→861`，`subjects 148→154`。
+
+### 3. 验证
+
+- 推断图：`MissingInvoiceFlag=3`、`MissingInvoiceReport=3`、`PaidReport=5`。
+- 图谱：72 节点 / 98 边，新增 3 个标记节点 + 3 条 `hasFlag` 边。
+- 管理页/图谱：图例含 `MissingInvoiceFlag (缺发票)`；类型筛选可选 `MissingInvoiceFlag`，显示 3 个节点；悬停 tooltip 类型/标签为“缺发票”。
+- DB：`schema_migrations` 含 `020_missing_invoice_rule`；`reasoning_rules` 6 条；`/healthz=200`，pending=0，dead=0。
+
+### 4. 说明
+
+- 只标记“有明细但无任何发票”的单；没有明细的草稿不会被标记。
+- 非管理员作用域下标记节点可能不显示（scope 只识别业务实体），管理员可见；若需员工也看到，需要把标记节点纳入 scope 逻辑（后续可选）。
