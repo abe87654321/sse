@@ -393,3 +393,32 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/ontology/sync
 - 备份：`.env.bak-2026-11-12T13-46-50-909Z`；`.env` 与备份权限均为 `600`。
 - 同时重启 API、stdio MCP、HTTP MCP 后验证：`/healthz=200`；`/ontology/status` 为 `engine=oxigraph`、`quads=840`、`subjects=148`、`pending=0`、`dead=0`、`lag=0`；`/ontology/graph` 69 节点 / 95 关系；MCP 冒烟 16 PASS / 0 FAIL。
 - `DB_PASSWORD=sse_dev`、`MINIO_*=minioadmin`、`MCP_API_KEY=mcp_dev_key_001` 仍为测试机现有示例值，生产前必须替换。
+
+## 十三、推理规则模块打通（2026-11-12 14:00 UTC）
+
+提交：`010d160 feat(api): manage CONSTRUCT reasoning rules`、`cd5eadd feat(web): edit and preview CONSTRUCT reasoning rules`；测试机已同步到 `cd5eadd` 并重启 API。
+
+### 1. 背景
+
+- 5 条 `legacy-status-*` 规则的真实逻辑在 `construct_query`（SPARQL CONSTRUCT），`conditions/conclusion` 为 `{}`（旧版字段，仅 `ONTOLOGY_V2=0` 使用）。
+- 原管理页只显示旧 JSON，且创建/更新不写 `construct_query`；通过 UI 新建的规则 `construct_query=NULL`，v2 RuleEngine 会忽略。
+
+### 2. 变更
+
+- `ReasoningRule` 类型与 `PgReasoningRuleRepo` 支持读写 `construct_query/severity/message`。
+- admin API：create/update 支持这三列；新增 `POST /admin/reasoning-rules/preview`（`assertConstructQuery` 校验 + 只读执行，返回前 20 条样本，不落库）。
+- `sparql-guard` 新增 `assertConstructQuery`（只允许只读 CONSTRUCT），并补充单测。
+- legacy `/ontology/reason` 跳过带 `constructQuery` 的规则。
+- Web 管理页：新增 CONSTRUCT 编辑框、severity/message、预览按钮、类型列；旧版 JSON 收进折叠区。
+
+### 3. 验证
+
+- 本地：`pnpm -r build` 通过；ontology 176、api 123、web 37 用例通过。
+- 测试机 `cd5eadd`：`GET /admin/reasoning-rules` 返回 5 条且均含 `constructQuery`；paid 规则预览命中 5 条；SELECT 预览返回 400；新建/删除 CONSTRUCT 规则成功。
+- 管理页（Playwright）：5 行类型均为 CONSTRUCT；编辑框显示完整 SPARQL；paid 规则预览显示“命中 5 条推断三元组”。
+- 回归：`/healthz=200`、quads=840、subjects=148、pending=0、dead=0；MCP 冒烟 16 PASS / 0 FAIL。
+
+### 4. 说明
+
+- 新规则必须提供 `construct_query`（推荐）或旧版 `conditions`；CONSTRUCT 会在下一次投影周期清空并重建 `urn:sse:inferred`。
+- 金额/类别审批匹配仍由 `matchRule` 决定；新增推理规则应做派生分类/标记，避免与审批链逻辑重复。
