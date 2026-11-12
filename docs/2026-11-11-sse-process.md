@@ -385,3 +385,11 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/ontology/sync
 2. MCP 复验：用**裸** `pnpm mcp:http`（不带 `--env-file`）重启后，日志出现 `injected env (37) from .env`，`/tmp/mcp-smoke.mjs` 16 PASS / 0 FAIL；`/healthz=200`、`quads=840`、`subjects=148`、`pending=0`、`dead=0`、`lag=0`。
 3. 继续监控 `outbox.pending`/`deadLettered`/`lag`、`/healthz`、`counts.quads`；一个业务周期后可考虑 legacy 下线（cutover checklist §10，需再等一个干净发布）。
 4. 生产部署同样需保证：单 API 副本、`TRUST_PROXY` 与 `X-Forwarded-For` 正确；MCP 入口现已自行加载 `.env`，但仍建议生产用编排器注入环境变量（dotenv 不覆盖已有值）。
+
+## 十二、`.env` 清理与 JWT 轮换（2026-11-12 13:46 UTC）
+
+- `.env` 中重复的 `ONTOLOGY_V2` 已去重，仅保留一行 `ONTOLOGY_V2=on`（第 23 行）。
+- 示例占位 `JWT_SECRET` 已替换为 32 字节随机 hex（64 字符，**值不记录**）；旧 token 全部失效，用户需重新登录。
+- 备份：`.env.bak-2026-11-12T13-46-50-909Z`；`.env` 与备份权限均为 `600`。
+- 同时重启 API、stdio MCP、HTTP MCP 后验证：`/healthz=200`；`/ontology/status` 为 `engine=oxigraph`、`quads=840`、`subjects=148`、`pending=0`、`dead=0`、`lag=0`；`/ontology/graph` 69 节点 / 95 关系；MCP 冒烟 16 PASS / 0 FAIL。
+- `DB_PASSWORD=sse_dev`、`MINIO_*=minioadmin`、`MCP_API_KEY=mcp_dev_key_001` 仍为测试机现有示例值，生产前必须替换。
