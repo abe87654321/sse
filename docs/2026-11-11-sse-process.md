@@ -452,3 +452,41 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/ontology/sync
 
 - 只标记“有明细但无任何发票”的单；没有明细的草稿不会被标记。
 - 非管理员作用域下标记节点可能不显示（scope 只识别业务实体），管理员可见；若需员工也看到，需要把标记节点纳入 scope 逻辑（后续可选）。
+
+## 十五、本次会话收尾状态（2026-11-12）
+
+### 1. 代码
+
+- 分支 `master`；收尾提交为 `docs: finalize session progress`（本次）。
+- 测试机 `szl@ubuntuhome`（192.168.3.107）已同步到该提交。
+
+### 2. 运行态
+
+- `.env`：`ONTOLOGY_V2=on`（已去重，仅一行）；`JWT_SECRET` 已轮换为随机值（**不记录**）；备份 `.env.bak-2026-11-12T13-46-50-909Z`；`.env` 权限 `600`。
+- 单 API + 单 HTTP MCP；stdio/HTTP MCP 均从仓库根 `.env` 加载环境（无需 `--env-file`）。
+- `/healthz=200`；`/ontology/status`：`quads=861`、`subjects=154`、`pending=0`、`deadLettered=0`、`lag=0`。
+- 推理规则 6 条：5 条 `legacy-status-*` + `missing-invoice-flag`。
+- 推断图：`PaidReport=5`、`MissingInvoiceFlag=3`、`MissingInvoiceReport=3`。
+- 图谱：72 节点 / 98 关系（含 3 个“缺发票”标记节点）。
+
+### 3. 本次完成
+
+1. 验证本体工作台前端交互（单测 37 + Playwright 34 项）。
+2. 24h shadow 门禁通过，切 `ONTOLOGY_V2=on`。
+3. 修复 `on` 模式 `/healthz` 的 outbox SQL（`FILTER` 位置错误）。
+4. MCP 入口加载 `.env`（`packages/mcp/src/env.ts`），修复 MCP 调 API 401。
+5. `.env` 去重、JWT_SECRET 轮换并重启验证。
+6. 推理规则管理打通：`constructQuery/severity/message` 读写、CONSTRUCT 校验、预览接口、管理页编辑/预览。
+7. 新增 `missing-invoice-flag` 规则并上线（迁移 `020`）。
+
+### 4. 重要提醒
+
+- 规则只在 projector 处理到 outbox 事件后重算；新增/修改规则后，若无业务写入，调用 `POST /ontology/reconcile` 或等待下一次写入。
+- 生产前替换示例默认值：`DB_PASSWORD=sse_dev`、`MINIO_*=minioadmin`、`MCP_API_KEY=mcp_dev_key_001`；并保证单 API 副本、`TRUST_PROXY`/`X-Forwarded-For` 正确。
+- 不要把 `.env`、JWT_SECRET、MCP key 写入文档或提交到 git。
+
+### 5. 后续可选
+
+- 继续按业务补充派生规则（先用管理页预览再保存）。
+- 一个业务周期后按 cutover checklist §10 评估 legacy 下线。
+- 如需员工也能在图中看到标记节点，需要把标记节点纳入 scope 逻辑。
