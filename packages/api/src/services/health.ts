@@ -64,9 +64,11 @@ export async function healthHandler(_req: Request, res: Response): Promise<void>
     const { pool } = await import('@sse/db');
     const { rows } = await pool.query(
       `SELECT COALESCE(
-         EXTRACT(EPOCH FROM (NOW() - MIN(occurred_at))) FILTER (
-           WHERE processed_at IS NULL AND dead_letter = false
-         ),
+         EXTRACT(EPOCH FROM (
+           NOW() - MIN(occurred_at) FILTER (
+             WHERE processed_at IS NULL AND dead_letter = false
+           )
+         )),
          0
        ) AS oldest_pending_age_seconds
          FROM ontology_outbox`,
