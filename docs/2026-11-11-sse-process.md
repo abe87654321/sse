@@ -293,3 +293,94 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/ontology/sync
 2. 测试机执行 `pnpm --filter @sse/web test` 确认新增用例。
 3. shadow 24h 门禁不变，仍以第八节第 5 条为准；**不要重启 API**。
 4. 门禁通过后再按 cutover checklist 切 `ONTOLOGY_V2=on`。
+
+## 十、第 1 项验证完成（2026-11-12 11:00 UTC）
+
+> 测试机 `szl@ubuntuhome`（192.168.3.107），HEAD `208075d`，API PID `4105012`（`ONTOLOGY_V2=shadow`，本轮未重启），Web `http://192.168.3.107:5173` 返回 200。
+
+### 1. 单元测试
+
+- 命令：`pnpm --filter @sse/web test`
+- 结果：6 个文件 / 37 个用例全部通过（含 `graph-view-state` 7 个、`utils` 10 个）。
+
+### 2. Playwright 交互验证（34 PASS / 0 FAIL / 0 WARN）
+
+浏览器：Chromium/Edge，视口 1440×900；脚本仅做登录、读图、切标签、刷新和拖拽，未写业务数据。
+
+| 验证点 | 结果 |
+|---|---|
+| 工具栏 4 个下拉横向同排（tops 均为 225） | PASS |
+| 工具栏下拉为自适应宽度（113/64/64/50，非 100%） | PASS |
+| 费用明细标签显示描述而非 UUID | PASS |
+| 发票标签显示发票号（如 `26112000004865189101`） | PASS |
+| 节点可点击选中 | PASS |
+| 类型/状态/部门/深度(3)/缩放平移写入 `sse:ontology-graph:v1` | PASS |
+| 切 校验→影响分析→异常→图谱 后筛选/深度/视口/选中保持 | PASS |
+| 切标签不销毁 vis-network（`v-show`，canvas 实例标记保持） | PASS |
+| 刷新页面后筛选/深度/选中/视口恢复 | PASS |
+| 拖动节点有回弹（520ms 回移 43.7px），约 900ms 后静止 | PASS |
+| 无未捕获异常 / 无控制台错误 | PASS |
+
+- 截图存放：`C:\Users\Admin\AppData\Local\Temp\opencode\v2-0*.png`（本机临时目录，未入库）。
+- 登录使用管理员账号，密码仅用于本次登录请求，未写入任何文件或本目录。
+
+### 3. 门禁状态（11:05 UTC）
+
+- 采样器正常：`last_ok=true`、`last_reasons=[]`；`api_identity.pid=4105012` 未变。
+- `first_clean_at = 2026-11-11T12:07:44Z`，预计 `2026-11-12T12:07:44Z`（北京时间 20:07:44）生成通过结果。
+- **仍不要重启 API**。
+
+### 4. 下一步
+
+1. 等 `/tmp/sse-shadow-gate.result` 生成且为通过。
+2. 按 cutover checklist 切 `ONTOLOGY_V2=on`，重启 API + MCP。
+3. 切换后做 MCP 冒烟、`/healthz`、`/ontology/status`、Web 监控。
+4. 第 1 项已完成，无需再重复。
+
+## 十一、Cutover 完成（2026-11-12 12:08–12:15 UTC）
+
+### 1. 门禁结果
+
+- `/tmp/sse-shadow-gate.result`：`verdict=PASS`、`ts=2026-11-12T12:08:21Z`、`elapsed_seconds=86437`、`window_seconds=86400`、`first_clean_at=2026-11-11T12:07:44Z`。
+- `api_identity.pid=4105012` 在门禁窗口内未变；`last_ok=true`。
+- 切换前备份：`backups/sse-pre-ontology-on-2026-11-12-1208.dump`（162K，`pg_restore --list` 校验通过）。
+
+### 2. Cutover 操作
+
+- `.env`：`ONTOLOGY_V2=shadow` → `on`。
+- 重启 `pnpm dev`（API + Web + stdio MCP）；单独重启 HTTP MCP。
+- **注意**：`pnpm mcp:http` 本身不加载 `.env`，导致 MCP 签名 JWT 的 `JWT_SECRET` 与 API 不一致，本体读工具转发 API 全部 401。改用 `node --env-file=.env packages/mcp/dist/http.js` 启动后恢复。后续应把 `mcp:http` 脚本或部署命令固定为带 `--env-file`。
+
+### 3. 切换中发现并修复的阻断（未提交）
+
+- `/healthz` 在 `on` 模式恒返回 `503 degraded`，原因：`packages/api/src/services/health.ts` 把 `FILTER` 放在 `EXTRACT(...)` 上，PostgreSQL 报语法错误；shadow 模式不执行该分支，所以此前未暴露。
+- 修复：把 `FILTER (WHERE processed_at IS NULL AND dead_letter = false)` 移到 `MIN(occurred_at)` 上。
+- 验证：`pnpm --filter @sse/api test` 123 用例通过；重启后 `/healthz` 返回 `200 ok`。
+- **当前状态**：本机与测试机该文件均为未提交修改（测试机 HEAD 仍为 `208075d`），需尽快提交，否则 `git reset --hard` 会丢失。
+
+### 4. Cutover 后验证（12:14 UTC）
+
+| 检查 | 结果 |
+|---|---|
+| `/ontology/status` | `engine=oxigraph`、`version=22`、`quads=840`、`subjects=148`、`pending=0`、`dead=0`、`lag=0`、`failuresLastHour=0` |
+| `/healthz` | `200`、`status=ok`、`oldestPendingAgeSeconds=0` |
+| `/ontology/graph` | 69 节点 / 95 关系 |
+| 错误密码登录 | `401` |
+| `POST /scim/Users` 无 token | `401` |
+| `POST /webhook/mdm` 无 token | `401` |
+| Web `/ontology` | `200` |
+| 单副本 | 1 个 API ts-node 实例、1 个 HTTP MCP 实例 |
+
+### 5. MCP 冒烟（16 PASS / 0 FAIL）
+
+- `tools/list`：22 个工具，名称全部匹配。
+- 本体读工具返回数据：`query_ontology`、`get_ontology_schema`、`find_anomalies`、`impact_analysis`、`query_sparql`、`explain_expense`、`get_entity_network`、`explain_decision`。
+- 员工 key `query_sparql` → `FORBIDDEN`；无效 key `initialize` → HTTP `401`。
+- 冒烟脚本从数据库读取现有 admin/employee key，运行时不打印密钥；脚本在测试机 `/tmp/mcp-smoke.mjs`（临时，未入库）。
+- 未做写操作，未产生新业务数据。
+
+### 6. 待办
+
+1. 提交 `health.ts` 修复；建议同时把 `package.json` 的 `mcp:http` 改为加载 `.env`（如 `node --env-file=.env ...`）。
+2. 继续监控 `outbox.pending`/`deadLettered`/`lag`、`/healthz`、`counts.quads`；一个业务周期后可考虑 legacy 下线（cutover checklist §10，需再等一个干净发布）。
+3. 生产部署同样需保证：单 API 副本、MCP HTTP 加载 `.env`、`TRUST_PROXY` 与 `X-Forwarded-For` 正确。
