@@ -19,6 +19,8 @@ sse:PendingReport a owl:Class ; rdfs:subClassOf sse:ExpenseReport .
 sse:ApprovedReport a owl:Class ; rdfs:subClassOf sse:ExpenseReport .
 sse:RejectedReport a owl:Class ; rdfs:subClassOf sse:ExpenseReport .
 sse:PaidReport a owl:Class ; rdfs:subClassOf sse:ExpenseReport .
+sse:MissingInvoiceReport a owl:Class ; rdfs:subClassOf sse:ExpenseReport .
+sse:MissingInvoiceFlag a owl:Class .
 
 sse:belongsTo a owl:ObjectProperty ;
   rdfs:domain sse:Person ; rdfs:range sse:Department .
@@ -40,6 +42,8 @@ sse:paidBy a owl:ObjectProperty ;
   rdfs:domain sse:ExpenseReport ; rdfs:range sse:Person .
 sse:hasPaymentReceipt a owl:ObjectProperty ;
   rdfs:domain sse:ExpenseReport ; rdfs:range sse:PaymentReceipt .
+sse:hasFlag a owl:ObjectProperty ;
+  rdfs:domain sse:ExpenseReport ; rdfs:range sse:MissingInvoiceFlag .
 sse:hasCategoryRule a owl:ObjectProperty ;
   rdfs:domain sse:ApprovalRule ; rdfs:range sse:ExpenseCategory .
 sse:uploadedBy a owl:ObjectProperty ;
