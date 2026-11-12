@@ -349,7 +349,7 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/ontology/sync
 
 - `.env`：`ONTOLOGY_V2=shadow` → `on`。
 - 重启 `pnpm dev`（API + Web + stdio MCP）；单独重启 HTTP MCP。
-- **注意**：`pnpm mcp:http` 本身不加载 `.env`，导致 MCP 签名 JWT 的 `JWT_SECRET` 与 API 不一致，本体读工具转发 API 全部 401。改用 `node --env-file=.env packages/mcp/dist/http.js` 启动后恢复。后续应把 `mcp:http` 脚本或部署命令固定为带 `--env-file`。
+- **已修复（494578b）**：`pnpm mcp:http` 原先不加载 `.env`，导致 MCP 签名 JWT 的 `JWT_SECRET` 与 API 不一致，本体读工具转发 API 全部 401。现由 MCP 入口 `packages/mcp/src/env.ts` 在启动时加载仓库根 `.env`（`index.ts`/`http.ts` 首行引入，`dotenv` 已加入 `@sse/mcp` 依赖），stdio 与 HTTP MCP 都生效，无需 `--env-file`。
 
 ### 3. 切换中发现并修复的阻断（未提交）
 
@@ -381,6 +381,7 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/ontology/sync
 
 ### 6. 待办
 
-1. 提交 `health.ts` 修复；建议同时把 `package.json` 的 `mcp:http` 改为加载 `.env`（如 `node --env-file=.env ...`）。
-2. 继续监控 `outbox.pending`/`deadLettered`/`lag`、`/healthz`、`counts.quads`；一个业务周期后可考虑 legacy 下线（cutover checklist §10，需再等一个干净发布）。
-3. 生产部署同样需保证：单 API 副本、MCP HTTP 加载 `.env`、`TRUST_PROXY` 与 `X-Forwarded-For` 正确。
+1. `health.ts` 修复已提交（`e9f34e6`）；MCP 入口 dotenv 已提交（`494578b`），推送并同步测试机到 `494578b`。
+2. MCP 复验：用**裸** `pnpm mcp:http`（不带 `--env-file`）重启后，日志出现 `injected env (37) from .env`，`/tmp/mcp-smoke.mjs` 16 PASS / 0 FAIL；`/healthz=200`、`quads=840`、`subjects=148`、`pending=0`、`dead=0`、`lag=0`。
+3. 继续监控 `outbox.pending`/`deadLettered`/`lag`、`/healthz`、`counts.quads`；一个业务周期后可考虑 legacy 下线（cutover checklist §10，需再等一个干净发布）。
+4. 生产部署同样需保证：单 API 副本、`TRUST_PROXY` 与 `X-Forwarded-For` 正确；MCP 入口现已自行加载 `.env`，但仍建议生产用编排器注入环境变量（dotenv 不覆盖已有值）。
