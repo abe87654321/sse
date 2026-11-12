@@ -6,6 +6,9 @@ function mapRule(row: any): ReasoningRule {
     id: row.id, name: row.name, description: row.description ?? undefined,
     conditions: row.conditions, conclusion: row.conclusion,
     priority: row.priority, isActive: row.is_active,
+    constructQuery: row.construct_query ?? null,
+    severity: row.severity ?? 'info',
+    message: row.message ?? null,
   };
 }
 
@@ -24,8 +27,19 @@ export class PgReasoningRuleRepo {
   }
   async create(rule: Omit<ReasoningRule, 'id'>): Promise<ReasoningRule> {
     const { rows } = await pool.query(
-      `INSERT INTO reasoning_rules (name, description, conditions, conclusion, priority, is_active) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [rule.name, rule.description || null, JSON.stringify(rule.conditions), JSON.stringify(rule.conclusion), rule.priority, rule.isActive]
+      `INSERT INTO reasoning_rules (name, description, conditions, conclusion, priority, is_active, construct_query, severity, message)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [
+        rule.name,
+        rule.description || null,
+        JSON.stringify(rule.conditions ?? []),
+        JSON.stringify(rule.conclusion ?? {}),
+        rule.priority,
+        rule.isActive,
+        rule.constructQuery || null,
+        rule.severity || 'info',
+        rule.message || null,
+      ]
     );
     return mapRule(rows[0]);
   }
@@ -37,6 +51,9 @@ export class PgReasoningRuleRepo {
     if (patch.conclusion !== undefined) { fields.push(`conclusion = $${idx++}`); values.push(JSON.stringify(patch.conclusion)); }
     if (patch.priority !== undefined) { fields.push(`priority = $${idx++}`); values.push(patch.priority); }
     if (patch.isActive !== undefined) { fields.push(`is_active = $${idx++}`); values.push(patch.isActive); }
+    if (patch.constructQuery !== undefined) { fields.push(`construct_query = $${idx++}`); values.push(patch.constructQuery || null); }
+    if (patch.severity !== undefined) { fields.push(`severity = $${idx++}`); values.push(patch.severity); }
+    if (patch.message !== undefined) { fields.push(`message = $${idx++}`); values.push(patch.message || null); }
     if (fields.length === 0) return; fields.push('updated_at = NOW()'); values.push(id);
     await pool.query(`UPDATE reasoning_rules SET ${fields.join(', ')} WHERE id = $${idx}`, values);
   }

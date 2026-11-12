@@ -1,4 +1,4 @@
-import { assertReadOnlySparql, capResults } from '../query/sparql-guard';
+import { assertConstructQuery, assertReadOnlySparql, capResults } from '../query/sparql-guard';
 
 describe('assertReadOnlySparql', () => {
   it.each([
@@ -17,6 +17,22 @@ describe('assertReadOnlySparql', () => {
     'SELECT * WHERE { SERVICE <https://evil.example/sparql> { ?s ?p ?o } }',
   ])('rejects write/remote query: %s', (query) => {
     expect(() => assertReadOnlySparql(query)).toThrow();
+  });
+});
+
+describe('assertConstructQuery', () => {
+  it('accepts a read-only CONSTRUCT query', () => {
+    expect(() => assertConstructQuery('CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o }')).not.toThrow();
+  });
+
+  it.each([
+    'SELECT ?s WHERE { ?s ?p ?o }',
+    'ASK { ?s ?p ?o }',
+    'DESCRIBE <https://sse.local/report/r1>',
+    'INSERT DATA { <https://sse.local/a> <https://sse.local/b> <https://sse.local/c> }',
+    'CONSTRUCT { ?s ?p ?o } WHERE { SERVICE <https://evil.example/sparql> { ?s ?p ?o } }',
+  ])('rejects non-CONSTRUCT or unsafe query: %s', (query) => {
+    expect(() => assertConstructQuery(query)).toThrow();
   });
 });
 

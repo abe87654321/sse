@@ -6,4 +6,7 @@ export interface ReasoningRule {
   conclusion: { subject: string; predicate: string; object: string };
   priority: number;
   isActive: boolean;
+  constructQuery?: string | null;
+  severity?: string;
+  message?: string | null;
 }

@@ -827,23 +827,120 @@ function mapUserRow(row: any) {
 
 // ========== 推理规则管理 ==========
 
+const RULE_SEVERITIES = new Set(['info', 'warning', 'error']);
+
+function normalizeConstructQuery(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+async function validateConstructQuery(value: unknown): Promise<string | null> {
+  const query = normalizeConstructQuery(value);
+  if (!query) return null;
+  const { assertConstructQuery } = await import('@sse/ontology');
+  try {
+    assertConstructQuery(query);
+  } catch (err: any) {
+    throw new AppError(400, 'INVALID_PARAMS', `CONSTRUCT 规则无效：${err?.message || err}`);
+  }
+  return query;
+}
+
+function normalizeSeverity(value: unknown): string {
+  return typeof value === 'string' && RULE_SEVERITIES.has(value) ? value : 'info';
+}
+
+function normalizeLegacyConditions(value: unknown): any[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function normalizeLegacyConclusion(value: unknown): any {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : { subject: '', predicate: '', object: '' };
+}
+
 router.get('/reasoning-rules', asyncWrap(async (_req, res) => {
   const { PgReasoningRuleRepo } = await import('@sse/db');
   const rules = await new PgReasoningRuleRepo().findAll();
   res.json(rules);
 }));
 
+router.post('/reasoning-rules/preview', asyncWrap(async (req, res) => {
+  const constructQuery = await validateConstructQuery(
+    req.body?.constructQuery ?? req.body?.construct_query,
+  );
+  if (!constructQuery) throw new AppError(400, 'INVALID_PARAMS', '请提供 CONSTRUCT 查询');
+  const { getGraphStore } = await import('@sse/ontology');
+  let store: ReturnType<typeof getGraphStore>;
+  try {
+    store = getGraphStore();
+  } catch {
+    throw new AppError(503, 'ONTOLOGY_V2_UNAVAILABLE', '本体图尚未初始化，需要 ONTOLOGY_V2=on|shadow');
+  }
+  const timeoutMs = Math.min(Math.max(Number(req.body?.timeoutMs) || 5000, 1000), 15000);
+  const result = await store.query(constructQuery, { timeoutMs });
+  if (result.kind !== 'construct') {
+    throw new AppError(400, 'INVALID_PARAMS', '不是 CONSTRUCT 查询');
+  }
+  const sample = result.quads.slice(0, 20).map((q: any) => ({
+    subject: q.subject,
+    predicate: q.predicate,
+    object: q.object,
+    objectType: q.objectType,
+    datatype: q.datatype,
+    language: q.language,
+  }));
+  res.json({ count: result.quads.length, sample });
+}));
+
 router.post('/reasoning-rules', asyncWrap(async (req, res) => {
-  const { name, description, conditions, conclusion, priority, isActive } = req.body;
-  if (!name || !conditions || !conclusion) throw new AppError(400, 'INVALID_PARAMS', '名称、条件、结论不能为空');
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  if (!name) throw new AppError(400, 'INVALID_PARAMS', '名称不能为空');
+  const constructQuery = await validateConstructQuery(
+    req.body?.constructQuery ?? req.body?.construct_query,
+  );
+  const conditions = normalizeLegacyConditions(req.body?.conditions);
+  if (!constructQuery && conditions.length === 0) {
+    throw new AppError(400, 'INVALID_PARAMS', '请提供 CONSTRUCT 查询或旧版条件');
+  }
   const { PgReasoningRuleRepo } = await import('@sse/db');
-  const rule = await new PgReasoningRuleRepo().create({ name, description, conditions, conclusion, priority: priority ?? 0, isActive: isActive ?? true });
+  const rule = await new PgReasoningRuleRepo().create({
+    name,
+    description: typeof req.body?.description === 'string' ? req.body.description : undefined,
+    conditions,
+    conclusion: normalizeLegacyConclusion(req.body?.conclusion),
+    priority: Number.isFinite(Number(req.body?.priority)) ? Number(req.body.priority) : 0,
+    isActive: req.body?.isActive ?? true,
+    constructQuery,
+    severity: normalizeSeverity(req.body?.severity),
+    message: typeof req.body?.message === 'string' && req.body.message.trim() !== ''
+      ? req.body.message
+      : null,
+  } as any);
   res.status(201).json(rule);
 }));
 
 router.put('/reasoning-rules/:id', asyncWrap(async (req, res) => {
   const { PgReasoningRuleRepo } = await import('@sse/db');
-  await new PgReasoningRuleRepo().update(req.params.id, req.body);
+  const body = req.body ?? {};
+  const patch: Record<string, any> = { ...body };
+  if (body.construct_query !== undefined && body.constructQuery === undefined) {
+    patch.constructQuery = body.construct_query;
+  }
+  if ('constructQuery' in patch) {
+    patch.constructQuery = await validateConstructQuery(patch.constructQuery);
+  }
+  if (patch.severity !== undefined) patch.severity = normalizeSeverity(patch.severity);
+  if (patch.message !== undefined) {
+    patch.message = typeof patch.message === 'string' && patch.message.trim() !== ''
+      ? patch.message
+      : null;
+  }
+  if (patch.conditions !== undefined) patch.conditions = normalizeLegacyConditions(patch.conditions);
+  if (patch.conclusion !== undefined) patch.conclusion = normalizeLegacyConclusion(patch.conclusion);
+  await new PgReasoningRuleRepo().update(req.params.id, patch);
   res.json({ message: '更新成功' });
 }));
 

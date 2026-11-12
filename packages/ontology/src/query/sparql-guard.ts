@@ -30,6 +30,18 @@ export function assertReadOnlySparql(query: string): void {
   });
 }
 
+/**
+ * Reasoning rules may only run read-only CONSTRUCT queries; SELECT/ASK are
+ * valid SPARQL but cannot materialize triples.
+ */
+export function assertConstructQuery(query: string): void {
+  assertReadOnlySparql(query);
+  const ast: any = parser.parse(query);
+  if (String(ast.queryType ?? '').toUpperCase() !== 'CONSTRUCT') {
+    throw new Error('only CONSTRUCT queries are allowed');
+  }
+}
+
 export function capResults(query: string, max = 1000): string {
   const limit = Math.floor(Number(max));
   if (!Number.isFinite(limit) || limit <= 0) return query;

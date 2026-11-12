@@ -270,7 +270,7 @@ router.post('/reason', asyncWrap(async (req, res) => {
   const { PgReasoningRuleRepo } = await import('@sse/db');
   const reasoner = new Reasoner(store);
   const repo = new PgReasoningRuleRepo();
-  const rules = await repo.findActive();
+  const rules = (await repo.findActive()).filter((rule) => !rule.constructQuery);
   const newTriples = reasoner.apply(rules);
   try { await store.saveToDb(); } catch { /* best effort */ }
   res.json({ message: `推理完成，新增 ${newTriples} 条三元组`, newTriples });
