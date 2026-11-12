@@ -18,6 +18,7 @@
     "@sse/ocr": "workspace:*",
     "@sse/ontology": "workspace:*",
     "@sse/shared": "workspace:*",
+    "dotenv": "^17.4.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {

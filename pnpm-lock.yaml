@@ -238,6 +238,9 @@ importers:
       '@sse/shared':
         specifier: workspace:*
         version: link:../shared
+      dotenv:
+        specifier: ^17.4.2
+        version: 17.4.2
       zod:
         specifier: ^3.25.76
         version: 3.25.76

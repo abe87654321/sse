@@ -1,3 +1,4 @@
+import "./env.js";
 import { startServer, runServer } from "./server.js";
 export { startServer, runServer };
 export {

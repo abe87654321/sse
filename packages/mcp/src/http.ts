@@ -15,6 +15,7 @@
  *   MCP_HTTP_PORT=3001 node packages/mcp/dist/http.js
  */
 
+import "./env.js";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
