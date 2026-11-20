@@ -1,4 +1,4 @@
-import { ApprovalEngine } from '../approval-engine';
+import { ApprovalEngine, NoApproverError } from '../approval-engine';
 import type { ApprovalRule } from '@sse/shared';
 
 describe('ApprovalEngine', () => {
@@ -83,5 +83,85 @@ describe('ApprovalEngine', () => {
   it('returns null when no rule matches', async () => {
     const rule = await engine.matchRule(-1, []);
     expect(rule).toBeNull();
+  });
+});
+
+describe('ApprovalEngine approver resolution', () => {
+  const rule: ApprovalRule = {
+    id: 'r1',
+    name: 'Two step',
+    minAmount: 0,
+    maxAmount: 10000,
+    categoryIds: [],
+    approvalChain: [
+      { step: 1, role: 'dept_approver', label: '部门审批' },
+      { step: 2, role: 'finance', label: '财务审批' },
+    ],
+    priority: 1,
+    isActive: true,
+  };
+
+  const ruleRepo = {
+    findActive: async () => [rule],
+    findById: async () => rule,
+    findAll: async () => [rule],
+    create: async () => ({}) as any,
+    update: async () => {},
+    delete: async () => {},
+  };
+
+  function recordRepo() {
+    return {
+      findByReportId: async () => [],
+      findPendingOverdue: async () => [],
+      create: async (r: any) => ({ ...r, id: 'ar-1' }),
+      updateResult: async () => {},
+      markReminderSent: async () => {},
+      markEscalated: async () => {},
+    };
+  }
+
+  it('stores a real user id for a role-based first step', async () => {
+    const userRepo = {
+      findById: async () => null,
+      findByRole: async (role: string, department?: string) =>
+        role === 'dept_approver' && department === 'tech'
+          ? [{ id: 'dept-1' } as any]
+          : [],
+    };
+    const engine = new ApprovalEngine(ruleRepo, recordRepo());
+
+    const record = await engine.startApproval('report-1', rule, userRepo as any, 'tech');
+
+    expect(record.approverId).toBe('dept-1');
+  });
+
+  it('does not apply the applicant department to finance steps', async () => {
+    const calls: Array<[string, string | undefined]> = [];
+    const userRepo = {
+      findById: async () => null,
+      findByRole: async (role: string, department?: string) => {
+        calls.push([role, department]);
+        return role === 'finance' ? [{ id: 'fin-1' } as any] : [];
+      },
+    };
+    const engine = new ApprovalEngine(ruleRepo, recordRepo());
+
+    const record = await engine.createNextStep('report-1', rule, 1, userRepo as any, 'tech');
+
+    expect(record?.approverId).toBe('fin-1');
+    expect(calls).toContainEqual(['finance', undefined]);
+  });
+
+  it('fails instead of writing a role string when no approver exists', async () => {
+    const userRepo = {
+      findById: async () => null,
+      findByRole: async () => [],
+    };
+    const engine = new ApprovalEngine(ruleRepo, recordRepo());
+
+    await expect(
+      engine.startApproval('report-1', rule, userRepo as any, 'tech')
+    ).rejects.toBeInstanceOf(NoApproverError);
   });
 });

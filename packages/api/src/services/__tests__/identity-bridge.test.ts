@@ -8,6 +8,7 @@ import { IdentityBridge } from '../identity-bridge';
 import { AppError } from '../../middleware/error';
 
 beforeEach(() => {
+  process.env.AUDIT_EVENTS = '0';
   mockQuery.mockReset();
   mockQuery.mockResolvedValue({ rows: [] });
   jest.spyOn(console, 'error').mockImplementation(() => {});

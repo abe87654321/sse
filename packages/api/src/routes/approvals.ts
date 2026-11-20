@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { PgApprovalRecordRepo, PgExpenseRepo, PgApprovalRuleRepo, PgUserRepo, pool } from '@sse/db';
-import { ApprovalEngine, aggregateVerificationStatus } from '@sse/core';
+import { ApprovalEngine, aggregateVerificationStatus, NoApproverError } from '@sse/core';
 import { ApprovalResult, ReportStatus, UserRole } from '@sse/shared';
 import { expenseApprovedMessage, expenseRejectedMessage } from '@sse/notifications';
 import { authMiddleware } from '@sse/auth';
@@ -32,7 +32,7 @@ router.use(authMiddleware);
 router.get(
   '/pending',
   asyncWrap(async (req, res) => {
-    const { role, department } = req.user!;
+    const { role, department, userId } = req.user!;
 
     if (role !== UserRole.DEPT_APPROVER && role !== UserRole.FINANCE && role !== UserRole.ADMIN) {
       throw new AppError(403, 'UNAUTHORIZED', '无权查看审批列表');
@@ -58,10 +58,10 @@ router.get(
         JOIN expense_reports er ON er.id = ar.report_id
         JOIN users u ON u.id = er.user_id
         WHERE ar.result = $1
-          AND ar.approver_id = $2
+          AND (ar.approver_id::text = $2 OR ar.approver_id::text = $3)
         ORDER BY ar.step_started_at DESC
       `;
-      values = [ApprovalResult.PENDING, role];
+      values = [ApprovalResult.PENDING, userId, role];
     } else {
       query = `
         SELECT ar.*, er.serial_no, er.title, er.total_amount, er.user_id, u.name as applicant_name, u.department
@@ -69,11 +69,11 @@ router.get(
         JOIN expense_reports er ON er.id = ar.report_id
         JOIN users u ON u.id = er.user_id
         WHERE ar.result = $1
-          AND ar.approver_id = $2
-          AND u.department = $3
+          AND (ar.approver_id::text = $2 OR ar.approver_id::text = $3)
+          AND u.department = $4
         ORDER BY ar.step_started_at DESC
       `;
-      values = [ApprovalResult.PENDING, role, department];
+      values = [ApprovalResult.PENDING, userId, role, department];
     }
 
     const { rows } = await pool.query(query, values);
@@ -161,13 +161,6 @@ router.post(
       );
     }
 
-    await engine.approveStep(
-      reportId,
-      pendingRecord.step,
-      ApprovalResult.APPROVED,
-      comment
-    );
-
     const { rows: items } = await pool.query(
       'SELECT category_id FROM expense_items WHERE report_id = $1',
       [reportId]
@@ -175,6 +168,46 @@ router.post(
     const categoryIds = items.map((r: any) => r.category_id);
 
     const matchedRule = await engine.matchRule(report.totalAmount, categoryIds);
+    const userRepo = new PgUserRepo();
+    const reporter = await userRepo.findById(report.userId);
+    const ownerDepartment = reporter?.department || '';
+
+    let isLast = true;
+    if (matchedRule) {
+      if (matchedRule.approvalChain.length > 1) {
+        const { effectiveChain, merged } = await engine.dedupeApprovalChain(
+          matchedRule, userRepo, ownerDepartment
+        );
+        if (merged) {
+          matchedRule.approvalChain = effectiveChain;
+        }
+      }
+
+      isLast = engine.isLastStep(matchedRule, pendingRecord.step);
+      if (!isLast) {
+        try {
+          await engine.resolveNextAssignee(
+            matchedRule,
+            pendingRecord.step,
+            userRepo,
+            ownerDepartment
+          );
+        } catch (error) {
+          if (error instanceof NoApproverError) {
+            throw new AppError(400, 'NO_APPROVER', '未找到下一审批步骤的审批人，请检查部门与角色配置');
+          }
+          throw error;
+        }
+      }
+    }
+
+    await engine.approveStep(
+      reportId,
+      pendingRecord.step,
+      ApprovalResult.APPROVED,
+      comment
+    );
+
     if (!matchedRule) {
       await expenseRepo.updateStatus(reportId, ReportStatus.APPROVED);
       notifyApproved(report);
@@ -182,31 +215,30 @@ router.post(
       return;
     }
 
-    if (matchedRule.approvalChain.length > 1) {
-      const userRepo = new PgUserRepo();
-      const reporter = await userRepo.findById(report.userId);
-      const dept = reporter?.department || '';
-      const { effectiveChain, merged } = await engine.dedupeApprovalChain(
-        matchedRule, userRepo, dept
+    if (isLast) {
+      await expenseRepo.updateStatus(reportId, ReportStatus.APPROVED);
+      notifyApproved(report);
+      res.json({ message: '审批成功，流程结束', result: ApprovalResult.APPROVED });
+      return;
+    }
+
+    let nextRecord;
+    try {
+      nextRecord = await engine.createNextStep(
+        reportId,
+        matchedRule,
+        pendingRecord.step,
+        userRepo,
+        ownerDepartment
       );
-      if (merged) {
-        matchedRule.approvalChain = effectiveChain;
+    } catch (error) {
+      if (error instanceof NoApproverError) {
+        throw new AppError(400, 'NO_APPROVER', '未找到下一审批步骤的审批人，请检查部门与角色配置');
       }
+      throw error;
     }
-
-    if (engine.isLastStep(matchedRule, pendingRecord.step)) {
-      await expenseRepo.updateStatus(reportId, ReportStatus.APPROVED);
-      notifyApproved(report);
-      res.json({ message: '审批成功，流程结束', result: ApprovalResult.APPROVED });
-      return;
-    }
-
-    const nextRecord = await engine.createNextStep(reportId, matchedRule, pendingRecord.step);
     if (!nextRecord) {
-      await expenseRepo.updateStatus(reportId, ReportStatus.APPROVED);
-      notifyApproved(report);
-      res.json({ message: '审批成功，流程结束', result: ApprovalResult.APPROVED });
-      return;
+      throw new AppError(400, 'NO_APPROVER', '未找到下一审批步骤的审批人，请检查部门与角色配置');
     }
 
     await expenseRepo.updateStatus(reportId, ReportStatus.PENDING, nextRecord.step);

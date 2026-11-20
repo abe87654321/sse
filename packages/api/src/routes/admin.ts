@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { PgUserRepo, PgApprovalRuleRepo, pool } from '@sse/db';
+import { PgUserRepo, PgApprovalRuleRepo, PgAuditRepo, pool } from '@sse/db';
 import { authMiddleware, hashPassword, validatePassword } from '@sse/auth';
 import { requireRole } from '../middleware/rbac';
 import { UserRole } from '@sse/shared';
@@ -97,6 +97,45 @@ function enforceRateLimit(req: Request, _res: Response, next: NextFunction) {
 
 router.use(authMiddleware);
 router.use(requireRole(UserRole.ADMIN));
+
+let auditRepo: PgAuditRepo | null = null;
+function getAuditRepo(): PgAuditRepo {
+  if (!auditRepo) auditRepo = new PgAuditRepo();
+  return auditRepo;
+}
+
+function parseAuditDate(value: unknown, label: string): string | undefined {
+  if (value === undefined || value === '') return undefined;
+  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
+    throw new AppError(400, 'INVALID_PARAMS', `${label} 时间格式无效`);
+  }
+  return value;
+}
+
+router.get(
+  '/audit-events',
+  asyncWrap(async (req, res) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const stringParam = (value: unknown): string | undefined =>
+      typeof value === 'string' && value !== '' ? value : undefined;
+
+    const { items, total } = await getAuditRepo().query({
+      source: stringParam(req.query.source),
+      action: stringParam(req.query.action),
+      actorId: stringParam(req.query.actorId),
+      entityType: stringParam(req.query.entityType),
+      entityId: stringParam(req.query.entityId),
+      outcome: stringParam(req.query.outcome),
+      from: parseAuditDate(req.query.from, 'from'),
+      to: parseAuditDate(req.query.to, 'to'),
+      limit,
+      offset,
+    });
+
+    res.json({ items, total, limit, offset });
+  })
+);
 
 // ========== 用户管理 ==========
 

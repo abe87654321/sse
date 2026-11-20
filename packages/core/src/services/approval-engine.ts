@@ -4,6 +4,16 @@ import type { IApprovalRuleRepo } from '../ports/iapproval-rule-repo';
 import type { IApprovalRecordRepo } from '../ports/iapproval-record-repo';
 import type { IUserRepo } from '../ports/iuser-repo';
 
+export class NoApproverError extends Error {
+  constructor(
+    public readonly step: number,
+    public readonly role?: string
+  ) {
+    super(`no approver found for approval step ${step}${role ? ` (${role})` : ''}`);
+    this.name = 'NoApproverError';
+  }
+}
+
 export class ApprovalEngine {
   constructor(
     private readonly ruleRepo: IApprovalRuleRepo,
@@ -26,6 +36,10 @@ export class ApprovalEngine {
     return matching[0] ?? null;
   }
 
+  private departmentForRole(role: string | undefined, ownerDepartment: string): string | undefined {
+    return role === 'dept_approver' ? ownerDepartment : undefined;
+  }
+
   async resolveApprovers(
     rule: ApprovalRule,
     userRepo: IUserRepo,
@@ -37,13 +51,35 @@ export class ApprovalEngine {
         const user = await userRepo.findById(step.assigneeId);
         stepApprovers.set(step.step, user ? [user.id] : []);
       } else if (step.role) {
-        const users = await userRepo.findByRole(step.role, department);
+        const users = await userRepo.findByRole(
+          step.role,
+          this.departmentForRole(step.role, department)
+        );
         stepApprovers.set(step.step, users.map((u) => u.id));
       } else {
         stepApprovers.set(step.step, []);
       }
     }
     return stepApprovers;
+  }
+
+  async resolveStepAssignee(
+    step: ApprovalRule['approvalChain'][number],
+    userRepo: IUserRepo,
+    ownerDepartment: string,
+  ): Promise<string | null> {
+    if (step.assigneeId) {
+      const user = await userRepo.findById(step.assigneeId);
+      return user?.id ?? null;
+    }
+    if (step.role) {
+      const users = await userRepo.findByRole(
+        step.role,
+        this.departmentForRole(step.role, ownerDepartment)
+      );
+      return users[0]?.id ?? null;
+    }
+    return null;
   }
 
   async dedupeApprovalChain(
@@ -77,12 +113,21 @@ export class ApprovalEngine {
     return { effectiveChain, merged: true };
   }
 
-  async startApproval(reportId: string, rule: ApprovalRule): Promise<ApprovalRecord> {
+  async startApproval(
+    reportId: string,
+    rule: ApprovalRule,
+    userRepo: IUserRepo,
+    ownerDepartment: string,
+  ): Promise<ApprovalRecord> {
     const firstStep = rule.approvalChain[0];
+    if (!firstStep) throw new NoApproverError(0);
+    const approverId = await this.resolveStepAssignee(firstStep, userRepo, ownerDepartment);
+    if (!approverId) throw new NoApproverError(firstStep.step, firstStep.role);
+
     const record: Omit<ApprovalRecord, 'id'> = {
       reportId,
       step: firstStep.step,
-      approverId: firstStep.assigneeId || firstStep.role || '',
+      approverId,
       stepStartedAt: new Date(),
       result: ApprovalResult.PENDING,
     };
@@ -103,18 +148,47 @@ export class ApprovalEngine {
     }
   }
 
-  async createNextStep(reportId: string, rule: ApprovalRule, currentStep: number): Promise<ApprovalRecord | null> {
+  private nextStep(
+    rule: ApprovalRule,
+    currentStep: number
+  ): ApprovalRule['approvalChain'][number] | null {
     const chain = rule.approvalChain;
     const currentIndex = chain.findIndex((s) => s.step === currentStep);
     if (currentIndex < 0 || currentIndex >= chain.length - 1) return null;
+    return chain[currentIndex + 1];
+  }
 
-    const nextStep = chain[currentIndex + 1];
-    if (!nextStep.role && !nextStep.assigneeId) return null;
+  async resolveNextAssignee(
+    rule: ApprovalRule,
+    currentStep: number,
+    userRepo: IUserRepo,
+    ownerDepartment: string,
+  ): Promise<string | null> {
+    const nextStep = this.nextStep(rule, currentStep);
+    if (!nextStep || (!nextStep.role && !nextStep.assigneeId)) return null;
+
+    const approverId = await this.resolveStepAssignee(nextStep, userRepo, ownerDepartment);
+    if (!approverId) throw new NoApproverError(nextStep.step, nextStep.role);
+    return approverId;
+  }
+
+  async createNextStep(
+    reportId: string,
+    rule: ApprovalRule,
+    currentStep: number,
+    userRepo: IUserRepo,
+    ownerDepartment: string,
+  ): Promise<ApprovalRecord | null> {
+    const nextStep = this.nextStep(rule, currentStep);
+    if (!nextStep || (!nextStep.role && !nextStep.assigneeId)) return null;
+
+    const approverId = await this.resolveStepAssignee(nextStep, userRepo, ownerDepartment);
+    if (!approverId) throw new NoApproverError(nextStep.step, nextStep.role);
 
     const record: Omit<ApprovalRecord, 'id'> = {
       reportId,
       step: nextStep.step,
-      approverId: nextStep.assigneeId || nextStep.role || '',
+      approverId,
       stepStartedAt: new Date(),
       result: ApprovalResult.PENDING,
     };

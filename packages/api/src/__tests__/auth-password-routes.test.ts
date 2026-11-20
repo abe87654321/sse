@@ -127,6 +127,7 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  process.env.AUDIT_EVENTS = '0';
   for (const mock of Object.values(mocks)) mock.mockReset();
   mocks.query.mockResolvedValue({ rows: [] });
   __resetLoginRateLimitForTests();

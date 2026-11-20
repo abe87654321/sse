@@ -21,6 +21,7 @@ function listen(app: express.Express): Promise<{ url: string; server: Server }> 
 }
 
 beforeAll(async () => {
+  process.env.AUDIT_EVENTS = '0';
   jest.spyOn(console, 'warn').mockImplementation(() => {});
   jest.spyOn(console, 'error').mockImplementation(() => {});
   const app = express();

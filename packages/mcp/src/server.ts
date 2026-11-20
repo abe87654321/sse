@@ -28,6 +28,7 @@ import * as impactAnalysisTool from "./tools/impact-analysis.js";
 import * as findAnomaliesTool from "./tools/find-anomalies.js";
 import * as getOntologySchemaTool from "./tools/get-ontology-schema.js";
 import { checkRateLimit, pruneRateLimitStore, type RateLimitWindow } from "@sse/auth";
+import { PgAuditRepo } from "@sse/db";
 import { resolveAuthContext } from "./auth.js";
 import { errorResult } from "./tools/types.js";
 import type { ToolDefinition, ToolResult } from "./tools/types.js";
@@ -82,6 +83,43 @@ function audit(event: Record<string, unknown>): void {
   console.error(`[mcp-audit] ${JSON.stringify({ ts: new Date().toISOString(), ...event })}`);
 }
 
+let auditRepo: PgAuditRepo | null = null;
+
+function persistAudit(event: {
+  tool: string | null;
+  userId: string | null;
+  role: string | null;
+  ok: boolean;
+  durationMs: number;
+  errorCode?: string | null;
+  resultCount?: number | null;
+  timedOut?: boolean;
+}): void {
+  if (!AUDIT_ENABLED || process.env.AUDIT_EVENTS === "0") return;
+  if (!auditRepo) auditRepo = new PgAuditRepo();
+
+  void auditRepo
+    .insert({
+      actorType: event.userId ? "user" : "system",
+      actorId: event.userId,
+      actorRole: event.role,
+      source: "mcp",
+      action: "mcp.tool_call",
+      entityType: "mcp_tool",
+      entityId: event.tool,
+      outcome: event.ok ? "success" : "failure",
+      details: {
+        duration_ms: event.durationMs,
+        error_code: event.errorCode ?? null,
+        result_count: event.resultCount ?? null,
+        timed_out: event.timedOut ?? false,
+      },
+    })
+    .catch(() => {
+      // Audit persistence must never break tool calls.
+    });
+}
+
 function auditCall(event: {
   tool: string | null;
   userId: string | null;
@@ -102,6 +140,7 @@ function auditCall(event: {
     result_count: event.resultCount ?? null,
     timed_out: event.timedOut ?? false,
   });
+  persistAudit(event);
 }
 
 export class ToolTimeoutError extends Error {

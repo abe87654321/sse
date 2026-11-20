@@ -1,3 +1,5 @@
+import { recordAuditEvent } from './audit';
+
 export type IdentityAuditOutcome = 'success' | 'rejected' | 'error';
 
 export interface IdentityAuditEvent {
@@ -18,4 +20,20 @@ export function auditIdentityEvent(event: IdentityAuditEvent): void {
       ...event,
     })}`
   );
+
+  void recordAuditEvent({
+    actorType: 'service',
+    actorId: event.source,
+    source: event.source,
+    action: event.action,
+    entityType: 'user',
+    entityId: event.localUserId || event.externalId || null,
+    outcome: event.outcome === 'success' ? 'success' : event.outcome === 'rejected' ? 'denied' : 'failure',
+    ip: event.ip,
+    details: {
+      externalId: event.externalId,
+      role: event.role,
+      reason: event.reason,
+    },
+  });
 }

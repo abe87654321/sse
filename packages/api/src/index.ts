@@ -21,6 +21,7 @@ import { scimRoutes } from './routes/scim';
 import { webhookRoutes } from './routes/webhook';
 import { serviceTokenAuth } from './middleware/service-auth';
 import { captureRawBody, serviceSignatureAuth } from './middleware/service-signature';
+import { attachRequestId, auditMutations } from './services/audit';
 import { errorHandler } from './middleware/error';
 import { buildOpenApiDocument } from './openapi';
 import { processPendingPaymentReceipts } from './services/payment-receipt-verifier';
@@ -50,6 +51,8 @@ if (trustProxy && trustProxy !== '0' && trustProxy !== 'false') {
 
 app.use(cors());
 app.use(express.json({ limit: '10mb', verify: captureRawBody }));
+app.use(attachRequestId);
+app.use(auditMutations);
 
 app.use('/auth', authRoutes);
 app.use('/expenses', expenseRoutes);

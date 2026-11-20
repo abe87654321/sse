@@ -7,6 +7,8 @@ import {
 } from "../server";
 import { registerApiKey } from "../auth";
 
+process.env.AUDIT_EVENTS = "0";
+
 const KEY = "server-test-key";
 registerApiKey(KEY, { userId: "u1", role: "admin", department: "管理部" });
 

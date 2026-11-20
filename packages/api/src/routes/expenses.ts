@@ -10,7 +10,7 @@ import {
   pool,
   withTransaction,
 } from '@sse/db';
-import { ReportService, aggregateVerificationStatus, planItemSync, shouldReOcr, verifyInvoices, evaluateReportDeletion } from '@sse/core';
+import { ReportService, aggregateVerificationStatus, planItemSync, shouldReOcr, verifyInvoices, evaluateReportDeletion, NoApproverError } from '@sse/core';
 import { ReportStatus, InvoiceFormat, UserRole, ApprovalResult } from '@sse/shared';
 import { paymentPaidMessage } from '@sse/notifications';
 import { sendNotificationSafe } from '../services/notifications';
@@ -22,6 +22,7 @@ import { AppError } from '../middleware/error';
 import { MinioStorage } from '../storage/minio-storage';
 import { createOCREngine } from '../services/ai-engines';
 import { sendAttachment } from '../services/attachment';
+import { auditFromRequest } from '../services/audit';
 import {
   queuePaymentReceiptVerification,
   runPaymentReceiptVerification,
@@ -237,7 +238,10 @@ router.get(
     let canApprove = false;
     let canReject = false;
     if (isPending && !isOwner) {
-      const pendingRecord = records.find((r: { result: string; approverId: string }) => r.result === ApprovalResult.PENDING && r.approverId === role);
+      const pendingRecord = records.find((r: { result: string; approverId: string }) =>
+        r.result === ApprovalResult.PENDING &&
+        (r.approverId === userId || r.approverId === role)
+      );
       if (pendingRecord) {
         canApprove = true;
         canReject = true;
@@ -442,6 +446,14 @@ router.get(
     }
 
     const buffer = await minio.getObject(receipt.storageKey, receipt.storageBucket);
+    await auditFromRequest(req, {
+      source: 'api',
+      action: 'payment_receipt.download',
+      entityType: 'payment_receipt',
+      entityId: receipt.id,
+      outcome: 'success',
+      details: { reportId: report.id },
+    });
     sendAttachment(res, buffer, receipt.fileName);
   })
 );
@@ -787,11 +799,12 @@ router.post(
     const matchedRule = await engine.matchRule(report.totalAmount, categoryIds);
     console.log('[Submit] totalAmount:', report.totalAmount, 'categoryIds:', categoryIds, 'matchedRule:', matchedRule?.name || 'NONE', 'chainLen:', matchedRule?.approvalChain?.length);
 
+    const userRepo = new PgUserRepo();
+    const reporter = await userRepo.findById(report.userId);
+    const dept = reporter?.department || '';
+
     let effectiveChain = matchedRule?.approvalChain;
     if (matchedRule && matchedRule.approvalChain.length > 1) {
-      const userRepo = new PgUserRepo();
-      const reporter = await userRepo.findById(report.userId);
-      const dept = reporter?.department || '';
       const { effectiveChain: dedupedChain, merged } = await engine.dedupeApprovalChain(
         matchedRule, userRepo, dept
       );
@@ -806,9 +819,16 @@ router.post(
       const firstStep = matchedRule.approvalChain[0];
       console.log('[Submit] firstStep:', JSON.stringify(firstStep));
       if (firstStep.role || firstStep.assigneeId) {
-        const record = await engine.startApproval(id, matchedRule);
-        console.log('[Submit] startApproval OK, record step:', record.step);
-        currentStep = record.step;
+        try {
+          const record = await engine.startApproval(id, matchedRule, userRepo, dept);
+          console.log('[Submit] startApproval OK, record step:', record.step);
+          currentStep = record.step;
+        } catch (error) {
+          if (error instanceof NoApproverError) {
+            throw new AppError(400, 'NO_APPROVER', '未找到该审批步骤的审批人，请检查部门与角色配置');
+          }
+          throw error;
+        }
       } else {
         console.log('[Submit] firstStep has no role or assigneeId, skipping startApproval');
       }
@@ -948,6 +968,14 @@ router.get(
     await assertReportAccess(report, req.user!);
 
     const buffer = await minio.getObject(inv.storageKey, inv.storageBucket);
+    await auditFromRequest(req, {
+      source: 'api',
+      action: 'invoice.download',
+      entityType: 'invoice',
+      entityId: inv.id,
+      outcome: 'success',
+      details: { reportId: report.id, itemId: inv.itemId },
+    });
     sendAttachment(res, buffer, inv.fileName);
   })
 );

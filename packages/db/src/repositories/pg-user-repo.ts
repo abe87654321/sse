@@ -68,13 +68,13 @@ export class PgUserRepo implements IUserRepo {
   async findByRole(role: string, department?: string): Promise<User[]> {
     if (department) {
       const { rows } = await pool.query(
-        `SELECT ${USER_COLUMNS} FROM users WHERE role = $1 AND department = $2 AND status = 'active'`,
+        `SELECT ${USER_COLUMNS} FROM users WHERE role = $1 AND department = $2 AND status = 'active' ORDER BY name`,
         [role, department]
       );
       return rows.map(mapUser);
     }
     const { rows } = await pool.query(
-      `SELECT ${USER_COLUMNS} FROM users WHERE role = $1 AND status = 'active'`,
+      `SELECT ${USER_COLUMNS} FROM users WHERE role = $1 AND status = 'active' ORDER BY name`,
       [role]
     );
     return rows.map(mapUser);

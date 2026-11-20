@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { auditFromRequest } from '../services/audit';
 import { PgExpenseRepo, pool } from '@sse/db';
 import { authMiddleware } from '@sse/auth';
 import { requireRole } from '../middleware/rbac';
@@ -100,6 +101,19 @@ router.get(
        ORDER BY er.created_at DESC`,
       [dateFrom || null, dateTo || null]
     );
+
+    await auditFromRequest(req, {
+      source: 'api',
+      action: 'statistics.export',
+      entityType: 'statistics',
+      outcome: 'success',
+      details: {
+        format: req.query.format === 'csv' || req.headers.accept?.includes('text/csv') ? 'csv' : 'json',
+        dateFrom: dateFrom || null,
+        dateTo: dateTo || null,
+        rows: rows.length,
+      },
+    });
 
     if (req.query.format === 'csv' || req.headers.accept?.includes('text/csv')) {
       const headers = ['编号', '标题', '申请人', '部门', '金额', '状态', '创建时间', '提交时间', '完成时间'];

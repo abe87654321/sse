@@ -18,6 +18,7 @@ import { AppError } from '../middleware/error';
 import { pool } from '@sse/db';
 import { uploadAvatar, validateUploadSignature } from '../middleware/upload';
 import { MinioStorage } from '../storage/minio-storage';
+import { getRequestId, recordAuditEvent } from '../services/audit';
 
 const router = Router();
 const userRepo = new PgUserRepo();
@@ -47,12 +48,53 @@ function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Prom
   };
 }
 
+async function auditLogin(
+  req: Request,
+  outcome: 'success' | 'failure' | 'denied',
+  reason: string,
+  userId?: string
+): Promise<void> {
+  await recordAuditEvent({
+    actorType: userId ? 'user' : 'system',
+    actorId: userId ?? null,
+    source: 'auth',
+    action: outcome === 'success' ? 'login.success' : 'login.failure',
+    entityType: 'user',
+    entityId: userId ?? null,
+    outcome,
+    ip: req.ip ?? null,
+    requestId: getRequestId(req) ?? null,
+    details: { reason },
+  });
+}
+
+async function auditApiKeyLogin(
+  req: Request,
+  outcome: 'success' | 'failure' | 'denied',
+  reason: string,
+  userId?: string
+): Promise<void> {
+  await recordAuditEvent({
+    actorType: userId ? 'user' : 'system',
+    actorId: userId ?? null,
+    source: 'auth',
+    action: outcome === 'success' ? 'api_key.login.success' : 'api_key.login.failure',
+    entityType: 'user',
+    entityId: userId ?? null,
+    outcome,
+    ip: req.ip ?? null,
+    requestId: getRequestId(req) ?? null,
+    details: { reason },
+  });
+}
+
 router.post(
   '/login',
   asyncWrap(async (req, res) => {
     const { phone, password } = req.body;
 
     if (!phone || !password) {
+      await auditLogin(req, 'failure', 'missing_credentials');
       throw new AppError(400, 'INVALID_PARAMS', '手机号和密码不能为空');
     }
 
@@ -62,18 +104,21 @@ router.post(
       windowMs: LOGIN_RATE_LIMIT_WINDOW_MS,
     });
     if (!limited.allowed) {
+      await auditLogin(req, 'denied', 'rate_limited');
       throw new AppError(429, 'RATE_LIMITED', '登录尝试过于频繁，请稍后重试');
     }
 
     // bcrypt only considers the first 72 UTF-8 bytes; reject longer input so it
     // can never match by truncation.
     if (Buffer.byteLength(password, 'utf8') > MAX_PASSWORD_BYTES) {
+      await auditLogin(req, 'failure', 'password_too_long');
       throw new AppError(401, 'UNAUTHORIZED', '手机号或密码错误');
     }
 
     const credentials = await userRepo.findCredentialsByPhone(phone);
     if (!credentials) {
       await verifyPassword(password, dummyPasswordHash());
+      await auditLogin(req, 'failure', 'unknown_user');
       throw new AppError(401, 'UNAUTHORIZED', '手机号或密码错误');
     }
 
@@ -83,10 +128,12 @@ router.post(
     // reveals whether a phone number exists or is disabled.
     const verified = await verifyPassword(password, passwordHash);
     if (!verified.ok) {
+      await auditLogin(req, 'failure', 'bad_password', user.id);
       throw new AppError(401, 'UNAUTHORIZED', '手机号或密码错误');
     }
 
     if (user.status !== 'active') {
+      await auditLogin(req, 'failure', 'disabled', user.id);
       throw new AppError(403, 'UNAUTHORIZED', '账号已被禁用');
     }
 
@@ -110,6 +157,8 @@ router.post(
       department: user.department,
     });
     const refreshToken = signRefreshToken(user.id);
+
+    await auditLogin(req, 'success', 'ok', user.id);
 
     res.json({
       accessToken,
@@ -144,19 +193,23 @@ router.post(
       [apiKey]
     );
     if (rows.length === 0) {
+      await auditApiKeyLogin(req, 'failure', 'invalid_key');
       throw new AppError(401, 'UNAUTHORIZED', '无效的 API key');
     }
     const keyRow = rows[0];
     if (!keyRow.is_active) {
+      await auditApiKeyLogin(req, 'failure', 'key_disabled', keyRow.user_id);
       throw new AppError(403, 'UNAUTHORIZED', 'API key 已被禁用');
     }
 
     // 角色随 key 绑定用户走：加载该用户，按用户当前角色/部门签发 JWT
     const user = await userRepo.findById(keyRow.user_id);
     if (!user) {
+      await auditApiKeyLogin(req, 'failure', 'user_missing', keyRow.user_id);
       throw new AppError(401, 'UNAUTHORIZED', 'API key 绑定的用户不存在');
     }
     if (user.status !== 'active') {
+      await auditApiKeyLogin(req, 'failure', 'user_disabled', user.id);
       throw new AppError(403, 'UNAUTHORIZED', '账号已被禁用');
     }
 
@@ -167,6 +220,8 @@ router.post(
       role: user.role,
       department: user.department || keyRow.department || '',
     });
+
+    await auditApiKeyLogin(req, 'success', 'ok', user.id);
 
     res.json({
       accessToken,

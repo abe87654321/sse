@@ -48,6 +48,7 @@ function signedHeaders(body: string, secret: string, timestamp = Math.floor(Date
 }
 
 beforeAll(async () => {
+  process.env.AUDIT_EVENTS = '0';
   jest.spyOn(console, 'warn').mockImplementation(() => {});
   jest.spyOn(console, 'error').mockImplementation(() => {});
   ({ url, server } = await listen(buildApp()));

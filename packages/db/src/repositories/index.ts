@@ -7,5 +7,13 @@ export { PgNotificationLogRepo } from './pg-notification-log-repo';
 export { PgReasoningRuleRepo } from './pg-reasoning-rule-repo';
 export { PgPaymentReceiptRepo } from './pg-payment-receipt-repo';
 export { PgPaymentAuditRepo } from './pg-payment-audit-repo';
+export { PgAuditRepo } from './pg-audit-repo';
+export type {
+  AuditActorType,
+  AuditEvent,
+  AuditEventInput,
+  AuditOutcome,
+  AuditQuery,
+} from './pg-audit-repo';
 export * from './pg-notification-repo';
 
