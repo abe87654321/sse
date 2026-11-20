@@ -10,7 +10,7 @@ import {
   pool,
   withTransaction,
 } from '@sse/db';
-import { ReportService, aggregateVerificationStatus, planItemSync, shouldReOcr, verifyInvoices } from '@sse/core';
+import { ReportService, aggregateVerificationStatus, planItemSync, shouldReOcr, verifyInvoices, evaluateReportDeletion } from '@sse/core';
 import { ReportStatus, InvoiceFormat, UserRole, ApprovalResult } from '@sse/shared';
 import { paymentPaidMessage } from '@sse/notifications';
 import { sendNotificationSafe } from '../services/notifications';
@@ -247,7 +247,7 @@ router.get(
     const viewerActions = {
       canEdit: (!isApprovedOrPaid && (isAdmin || (isOwner && isDraftOrRejected))),
       canSubmit: (!isApprovedOrPaid && (isAdmin || (isOwner && isDraftOrRejected))),
-      canDelete: !isPaid && (isAdmin || (isOwner && report.status === ReportStatus.DRAFT)),
+      canDelete: report.status === ReportStatus.DRAFT && (isAdmin || isOwner),
       canApprove: (!isApprovedOrPaid && isAdmin) || canApprove,
       canReject: (!isApprovedOrPaid && isAdmin) || canReject,
       canPay: (isAdmin || isFinance) && report.status === ReportStatus.APPROVED,
@@ -833,15 +833,26 @@ router.delete(
     if (!report) {
       throw new AppError(404, 'NOT_FOUND', '报销单不存在');
     }
-    if (report.status === ReportStatus.PAID) {
-      throw new AppError(400, 'INVALID_PARAMS', '已付款单据不可删除');
-    }
-    const isAdminDelete = req.user!.role === UserRole.ADMIN;
-    if (!isAdminDelete && report.userId !== req.user!.userId) {
-      throw new AppError(403, 'UNAUTHORIZED', '无权删除此报销单');
-    }
-    if (!isAdminDelete && report.status !== ReportStatus.DRAFT) {
-      throw new AppError(400, 'INVALID_PARAMS', '只能删除草稿状态的报销单');
+
+    const { rows: auditRows } = await pool.query(
+      `SELECT
+         EXISTS (SELECT 1 FROM approval_records WHERE report_id = $1) AS has_approval,
+         EXISTS (SELECT 1 FROM payment_audit_logs WHERE report_id = $1) AS has_payment_audit`,
+      [id]
+    );
+    const decision = evaluateReportDeletion({
+      status: report.status,
+      actorRole: req.user!.role,
+      actorId: req.user!.userId,
+      ownerId: report.userId,
+      hasAuditRecords: Boolean(auditRows[0]?.has_approval || auditRows[0]?.has_payment_audit),
+    });
+    if (!decision.allowed) {
+      throw new AppError(
+        decision.code === 'FORBIDDEN' ? 403 : 409,
+        decision.code,
+        decision.message
+      );
     }
 
     const client = await pool.connect();

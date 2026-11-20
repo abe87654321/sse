@@ -100,6 +100,7 @@ export class PgUserRepo implements IUserRepo {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      await client.query("SET LOCAL sse.allow_destructive_delete = 'on'");
 
       const optionalTables = [
         'DELETE FROM identity_mappings WHERE local_user_id::text = $1::text',
