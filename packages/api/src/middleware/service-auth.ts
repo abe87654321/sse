@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'crypto';
 import { Request, Response, NextFunction } from 'express';
+import { auditIdentityEvent } from '../services/identity-audit';
 
 const warned = new Set<string>();
 
@@ -35,11 +36,18 @@ function configuredToken(envNames: string[]): { envName: string; token: string }
  */
 export function serviceTokenAuth(...envNames: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
+    const label = envNames.join('/');
     const configured = configuredToken(envNames);
 
     if (!configured) {
-      const label = envNames.join('/');
       if (process.env.NODE_ENV === 'production') {
+        auditIdentityEvent({
+          source: label,
+          action: 'authenticate',
+          outcome: 'rejected',
+          reason: 'service_token_not_configured',
+          ip: req.ip,
+        });
         res.status(503).json({
           error: {
             code: 'SERVICE_TOKEN_NOT_CONFIGURED',
@@ -64,6 +72,13 @@ export function serviceTokenAuth(...envNames: string[]) {
     const provided = bearer || headerValue(req.headers['x-service-token']);
 
     if (!provided || !safeEqual(provided, configured.token)) {
+      auditIdentityEvent({
+        source: label,
+        action: 'authenticate',
+        outcome: 'rejected',
+        reason: 'invalid_service_token',
+        ip: req.ip,
+      });
       res.status(401).json({
         error: { code: 'UNAUTHORIZED', message: '无效的服务令牌' },
       });

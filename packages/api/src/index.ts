@@ -20,6 +20,7 @@ import { getEngine } from './routes/ontology-helpers';
 import { scimRoutes } from './routes/scim';
 import { webhookRoutes } from './routes/webhook';
 import { serviceTokenAuth } from './middleware/service-auth';
+import { captureRawBody, serviceSignatureAuth } from './middleware/service-signature';
 import { errorHandler } from './middleware/error';
 import { buildOpenApiDocument } from './openapi';
 import { processPendingPaymentReceipts } from './services/payment-receipt-verifier';
@@ -48,7 +49,7 @@ if (trustProxy && trustProxy !== '0' && trustProxy !== 'false') {
 }
 
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '10mb', verify: captureRawBody }));
 
 app.use('/auth', authRoutes);
 app.use('/expenses', expenseRoutes);
@@ -63,8 +64,21 @@ const ontologyV2Enabled = process.env.ONTOLOGY_V2 === 'on' || process.env.ONTOLO
 if (ontologyV2Enabled) app.use('/ontology', ontologyV2Routes);
 app.use('/ontology', ontologyRoutes);
 if (!ontologyV2Enabled) app.use('/ontology', ontologyV2UnavailableRoutes);
-app.use('/scim', serviceTokenAuth('SCIM_TOKEN'), scimRoutes);
-app.use('/webhook', serviceTokenAuth('MDM_TOKEN', 'WEBHOOK_TOKEN'), webhookRoutes);
+app.use(
+  '/scim',
+  serviceTokenAuth('SCIM_TOKEN'),
+  serviceSignatureAuth({ source: 'scim', secretEnv: 'SCIM_SIGNING_SECRET' }),
+  scimRoutes
+);
+app.use(
+  '/webhook',
+  serviceTokenAuth('MDM_TOKEN', 'WEBHOOK_TOKEN'),
+  serviceSignatureAuth({
+    source: 'mdm',
+    secretEnv: ['MDM_SIGNING_SECRET', 'WEBHOOK_SIGNING_SECRET'],
+  }),
+  webhookRoutes
+);
 
 app.get('/categories', async (_req, res, next) => {
   try {

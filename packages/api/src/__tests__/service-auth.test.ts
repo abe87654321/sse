@@ -22,6 +22,7 @@ function listen(app: express.Express): Promise<{ url: string; server: Server }> 
 
 beforeAll(async () => {
   jest.spyOn(console, 'warn').mockImplementation(() => {});
+  jest.spyOn(console, 'error').mockImplementation(() => {});
   const app = express();
   app.use(express.json());
   app.use('/scim', serviceTokenAuth('SCIM_TOKEN'), scimRoutes);
@@ -38,6 +39,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   (console.warn as jest.Mock).mockRestore();
+  (console.error as jest.Mock).mockRestore();
 });
 
 beforeEach(() => {

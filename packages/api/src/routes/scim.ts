@@ -14,8 +14,12 @@ router.get('/Schemas', (_req, res) => {
 });
 
 router.post('/Users', asyncWrap(async (req, res) => {
-  const result = await bridge.syncFromScim(req.body, 'scim');
-  res.status(result.created ? 201 : 200).json({ id: result.localUserId, meta: { resourceType: 'User' } });
+  const result = await bridge.syncFromScim(req.body, 'scim', { ip: req.ip });
+  res.status(result.created ? 201 : 200).json({
+    id: result.localUserId,
+    meta: { resourceType: 'User' },
+    'urn:sse:role': result.role,
+  });
 }));
 
 router.get('/Users/:id', asyncWrap(async (req, res) => {
