@@ -259,4 +259,81 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 1. 在测试机应用迁移 `021`、`022`，按第三节验证清单复测。
 2. 为生产配置 SCIM/MDM 签名密钥与角色白名单（见第二节部署要求）。
 3. 开始 P1 第 5 项：报销单内容快照（提交、每步审批、付款时保存不可变 JSON）。
-4. 注意：本次改动尚未提交 git；提交前检查 `git status`，不要把 `.env` 或密钥带入提交。
+
+---
+
+## 六、测试机部署与后台启动（收尾）
+
+### 1. 本次提交
+
+- `61e3000 feat: add audit events and resolve real approvers`
+- `0789d69 docs: record audit events and approver fixes`
+- 测试机拉取后 HEAD 应为 `0789d69`。
+
+### 2. 拉取与迁移
+
+```bash
+cd ~/projects/sse
+git status --short
+git fetch origin
+git checkout master
+git pull --ff-only
+git rev-parse --short HEAD          # 0789d69
+
+pnpm install
+pnpm -r build
+pnpm --filter @sse/db migrate
+
+docker compose exec -T postgres psql -U sse -d sse \
+  -c "SELECT version, applied_at FROM schema_migrations WHERE version IN ('021_guard_report_deletion','022_audit_events');"
+```
+
+### 3. 后台启动
+
+```bash
+cd ~/projects/sse
+export PATH=$HOME/.nvm/versions/node/v22.23.4/bin:$PATH
+
+sudo fuser -k 3000/tcp 3001/tcp 5173/tcp 2>/dev/null || true
+sleep 2
+ss -ltnp | grep -E ':(3000|3001|5173)\b' || echo "ports free"
+
+setsid nohup pnpm dev > /tmp/sse-dev.log 2>&1 < /dev/null &
+sleep 3
+DEV_PID=$(pgrep -f 'concurrently -k -n api,web,mcp' | head -n1)
+DEV_PGID=$(ps -o pgid= -p "$DEV_PID" | tr -d ' ')
+echo "$DEV_PGID" > /tmp/sse-dev.pgid
+echo "DEV_PID=$DEV_PID DEV_PGID=$DEV_PGID"
+
+sleep 6
+setsid nohup env MCP_TOOL_TIMEOUT_MS=180000 \
+  node --env-file=.env packages/mcp/dist/http.js \
+  > /tmp/sse-mcp-http.log 2>&1 < /dev/null &
+sleep 3
+MCP_PID=$(pgrep -f 'packages/mcp/dist/http.js' | head -n1)
+MCP_PGID=$(ps -o pgid= -p "$MCP_PID" | tr -d ' ')
+echo "$MCP_PGID" > /tmp/sse-mcp-http.pgid
+echo "MCP_PID=$MCP_PID MCP_PGID=$MCP_PGID"
+
+curl -sS http://127.0.0.1:3000/healthz; echo
+curl -sS http://127.0.0.1:3001/healthz; echo
+curl -sS -o /dev/null -w "web=%{http_code}\n" http://127.0.0.1:5173/
+```
+
+停止：
+
+```bash
+kill -TERM -$(cat /tmp/sse-dev.pgid) 2>/dev/null || true
+kill -TERM -$(cat /tmp/sse-mcp-http.pgid) 2>/dev/null || true
+```
+
+### 4. 本次踩坑
+
+- `pkill -f "ts-node src/index.ts"` 匹配不到实际进程，旧 API 继续占用 3000；
+  新 `pnpm dev` 的 API 报 `EADDRINUSE`，`concurrently -k` 随后杀掉 Web/MCP。
+  **按端口清理**（`fuser -k` 或 `lsof -ti:3000 | xargs kill`）最可靠。
+- `setsid` 可能 fork，`$!` 是包装进程，日志显示 `Done` 后不能用于 kill；
+  应记录 `ps -o pgid= -p <pid>` 得到的进程组，用 `kill -TERM -<pgid>`。
+- 后台 HTTP MCP 必须使用 `node --env-file=.env packages/mcp/dist/http.js`，
+  不要用 `pnpm mcp:http`，以免 `JWT_SECRET` 与 API 不一致。
+- 审计表初始 `COUNT(*) = 0` 正常；登录或增删改后再查应大于 0。

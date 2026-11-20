@@ -2,6 +2,7 @@
 
 > 日期：2026-11-09 | 适用：`master` | 读者：第一次部署的新手
 > 更新：2026-11-10 — 增加 MCP Streamable HTTP、OpenAPI、systemd 运维与相关环境变量
+> 更新：2026-11-20 — 增加审计事件、SCIM/MDM 请求签名、迁移 021/022 与后台启动方式
 > 配套文件：[README](../README.md) · [.env.example](../.env.example) · [docker-compose.yml](../docker-compose.yml) · [MinIO 镜像元信息](../images/minio/sse-minio-local.meta.txt)
 
 本指南只回答一件事：**怎样把 SSE 从零跑起来**。
@@ -344,6 +345,59 @@ pnpm mcp
 >
 > MCP 是可选能力。如果不需要 Agent 调用，可以只用上面的单进程命令启动 API 和 Web，
 > 避免 MCP 编译问题影响主流程。
+
+#### 2.6.1 后台启动（测试机 / 长期运行）
+
+前台 `pnpm dev` 适合调试；测试机或需要退出 SSH 后继续运行时，用 `setsid` 后台启动。
+**不要依赖 `pkill -f "ts-node src/index.ts"`**：实际命令行通常匹配不到，旧 API 仍会占用
+3000，随后 `concurrently -k` 会把 Web/MCP 一起杀掉。
+
+```bash
+cd ~/projects/sse
+export PATH=$HOME/.nvm/versions/node/v22.23.4/bin:$PATH
+
+# 清理旧进程：按端口最可靠
+sudo fuser -k 3000/tcp 3001/tcp 5173/tcp 2>/dev/null || true
+sleep 2
+ss -ltnp | grep -E ':(3000|3001|5173)\b' || echo "ports free"
+
+# API + Web + stdio MCP
+setsid nohup pnpm dev > /tmp/sse-dev.log 2>&1 < /dev/null &
+sleep 3
+DEV_PID=$(pgrep -f 'concurrently -k -n api,web,mcp' | head -n1)
+DEV_PGID=$(ps -o pgid= -p "$DEV_PID" | tr -d ' ')
+echo "$DEV_PGID" > /tmp/sse-dev.pgid
+echo "DEV_PID=$DEV_PID DEV_PGID=$DEV_PGID"
+
+# HTTP MCP：必须读取仓库根 .env
+setsid nohup env MCP_TOOL_TIMEOUT_MS=180000 \
+  node --env-file=.env packages/mcp/dist/http.js \
+  > /tmp/sse-mcp-http.log 2>&1 < /dev/null &
+sleep 3
+MCP_PID=$(pgrep -f 'packages/mcp/dist/http.js' | head -n1)
+MCP_PGID=$(ps -o pgid= -p "$MCP_PID" | tr -d ' ')
+echo "$MCP_PGID" > /tmp/sse-mcp-http.pgid
+echo "MCP_PID=$MCP_PID MCP_PGID=$MCP_PGID"
+
+# 健康检查
+curl -sS http://127.0.0.1:3000/healthz; echo
+curl -sS http://127.0.0.1:3001/healthz; echo
+curl -sS -o /dev/null -w "web=%{http_code}\n" http://127.0.0.1:5173/
+```
+
+停止（`setsid` 启动的是会话首进程，用负数 PGID 杀整组）：
+
+```bash
+kill -TERM -$(cat /tmp/sse-dev.pgid) 2>/dev/null || true
+kill -TERM -$(cat /tmp/sse-mcp-http.pgid) 2>/dev/null || true
+```
+
+要点：
+
+- 不要用 `pnpm mcp:http` 启动后台 HTTP MCP；直接
+  `node --env-file=.env packages/mcp/dist/http.js`，避免 `JWT_SECRET` 与 API 不一致。
+- `MCP_TOOL_TIMEOUT_MS=180000` 适配较慢的思考模型。
+- API 端口被占用时，`concurrently -k` 会连带杀掉 Web/MCP；先按端口清理再启动。
 
 ### 2.7 首次验收
 
@@ -816,6 +870,13 @@ VITE_API_BASE=https://api.example.com pnpm --filter @sse/web build
 - 关闭开发默认值：修改 `DB_PASSWORD`、MinIO 账号密码
 - `SMS_PROVIDER` / `EMAIL_PROVIDER` 按需开启
 - `MCP_API_KEYS` / `MCP_API_KEY` 按最小权限分配
+- `SCIM_TOKEN` / `MDM_TOKEN`：外部身份同步令牌（生产必填）
+- `SCIM_SIGNING_SECRET` / `MDM_SIGNING_SECRET`（或 `WEBHOOK_SIGNING_SECRET`）：
+  请求签名密钥；生产未配置时 SCIM/MDM 返回 `503 SIGNING_SECRET_NOT_CONFIGURED`
+- `SCIM_ALLOWED_ROLES` / `MDM_ALLOWED_ROLES`：外部可创建角色白名单，默认仅 `employee`；
+  `admin` 永远不允许由外部同步创建或提升
+- `AUDIT_EVENTS=1`：通用审计事件默认开启；生产不要设为 `0`
+- 本体 v2 与登录限流均要求**单 API 副本**
 
 完整变量见 [附录 A](#a-环境变量速查) 与 [.env.example](../.env.example)。
 
@@ -869,6 +930,7 @@ CREATE INDEX IF NOT EXISTS idx_mcp_api_keys_expires_at ON mcp_api_keys (expires_
 docker compose exec postgres psql -U sse -d sse \
   -c "SELECT version, applied_at FROM schema_migrations ORDER BY applied_at DESC LIMIT 3;"
 docker compose exec postgres psql -U sse -d sse -c "\d mcp_api_keys"
+docker compose exec postgres psql -U sse -d sse -c "\d audit_events"
 
 # API / OpenAPI / MCP HTTP
 curl -s http://127.0.0.1:3000/health
@@ -876,7 +938,7 @@ curl -s http://127.0.0.1:3000/openapi.json | head -c 160
 curl -s http://127.0.0.1:3001/healthz
 ```
 
-预期：`schema_migrations` 最新为 `014_mcp_api_key_expiry`；`mcp_api_keys` 含 `expires_at`；
+预期：`schema_migrations` 最新为 `022_audit_events`；`audit_events` 表存在；
 `/healthz` 返回 `status: ok`。
 
 > 若升级包含 MCP 依赖变更（如 SDK 1.x + zod），`pnpm install` 不可跳过。`pnpm dev` 只带
@@ -906,6 +968,39 @@ ONTOLOGY_SHADOW_INTERVAL_MS=300000
 > **单副本约束**：`ONTOLOGY_V2=shadow|on` 时只能运行 **一个 API 副本**。每个进程
 > 持有独立的内存 Oxigraph 图，额外副本会提供过期/分叉的图；扩容前需要共享图存储
 > 或 leader election。登录限流（10 次 / 15 分钟）同样是进程内计数，因此也要求单副本。
+
+#### 4.5.4 本轮升级（迁移 021 / 022）
+
+本轮新增：
+
+- `021_guard_report_deletion.sql`：非草稿报销单禁止物理删除；`approval_records`
+  外键改为 `ON DELETE RESTRICT`。级联删除功能保留，通过显式
+  `sse.allow_destructive_delete` 放行。
+- `022_audit_events.sql`：append-only `audit_events` 表、索引与禁止 UPDATE/DELETE 的触发器。
+
+升级顺序：
+
+```bash
+cd /path/to/sse
+git pull
+pnpm -r build
+pnpm --filter @sse/db migrate
+# 迁移完成后重启 API / Web / stdio MCP / HTTP MCP
+```
+
+验证：
+
+```bash
+docker compose exec -T postgres psql -U sse -d sse \
+  -c "SELECT version FROM schema_migrations WHERE version IN ('021_guard_report_deletion','022_audit_events');"
+
+docker compose exec -T postgres psql -U sse -d sse \
+  -c "SELECT COUNT(*) FROM audit_events;"
+```
+
+- 审计表初始为 0；登录一次或做一次增删改后再查应大于 0。
+- 审批人已改为真实用户 ID；升级后请用部门审批人/财务账号复测待办与审批流程。
+- SCIM/MDM 生产环境必须配置签名密钥和角色白名单，否则同步接口返回 503 或拒绝角色请求。
 
 ### 4.6 备份与恢复
 
@@ -940,10 +1035,13 @@ ONTOLOGY_SHADOW_INTERVAL_MS=300000
 - [ ] 用 `13800000000 / admin123` 登录成功
 - [ ] 能创建报销单（文字或发票上传）
 - [ ] 能提交审批
+- [ ] 部门审批人、财务能在待办看到自己（按真实 userId 匹配）
 - [ ] 审批人能看到待办并审批
 - [ ] 财务能打款（填写凭证号或上传回单）
 - [ ] 已打款单据不能删除
+- [ ] 非草稿单据删除返回 `409 REPORT_LOCKED`
 - [ ] 能查看统计和导出
+- [ ] `GET /admin/audit-events` 能查到登录、审批、导出、下载等事件
 
 ### 5.3 可选功能
 
@@ -955,6 +1053,8 @@ ONTOLOGY_SHADOW_INTERVAL_MS=300000
 - [ ] `POST /mcp` initialize + `tools/list` 返回 22 个工具
 - [ ] `GET /openapi.json` 返回 OpenAPI 3.1；`POST /auth/api-key-login` 能换到 JWT
 - [ ] 通知偏好开关生效
+- [ ] `audit_events` 中能看到登录、导出、下载、SCIM/MDM 同步、MCP 调用记录
+- [ ] 直接 `UPDATE` / `DELETE audit_events` 被触发器拒绝
 
 ---
 
@@ -1123,6 +1223,10 @@ fuser -k 3000/tcp
 # 或
 lsof -ti:3000 | xargs kill -9
 ```
+
+> 若 `pkill -f "ts-node src/index.ts"` 无效，说明实际命令行未匹配；请按端口清理。
+> 后台启动用 `setsid` 时，先记录进程组 `ps -o pgid= -p <pid>`，停止用
+> `kill -TERM -<pgid>`，不要只 kill 包装进程 PID。
 
 **Q: 前端无法从其他机器访问（只显示 localhost:5173）**
 
@@ -1311,6 +1415,15 @@ Windows 下 `pnpm dev` 已通过 `concurrently` 跨平台并行启动，不需�
 | `MCP_RATE_LIMIT_PER_MIN` | 否 | `120` | 每用户每分钟 MCP 工具调用上限 |
 | `MCP_AUDIT_LOG` | 否 | `1` | 设为 `0` 关闭工具调用审计（stderr JSON） |
 | `MCP_SPARQL_MAX_RESULTS` | 否 | `1000` | SPARQL 结果硬上限 |
+| `MCP_TOOL_TIMEOUT_MS` | 否 | `10000` | MCP 工具超时；慢模型建议 `180000` |
+| `SCIM_TOKEN` | 生产必填 | — | SCIM 服务令牌 |
+| `MDM_TOKEN` / `WEBHOOK_TOKEN` | 生产必填 | — | MDM Webhook 服务令牌 |
+| `SCIM_SIGNING_SECRET` | 生产必填 | — | SCIM HMAC 签名密钥 |
+| `MDM_SIGNING_SECRET` / `WEBHOOK_SIGNING_SECRET` | 生产必填 | — | MDM HMAC 签名密钥 |
+| `SERVICE_SIGNATURE_TOLERANCE_SECONDS` | 否 | `300` | 签名时间窗（秒） |
+| `SCIM_ALLOWED_ROLES` / `MDM_ALLOWED_ROLES` | 否 | `employee` | 外部可创建角色白名单 |
+| `SCIM_ROLE_MAP` / `MDM_ROLE_MAP` | 否 | — | 外部角色到本地角色映射 |
+| `AUDIT_EVENTS` | 否 | `1` | 通用审计事件开关；生产不要设为 `0` |
 | `SSE_API_BASE` | 否 | `http://localhost:3000` | MCP 工具委托 REST 的基址 |
 | `PUBLIC_API_BASE` | 否 | — | OpenAPI `servers` 与内部 REST 基址 |
 | `SMS_PROVIDER` | 否 | `log` | `log` / `aliyun` |
