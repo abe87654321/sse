@@ -847,6 +847,7 @@ router.put(
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      await client.query('SELECT id FROM expense_reports WHERE id = $1 FOR UPDATE', [id]);
 
       const setClauses: string[] = [];
       const setValues: any[] = [];
@@ -878,6 +879,16 @@ router.put(
         const plan = planItemSync(
           existingRows.map((row: { id: string }) => row.id),
           items
+        );
+
+        await getHistoryRepo().invalidateInvoiceReport(
+          {
+            reportId: id,
+            cause: 'items_updated',
+            reason: '费用明细修改，原核对结果失效',
+            actor: { type: 'user', id: req.user!.userId, role: req.user!.role },
+          },
+          client
         );
 
         for (const item of plan.updates) {
@@ -912,13 +923,6 @@ router.put(
         await client.query(
           'UPDATE expense_reports SET total_amount = $1, updated_at = NOW() WHERE id = $2',
           [totalAmount, id]
-        );
-
-        await client.query(
-          `UPDATE invoices
-              SET verification_status = 'pending', verification_result = NULL, verified_at = NULL
-            WHERE item_id IN (SELECT id FROM expense_items WHERE report_id = $1)`,
-          [id]
         );
       }
 
@@ -1099,22 +1103,34 @@ router.post(
 
     await minio.upload(storageKey, 'invoices', req.file.buffer, ext === 'pdf' ? 'application/pdf' : 'application/ofd');
 
-    const invoice = await invoiceRepo.create({
-      itemId,
-      fileName: req.file.originalname,
-      fileFormat: ext,
-      fileSize: req.file.size,
-      storageKey,
-      storageBucket: 'invoices',
-      checksum,
-    });
+    const invoice = await withTransaction(pool, async (client) => {
+      await client.query('SELECT id FROM expense_reports WHERE id = $1 FOR UPDATE', [req.params.id]);
 
-    await pool.query(
-      `UPDATE invoices
-          SET verification_status = 'pending', verification_result = NULL, verified_at = NULL
-        WHERE item_id IN (SELECT id FROM expense_items WHERE report_id = $1)`,
-      [req.params.id]
-    );
+      const created = await invoiceRepo.create(
+        {
+          itemId,
+          fileName: req.file!.originalname,
+          fileFormat: ext,
+          fileSize: req.file!.size,
+          storageKey,
+          storageBucket: 'invoices',
+          checksum,
+        },
+        client
+      );
+
+      await getHistoryRepo().invalidateInvoiceReport(
+        {
+          reportId: req.params.id,
+          cause: 'invoice_uploaded',
+          reason: '发票上传/替换，原核对结果失效',
+          actor: { type: 'user', id: req.user!.userId, role: req.user!.role },
+        },
+        client
+      );
+
+      return created;
+    });
 
     res.status(201).json(invoice);
   })
