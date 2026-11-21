@@ -8,3 +8,9 @@ export type { INotificationRepo } from './inotification-repo';
 export type { IOcrService } from './iocr-service';
 export type { INotificationService } from './inotification-service';
 export type { IFileStorage } from './ifile-storage';
+export type { SqlExecutor } from './sql-executor';
+export type {
+  IReportSnapshotRepo,
+  SnapshotCaptureInput,
+  SnapshotQuery,
+} from './ireport-snapshot-repo';

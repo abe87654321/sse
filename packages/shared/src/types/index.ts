@@ -25,3 +25,17 @@ export type { NotificationLog } from './notification-log';
 export type { ReasoningRule } from './reasoning-rule';
 export * from './notification-delivery';
 export * from './system-message';
+export type {
+  SnapshotType,
+  SnapshotActorType,
+  SnapshotVerificationStatus,
+  ReportSnapshot,
+  ReportSnapshotDetail,
+  ReportSnapshotPayload,
+  ReportSnapshotItem,
+  ReportSnapshotInvoice,
+  ReportSnapshotRule,
+  ReportSnapshotApprovalRecord,
+  ReportSnapshotAction,
+  ReportSnapshotPayment,
+} from './report-snapshot';
