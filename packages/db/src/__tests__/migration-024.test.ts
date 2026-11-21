@@ -48,5 +48,6 @@ describe('024_verification_history', () => {
     expect(sql).toMatch(/FROM invoices i/i);
     expect(sql).toMatch(/FROM payment_receipts pr/i);
     expect(sql).toMatch(/verification_result IS NOT NULL/i);
+    expect(sql).toMatch(/NOT EXISTS/i);
   });
 });

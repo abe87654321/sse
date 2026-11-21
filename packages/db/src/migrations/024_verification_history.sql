@@ -121,6 +121,14 @@ invoice_run_source AS (
       'legacy', true
     ) AS summary
   FROM invoice_groups
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM verification_runs vr
+    WHERE vr.report_id = invoice_groups.report_id
+      AND vr.kind = 'invoice'
+      AND vr.event_type = 'backfill'
+      AND vr.legacy = true
+  )
 ),
 invoice_runs AS (
   INSERT INTO verification_runs (
@@ -185,6 +193,14 @@ WITH receipt_source AS (
     ) AS summary
   FROM payment_receipts pr
   WHERE pr.verification_result IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM verification_runs vr
+      WHERE vr.report_id = pr.report_id
+        AND vr.kind = 'payment_receipt'
+        AND vr.event_type = 'backfill'
+        AND vr.legacy = true
+    )
 ),
 receipt_runs AS (
   INSERT INTO verification_runs (
