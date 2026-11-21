@@ -200,14 +200,19 @@ export class PgExpenseRepo implements IExpenseRepo {
     }
   }
 
-  async updateStatus(id: string, status: string, currentStep?: number): Promise<void> {
+  async updateStatus(
+    id: string,
+    status: string,
+    currentStep?: number,
+    db: Queryable = pool
+  ): Promise<void> {
     if (currentStep !== undefined) {
-      await pool.query(
+      await db.query(
         `UPDATE expense_reports SET status = $1, current_step = $2, updated_at = NOW() WHERE id = $3`,
         [status, currentStep, id]
       );
     } else {
-      await pool.query(
+      await db.query(
         `UPDATE expense_reports SET status = $1, updated_at = NOW() WHERE id = $2`,
         [status, id]
       );

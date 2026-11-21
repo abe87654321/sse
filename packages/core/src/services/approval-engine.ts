@@ -3,6 +3,7 @@ import { ApprovalResult } from '@sse/shared';
 import type { IApprovalRuleRepo } from '../ports/iapproval-rule-repo';
 import type { IApprovalRecordRepo } from '../ports/iapproval-record-repo';
 import type { IUserRepo } from '../ports/iuser-repo';
+import type { SqlExecutor } from '../ports/sql-executor';
 
 export class NoApproverError extends Error {
   constructor(
@@ -118,6 +119,7 @@ export class ApprovalEngine {
     rule: ApprovalRule,
     userRepo: IUserRepo,
     ownerDepartment: string,
+    db?: SqlExecutor,
   ): Promise<ApprovalRecord> {
     const firstStep = rule.approvalChain[0];
     if (!firstStep) throw new NoApproverError(0);
@@ -131,7 +133,7 @@ export class ApprovalEngine {
       stepStartedAt: new Date(),
       result: ApprovalResult.PENDING,
     };
-    return this.recordRepo.create(record);
+    return this.recordRepo.create(record, db);
   }
 
   async approveStep(
@@ -139,11 +141,12 @@ export class ApprovalEngine {
     step: number,
     result: string,
     comment?: string,
+    db?: SqlExecutor,
   ): Promise<void> {
     const records = await this.recordRepo.findByReportId(reportId);
     for (const record of records) {
       if (record.step === step && record.result === ApprovalResult.PENDING) {
-        await this.recordRepo.updateResult(record.id, result, comment);
+        await this.recordRepo.updateResult(record.id, result, comment, db);
       }
     }
   }
@@ -178,6 +181,7 @@ export class ApprovalEngine {
     currentStep: number,
     userRepo: IUserRepo,
     ownerDepartment: string,
+    db?: SqlExecutor,
   ): Promise<ApprovalRecord | null> {
     const nextStep = this.nextStep(rule, currentStep);
     if (!nextStep || (!nextStep.role && !nextStep.assigneeId)) return null;
@@ -192,7 +196,7 @@ export class ApprovalEngine {
       stepStartedAt: new Date(),
       result: ApprovalResult.PENDING,
     };
-    return this.recordRepo.create(record);
+    return this.recordRepo.create(record, db);
   }
 
   isLastStep(rule: ApprovalRule, currentStep: number): boolean {

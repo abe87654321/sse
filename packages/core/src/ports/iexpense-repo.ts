@@ -1,4 +1,5 @@
 import type { ExpenseReport, CreateReportDto } from '@sse/shared';
+import type { SqlExecutor } from './sql-executor';
 
 export interface ExpenseQuery {
   dateFrom?: string;
@@ -19,7 +20,7 @@ export interface IExpenseRepo {
   findManyByApprover(approverId: string, page: number, pageSize: number): Promise<{ results: ExpenseReport[]; total: number }>;
   findManyByUser(userId: string, query: ExpenseQuery): Promise<{ results: ExpenseReport[]; total: number }>;
   create(dto: CreateReportDto, userId: string, serialNo: string): Promise<ExpenseReport>;
-  updateStatus(id: string, status: string, currentStep?: number): Promise<void>;
+  updateStatus(id: string, status: string, currentStep?: number, db?: SqlExecutor): Promise<void>;
   markPaid(id: string, paidBy: string, paymentRef?: string, paymentComment?: string): Promise<boolean>;
   updatePayment(
     id: string,

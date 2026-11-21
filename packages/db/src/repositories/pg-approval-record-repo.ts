@@ -1,6 +1,7 @@
 import type { ApprovalRecord } from '@sse/shared';
 import type { IApprovalRecordRepo } from '@sse/core';
 import { pool } from '../connection';
+import type { Queryable } from '../transaction';
 
 function mapRecord(row: any): ApprovalRecord {
   return {
@@ -37,8 +38,11 @@ export class PgApprovalRecordRepo implements IApprovalRecordRepo {
     return rows.map(mapRecord);
   }
 
-  async create(record: Omit<ApprovalRecord, 'id'>): Promise<ApprovalRecord> {
-    const { rows } = await pool.query(
+  async create(
+    record: Omit<ApprovalRecord, 'id'>,
+    db: Queryable = pool
+  ): Promise<ApprovalRecord> {
+    const { rows } = await db.query(
       `INSERT INTO approval_records (report_id, step, approver_id, step_started_at, result, comment)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
@@ -54,8 +58,13 @@ export class PgApprovalRecordRepo implements IApprovalRecordRepo {
     return mapRecord(rows[0]);
   }
 
-  async updateResult(id: string, result: string, comment?: string): Promise<void> {
-    await pool.query(
+  async updateResult(
+    id: string,
+    result: string,
+    comment?: string,
+    db: Queryable = pool
+  ): Promise<void> {
+    await db.query(
       `UPDATE approval_records SET result = $1, comment = $2, approved_at = CASE WHEN $1 IN ('approved', 'rejected') THEN NOW() ELSE approved_at END
        WHERE id = $3`,
       [result, comment ?? null, id]
