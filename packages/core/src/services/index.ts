@@ -16,3 +16,11 @@ export type { VerifyPaymentReceiptInput } from './payment-receipt-verifier';
 export { shouldReOcr } from './ocr-freshness';
 export { evaluateReportDeletion } from './report-deletion';
 export type { ReportDeletionInput, ReportDeletionDecision } from './report-deletion';
+export { buildReportSnapshotPayload } from './report-snapshot';
+export type {
+  BuildReportSnapshotInput,
+  SnapshotDataItem,
+  SnapshotInvoiceInput,
+  SnapshotItemInput,
+  SnapshotRecordInput,
+} from './report-snapshot';
