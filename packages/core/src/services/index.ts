@@ -24,3 +24,4 @@ export type {
   SnapshotItemInput,
   SnapshotRecordInput,
 } from './report-snapshot';
+export { redactVerificationHistory } from './verification-history';

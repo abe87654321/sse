@@ -14,3 +14,12 @@ export type {
   SnapshotCaptureInput,
   SnapshotQuery,
 } from './ireport-snapshot-repo';
+export type {
+  IVerificationHistoryRepo,
+  RecordVerificationRunInput,
+  VerificationRunActor,
+  VerificationRunItemInput,
+  InvalidateInvoiceReportInput,
+  InvalidateReceiptInput,
+  VerificationHistoryQuery,
+} from './iverification-history-repo';
