@@ -17,7 +17,7 @@
 | shared | `ReportSnapshot*` / `SnapshotType` 等类型 |
 | core | `buildReportSnapshotPayload` 纯函数；`SqlExecutor` 端口；`IReportSnapshotRepo`；审批写入方法增加可选事务客户端 |
 | db | `PgReportSnapshotRepo`（capture/find/list/query + 读取时哈希复算）；`updateStatus`/`create`/`updateResult` 支持事务客户端 |
-| api | 提交、通过、驳回、付款在事务内捕获快照；`GET /expenses/:id/snapshots`、`GET /expenses/:id/snapshots/:snapshotId`；`GET /admin/snapshots`、`GET /admin/snapshots/:id` |
+| api | 提交、通过、驳回、付款在事务内捕获快照；`GET /expenses/:id/snapshots`、`GET /expenses/:id/snapshots/:snapshotId`；`GET /admin/snapshots`、`GET /admin/snapshots/:id`；非财务/管理员读取快照时隐藏回单核对详情（与报销详情口径一致） |
 | web | 报销详情“内容快照”卡片、快照查看弹窗、管理端“内容快照”页面与导航 |
 
 ## 二、触发点与事务
@@ -94,4 +94,23 @@ docker compose exec -T postgres psql -U sse -d sse \
 ## 六、后续
 
 - 部署前在测试机应用迁移 023 并按第四节复测。
-- 下一项 P1 可从 6（核对历史版本）、7（导出补齐）、8（统计口径）中选择。
+- 本次审查代理（`typescript-reviewer`/`security-reviewer`）因本机 opencode 子代理模型配置指向不存在的
+  `vllm/qwen3.6-27b` 未能启动；已改为人工审查，并修复了“非财务/管理员读取付款快照时暴露回单核对详情”的问题。
+  该问题与 SSE 业务代码无关，agent 配置已另行修正。
+
+## 七、P1 清单进度
+
+| 优先级 | 项 | 状态 |
+|---|---|---|
+| P1-5 | 报销单内容快照：提交、每步审批、付款时保存不可变 JSON 快照 | ✅ 已完成（本次会话） |
+| P1-6 | 发票核对历史版本，不覆盖旧结果 | 待处理 |
+| P1-7 | 导出补齐明细/审批链/付款/发票字段；增加 XLSX 与导出审计 | 待处理 |
+| P1-8 | 修复统计过滤条件，确保类别/部门/月度与总览口径一致 | 待处理 |
+| P1-9 | 实现真实部门 CRUD，或移除无效入口 | 待处理 |
+| P1-10 | MCP Key 管理界面 + 哈希存储 + 过期/吊销/最后使用时间 | 待处理 |
+| P1-11 | 导航按角色过滤，消除 403/空页面 | 待处理 |
+| P1-12 | 增加只读审计员角色与审计查询页面 | 待处理 |
+
+**下一次会话建议：** 从 P1-6（核对历史版本）或 P1-7（导出补齐）开始。
+P1-6 与本次快照的数据模型相邻，可复用 `report_snapshots` 的 append-only 与哈希经验；
+P1-11 改动最小，适合作为热身项。
