@@ -1,5 +1,6 @@
 import type { PaymentReceiptVerification } from '@sse/shared';
 import { shouldReOcr, verifyPaymentReceipt } from '@sse/core';
+import type { VerificationRunActor } from '@sse/core';
 import { MINERU_PARSER_VERSION } from '@sse/ai';
 import {
   PgExpenseRepo,
@@ -21,7 +22,7 @@ function getHistoryRepo(): PgVerificationHistoryRepo {
 const minio = new MinioStorage();
 
 export type ReceiptVerificationContext = {
-  actor?: { type: 'user' | 'system'; id?: string | null; role?: string | null };
+  actor?: VerificationRunActor;
   cause?: 'manual' | 'force_ocr' | 'system';
 };
 
