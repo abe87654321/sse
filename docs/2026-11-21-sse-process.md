@@ -111,9 +111,8 @@ docker compose exec -T postgres psql -U sse -d sse \
 | P1-11 | 导航按角色过滤，消除 403/空页面 | 待处理 |
 | P1-12 | 增加只读审计员角色与审计查询页面 | 待处理 |
 
-**下一次会话建议：** 从 P1-6（核对历史版本）或 P1-7（导出补齐）开始。
-P1-6 与本次快照的数据模型相邻，可复用 `report_snapshots` 的 append-only 与哈希经验；
-P1-11 改动最小，适合作为热身项。
+**下一次会话建议：** 从 P1-7（导出补齐）或 P1-11（导航按角色过滤）开始。
+P1-11 改动最小，适合作为热身项；P1-7 可在现有导出与审计事件基础上继续扩展。
 
 ---
 
@@ -181,3 +180,24 @@ docker compose exec -T postgres psql -U sse -d sse \
 | P1-10 | MCP Key 管理界面 + 哈希存储 + 过期/吊销/最后使用时间 | 待处理 |
 | P1-11 | 导航按角色过滤，消除 403/空页面 | 待处理 |
 | P1-12 | 增加只读审计员角色与审计查询页面 | 待处理 |
+
+---
+
+## 九、会话收尾（P1-6）
+
+- 分支 `feat/p1-6-verification-history` 已本地 fast-forward 合并到 `master`。
+- 最终 HEAD：`1c02429`；已推送到 `origin/master`（`37ccfd4..1c02429`）。
+- 全量验证：`pnpm -r test` 759 passed；`pnpm -r build` 11/11 个包完成。
+- 测试机更新顺序：
+  ```bash
+  git checkout master && git pull --ff-only
+  git rev-parse --short HEAD          # 1c02429
+  pnpm install
+  pnpm -r build
+  pnpm --filter @sse/db migrate
+  # 重启服务后按第八节复测
+  ```
+- 迁移 `023`（P1-5 快照）与 `024`（P1-6 核对历史）需在测试机真实 PostgreSQL 执行并复测；本机未执行真实迁移。
+- 未改动的原有未跟踪文件：`docs/handover-docs/**`、`docs/2026-11-12-sse-multi-role-analysis.md`。
+- 已知后续项：快照详情与 MCP `get_expense_detail` 的重复发票引用仍可能对员工暴露，已记录在 TDD 证据的 known gaps。
+- 下一次会话建议：从 P1-7 或 P1-11 开始。
