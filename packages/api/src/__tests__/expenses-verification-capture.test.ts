@@ -272,6 +272,16 @@ describe('PUT /expenses/:id verification invalidation', () => {
     });
 
     expect(response.status).toBe(200);
+    const body = (await response.json()) as any;
+    expect(body.id).toBe('r1');
+    expect(mockInvalidateInvoiceReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: { type: 'user', id: 'owner-1', role: 'employee' },
+        reason: '费用明细修改，原核对结果失效',
+      }),
+      expect.anything()
+    );
+    expect(mockQuery).toHaveBeenCalledTimes(6);
     expect(mockInvalidateInvoiceReport).toHaveBeenCalledWith(
       expect.objectContaining({ reportId: 'r1', cause: 'items_updated' }),
       expect.anything()
@@ -299,6 +309,17 @@ describe('POST /expenses/:id/items/:itemId/invoice invalidation', () => {
     });
 
     expect(response.status).toBe(201);
+    const body = (await response.json()) as any;
+    expect(body.id).toBe('inv-1');
+    expect(body.fileName).toBe('a.pdf');
+    expect(mockInvalidateInvoiceReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: { type: 'user', id: 'owner-1', role: 'employee' },
+        reason: '发票上传/替换，原核对结果失效',
+      }),
+      expect.anything()
+    );
+    expect(mockQuery).toHaveBeenCalledTimes(2);
     expect(mockInvalidateInvoiceReport).toHaveBeenCalledWith(
       expect.objectContaining({ reportId: 'r1', cause: 'invoice_uploaded' }),
       expect.anything()
