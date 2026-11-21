@@ -8,10 +8,11 @@ import {
   PgPaymentReceiptRepo,
   PgPaymentAuditRepo,
   PgReportSnapshotRepo,
+  PgVerificationHistoryRepo,
   pool,
   withTransaction,
 } from '@sse/db';
-import { ReportService, aggregateVerificationStatus, planItemSync, shouldReOcr, verifyInvoices, evaluateReportDeletion, NoApproverError, ApprovalEngine } from '@sse/core';
+import { ReportService, aggregateVerificationStatus, planItemSync, shouldReOcr, verifyInvoices, evaluateReportDeletion, NoApproverError, ApprovalEngine, redactVerificationHistory } from '@sse/core';
 import { ReportStatus, InvoiceFormat, UserRole, ApprovalResult } from '@sse/shared';
 import { paymentPaidMessage } from '@sse/notifications';
 import { sendNotificationSafe } from '../services/notifications';
@@ -38,6 +39,11 @@ const invoiceRepo = new PgInvoiceRepo();
 const paymentReceiptRepo = new PgPaymentReceiptRepo();
 const paymentAuditRepo = new PgPaymentAuditRepo();
 const snapshotRepo = new PgReportSnapshotRepo();
+let historyRepo: PgVerificationHistoryRepo | undefined;
+function getHistoryRepo(): PgVerificationHistoryRepo {
+  if (!historyRepo) historyRepo = new PgVerificationHistoryRepo();
+  return historyRepo;
+}
 const approvalEngine = new ApprovalEngine(ruleRepo, recordRepo);
 const reportService = new ReportService(expenseRepo, ruleRepo, recordRepo);
 const minio = new MinioStorage();
@@ -329,6 +335,45 @@ router.get(
   })
 );
 
+router.get(
+  '/:id/verification-history',
+  asyncWrap(async (req, res) => {
+    const report = await expenseRepo.findById(req.params.id);
+    if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
+    await assertReportAccess(report, req.user!);
+
+    const role = req.user!.role;
+    const canSeeReceipts = role === UserRole.FINANCE || role === UserRole.ADMIN;
+    const requestedKind = req.query.kind as string | undefined;
+
+    let kind: 'invoice' | 'payment_receipt' | undefined;
+    if (requestedKind === 'invoice') {
+      kind = 'invoice';
+    } else if (requestedKind === 'payment_receipt') {
+      if (!canSeeReceipts) {
+        throw new AppError(403, 'UNAUTHORIZED', '仅财务或管理员可查看回单核对历史');
+      }
+      kind = 'payment_receipt';
+    } else {
+      kind = canSeeReceipts ? undefined : 'invoice';
+    }
+
+    const result = await getHistoryRepo().findRunsByReport({
+      reportId: report.id,
+      kind,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      offset: req.query.offset ? Number(req.query.offset) : undefined,
+    });
+
+    const canSeeDuplicates = canSeeReceipts || role === UserRole.DEPT_APPROVER;
+    const items = result.items
+      .map((run) => redactVerificationHistory(run, { canSeeDuplicates, canSeeReceipts }))
+      .filter((run): run is NonNullable<typeof run> => run !== null);
+
+    res.json({ ...result, items });
+  })
+);
+
 router.post(
   '/:id/verify',
   asyncWrap(async (req, res) => {
@@ -336,93 +381,163 @@ router.post(
     const report = await expenseRepo.findById(req.params.id);
     if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
 
-    // Approvers may run the (idempotent) verification to review a report in
-    // their department, but forcing a re-OCR costs quota and rewrites stored
-    // results, so that stays with the owner (or finance/admin).
     await assertReportAccess(report, req.user!);
     if (force && !canWriteReport(req.user!.role as UserRole, req.user!.userId, report.userId)) {
       throw new AppError(403, 'UNAUTHORIZED', '仅单据本人或财务/管理员可强制重新识别');
     }
 
-    const { rows: itemRows } = await pool.query(
-      'SELECT * FROM expense_items WHERE report_id = $1 ORDER BY expense_date',
+    const { rows: invoiceRows } = await pool.query(
+      `SELECT i.*
+         FROM invoices i
+         JOIN expense_items ei ON ei.id = i.item_id
+        WHERE ei.report_id = $1`,
       [report.id]
     );
-    const items = itemRows.map(mapItemRow);
-    const itemIds = items.map((item: any) => item.id);
 
-    const { rows: invoiceRows } = itemIds.length > 0
-      ? await pool.query('SELECT * FROM invoices WHERE item_id = ANY($1)', [itemIds])
-      : { rows: [] as any[] };
-
-    const needsOcr = invoiceRows.some((row: any) => shouldReOcr(row.ocr_result, force, MINERU_PARSER_VERSION));
+    const needsOcr = invoiceRows.some((row: any) =>
+      shouldReOcr(row.ocr_result, force, MINERU_PARSER_VERSION)
+    );
     const engine = needsOcr ? createOCREngine() : null;
+    const ocrByInvoiceId = new Map<string, any>();
+    const ocrErrorByInvoiceId = new Map<string, string>();
+
+    for (const row of invoiceRows) {
+      const invoice = mapInvoiceRow(row);
+      if (!shouldReOcr(invoice.ocrResult, force, MINERU_PARSER_VERSION)) {
+        if (invoice.ocrResult) ocrByInvoiceId.set(invoice.id, invoice.ocrResult);
+        continue;
+      }
+      if (!engine) {
+        ocrErrorByInvoiceId.set(invoice.id, '发票 OCR 引擎未启用');
+        continue;
+      }
+      try {
+        const buffer = await minio.getObject(invoice.storageKey, invoice.storageBucket);
+        const ocr = await engine.parseInvoice(buffer, invoice.fileName);
+        ocrByInvoiceId.set(invoice.id, ocr);
+      } catch (error: any) {
+        ocrErrorByInvoiceId.set(invoice.id, error?.message || '发票识别失败');
+      }
+    }
+
     const canSeeDuplicateDetails =
       req.user!.role === UserRole.ADMIN ||
       req.user!.role === UserRole.FINANCE ||
       req.user!.role === UserRole.DEPT_APPROVER;
 
-    const sources: VerificationSourceInvoice[] = [];
-    for (const row of invoiceRows) {
-      const invoice = mapInvoiceRow(row);
-      let ocr = invoice.ocrResult;
-      let ocrError: string | undefined;
+    const summary = await withTransaction(pool, async (client) => {
+      const { rows: lockedReportRows } = await client.query(
+        'SELECT total_amount FROM expense_reports WHERE id = $1 FOR UPDATE',
+        [report.id]
+      );
+      const reportTotal = Number(lockedReportRows[0]?.total_amount ?? report.totalAmount);
 
-      if (shouldReOcr(ocr, force, MINERU_PARSER_VERSION)) {
-        ocr = undefined;
-        if (!engine) {
-          ocrError = '发票 OCR 引擎未启用';
-        } else {
-          try {
-            const buffer = await minio.getObject(invoice.storageKey, invoice.storageBucket);
-            ocr = await engine.parseInvoice(buffer, invoice.fileName);
-            await invoiceRepo.updateOcrResult(invoice.id, ocr, ocr.invoiceNo);
-          } catch (e: any) {
-            ocrError = e?.message || '发票识别失败';
-          }
+      const { rows: itemRows } = await client.query(
+        'SELECT * FROM expense_items WHERE report_id = $1 ORDER BY expense_date',
+        [report.id]
+      );
+      const items = itemRows.map(mapItemRow);
+      const itemIds = items.map((item: any) => item.id);
+
+      const { rows: freshInvoiceRows } = itemIds.length > 0
+        ? await client.query('SELECT * FROM invoices WHERE item_id = ANY($1)', [itemIds])
+        : { rows: [] as any[] };
+
+      const sources: VerificationSourceInvoice[] = [];
+      for (const row of freshInvoiceRows) {
+        const invoice = mapInvoiceRow(row);
+        const reOcrNeeded = shouldReOcr(
+          invoice.ocrResult,
+          force,
+          MINERU_PARSER_VERSION
+        );
+        const ocr = reOcrNeeded
+          ? (ocrByInvoiceId.get(invoice.id) ?? null)
+          : (invoice.ocrResult ?? null);
+        if (ocr && (!invoice.ocrResult || (ocr.invoiceNo && !invoice.invoiceNo))) {
+          await invoiceRepo.updateOcrResult(invoice.id, ocr, ocr.invoiceNo, client);
         }
-      } else if (ocr.invoiceNo && !invoice.invoiceNo) {
-        await invoiceRepo.updateOcrResult(invoice.id, ocr, ocr.invoiceNo);
+        const duplicates = ocr?.invoiceNo
+          ? (
+              await invoiceRepo.findDuplicatesByInvoiceNo(
+                ocr.invoiceNo,
+                invoice.id,
+                client
+              )
+            ).map((duplicate) =>
+              canSeeDuplicateDetails
+                ? duplicate
+                : { invoiceId: duplicate.invoiceId, restricted: true }
+            )
+          : [];
+        sources.push({
+          id: invoice.id,
+          itemId: invoice.itemId,
+          fileName: invoice.fileName,
+          ocrResult: ocr,
+          ocrError: reOcrNeeded ? ocrErrorByInvoiceId.get(invoice.id) : undefined,
+          duplicates,
+        });
       }
 
-      const duplicates = ocr?.invoiceNo
-        ? (await invoiceRepo.findDuplicatesByInvoiceNo(ocr.invoiceNo, invoice.id)).map((duplicate) =>
-            canSeeDuplicateDetails ? duplicate : { invoiceId: duplicate.invoiceId, restricted: true }
-          )
-        : [];
-
-      sources.push({
-        id: invoice.id,
-        itemId: invoice.itemId,
-        fileName: invoice.fileName,
-        ocrResult: ocr ?? null,
-        ocrError,
-        duplicates,
+      const freshSummary = verifyInvoices({
+        reportTotal,
+        items: items.map((item: any) => ({
+          id: item.id,
+          amount: item.amount,
+          expenseDate: item.expenseDate,
+        })),
+        invoices: sources,
       });
-    }
 
-    const summary = verifyInvoices({
-      reportTotal: report.totalAmount,
-      items: items.map((item: any) => ({
-        id: item.id,
-        amount: item.amount,
-        expenseDate: item.expenseDate,
-      })),
-      invoices: sources,
+      const sourcesById = new Map(sources.map((source) => [source.id, source]));
+      const historyStatus =
+        freshSummary.status === 'pending' ? 'unverified' : freshSummary.status;
+      const historyItems: any[] = [];
+      for (const view of freshSummary.invoices) {
+        const source = sourcesById.get(view.invoiceId);
+        const itemStatus = view.status === 'pending' ? 'unverified' : view.status;
+        const result = {
+          status: itemStatus,
+          checks: view.checks,
+          summary: view.message || '',
+          checkedAt: freshSummary.checkedAt,
+          ocr: source?.ocrResult ?? undefined,
+          duplicates: view.duplicates,
+        };
+        await invoiceRepo.updateVerification(view.invoiceId, view.status, result, client);
+        historyItems.push({
+          subjectId: view.invoiceId,
+          itemId: view.itemId,
+          fileName: view.fileName,
+          status: itemStatus,
+          result,
+        });
+      }
+
+      await getHistoryRepo().recordRun(
+        {
+          reportId: report.id,
+          kind: 'invoice',
+          eventType: 'verify',
+          cause: force ? 'force_ocr' : 'manual',
+          actor: { type: 'user', id: req.user!.userId, role: req.user!.role },
+          status: historyStatus,
+          summary: {
+            status: historyStatus,
+            checkedAt: freshSummary.checkedAt,
+            summary: freshSummary.summary,
+            counts: freshSummary.counts,
+            checks: freshSummary.checks,
+          },
+          checkedAt: freshSummary.checkedAt,
+          items: historyItems,
+        },
+        client
+      );
+
+      return freshSummary;
     });
-
-    const sourcesById = new Map(sources.map((source) => [source.id, source]));
-    for (const view of summary.invoices) {
-      const source = sourcesById.get(view.invoiceId);
-      await invoiceRepo.updateVerification(view.invoiceId, view.status, {
-        status: view.status,
-        checks: view.checks,
-        summary: view.message || '',
-        checkedAt: summary.checkedAt,
-        ocr: source?.ocrResult ?? undefined,
-        duplicates: view.duplicates,
-      });
-    }
 
     res.json(summary);
   })
