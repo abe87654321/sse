@@ -201,3 +201,92 @@ describe('findRunsByReport', () => {
     expect(listParams.slice(-2)).toEqual([100, 0]);
   });
 });
+
+describe('invalidateReceipt', () => {
+  it('writes a receipt invalidation run and resets the receipt', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'receipt-1',
+            report_id: 'r1',
+            file_name: 'receipt.pdf',
+            verification_status: 'pass',
+            verification_result: { ok: true },
+            verified_at: new Date('2026-11-21T09:00:00Z'),
+            previous_run_id: 'run-prev',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'run-inv',
+            content_hash: 'h',
+            created_at: new Date(),
+            checked_at: new Date(),
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'item-inv', content_hash: 'h', created_at: new Date() }],
+      })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const result = await new PgVerificationHistoryRepo().invalidateReceipt({
+      reportId: 'r1',
+      receiptId: 'receipt-1',
+      cause: 'receipt_replaced',
+      reason: '打款回单被替换，原核对结果失效',
+      actor: { type: 'user', id: 'fin-1', role: 'finance' },
+    });
+
+    expect(result).toEqual({ runId: 'run-inv', affected: 1 });
+    const [selectSql, selectParams] = mockQuery.mock.calls[0];
+    expect(selectSql).toContain('FOR UPDATE');
+    expect(selectParams).toEqual(['receipt-1', 'r1']);
+    const [, insertRunParams] = mockQuery.mock.calls[1];
+    expect(insertRunParams[2]).toBe('payment_receipt');
+    expect(insertRunParams[3]).toBe('invalidate');
+    const [, insertItemParams] = mockQuery.mock.calls[2];
+    expect(insertItemParams[4]).toBe('receipt-1');
+    const resetSql = mockQuery.mock.calls[3][0];
+    expect(resetSql).toContain('UPDATE payment_receipts');
+    expect(resetSql).toContain('verification_status = \'pending\'');
+  });
+
+  it('returns null when the receipt has no prior result', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const result = await new PgVerificationHistoryRepo().invalidateReceipt({
+      reportId: 'r1',
+      receiptId: 'receipt-1',
+      cause: 'receipt_replaced',
+      actor: { type: 'user', id: 'fin-1', role: 'finance' },
+    });
+
+    expect(result).toBeNull();
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('findLatestVerifyRunId', () => {
+  it('returns the latest verify run id', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ run_id: 'run-1' }] });
+
+    const result = await new PgVerificationHistoryRepo().findLatestVerifyRunId('inv-1');
+
+    expect(result).toBe('run-1');
+    const [sql, params] = mockQuery.mock.calls[0];
+    expect(sql).toContain("event_type = 'verify'");
+    expect(params).toEqual(['inv-1']);
+  });
+
+  it('returns null when there is no verify run', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const result = await new PgVerificationHistoryRepo().findLatestVerifyRunId('inv-1');
+
+    expect(result).toBeNull();
+  });
+});
