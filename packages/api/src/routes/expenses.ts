@@ -319,6 +319,12 @@ router.get(
     await assertReportAccess(report, req.user!);
     const detail = await snapshotRepo.findDetailByReport(report.id, req.params.snapshotId);
     if (!detail) throw new AppError(404, 'NOT_FOUND', '快照不存在');
+    const { role } = req.user!;
+    if (role !== UserRole.FINANCE && role !== UserRole.ADMIN) {
+      if (detail.payload.payment?.receipt) {
+        detail.payload.payment.receipt.verificationResult = null;
+      }
+    }
     res.json(detail);
   })
 );

@@ -43,9 +43,9 @@ pnpm -r test
   ai           100 passed
   notifications 29 passed
   ontology     176 passed
-  api          178 passed
+  api          180 passed
   mcp           56 passed
-  合计         715 passed
+  合计         717 passed
 
 pnpm -r build
   11 个包全部完成（web/core/ocr/ai/auth/db/notifications/ontology/api/mcp/shared）

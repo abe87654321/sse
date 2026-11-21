@@ -66,8 +66,8 @@
 - GREEN: same command
   - Output: `Test Suites: 2 passed`, `Tests: 5 passed`.
 - Full API suite: `pnpm --filter @sse/api test`
-  - Output: `Test Suites: 23 passed`, `Tests: 178 passed`.
-- Guarantee: report viewers can list snapshots, unrelated employees get 403, submit captures a `submit` snapshot in the transaction, admin endpoints are admin-only and pass filters.
+  - Output: `Test Suites: 23 passed`, `Tests: 180 passed`.
+- Guarantee: report viewers can list snapshots, unrelated employees get 403, submit captures a `submit` snapshot in the transaction, admin endpoints are admin-only and pass filters, and receipt verification details are redacted for non-finance/admin.
 
 ### Task 7: Web display
 
@@ -82,7 +82,7 @@
 
 ### Task 8: Full verification
 
-- `pnpm -r test`: 715 tests passed across 9 packages with tests.
+- `pnpm -r test`: 717 tests passed across 9 packages with tests.
 - `pnpm -r build`: all 11 workspace packages built.
 - Real PostgreSQL migration: **not run** because Docker/`docker compose` is unavailable on this machine. Migration correctness is covered by static guard tests; run on the test machine before deployment.
 
@@ -105,6 +105,7 @@
 | 13 | Submit captures a submit snapshot inside the transaction | same | integration | PASS | same |
 | 14 | Admin snapshot endpoint rejects non-admin and returns filters | `packages/api/src/__tests__/admin-snapshots.test.ts` | integration | PASS | same |
 | 15 | Snapshot type/hash/time/actor formatting | `packages/web/src/utils/__tests__/snapshot.test.ts` | unit | PASS | `pnpm --filter @sse/web test -- snapshot` |
+| 16 | Receipt verification details are redacted for owners and kept for finance | `packages/api/src/__tests__/expenses-snapshots.test.ts` | integration | PASS | `pnpm --filter @sse/api test -- expenses-snapshots` |
 
 ## 5. Coverage and known gaps
 

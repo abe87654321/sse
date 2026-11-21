@@ -74,7 +74,7 @@
         <section>
           <h4>审批</h4>
           <div v-if="payload.approval.rule" class="rule-name">
-            规则：{{ payload.approval.rule.name }}（{{ payload.approval.rule.chain.map((s: any) => s.label).join(' → ') }}）
+            规则：{{ payload.approval.rule.name }}（{{ payload.approval.rule.chain.map((s) => s.label).join(' → ') }}）
           </div>
           <div v-else class="text-secondary">审批规则：未记录</div>
           <table class="data-table">

@@ -147,3 +147,55 @@ describe('POST /expenses/:id/submit snapshot capture', () => {
     expect(mockCapture.mock.calls[0][1]).toBeTruthy();
   });
 });
+
+describe('GET /expenses/:id/snapshots/:snapshotId payment redaction', () => {
+  function detailFixture() {
+    return {
+      id: 's1',
+      reportId: 'r1',
+      snapshotType: 'pay',
+      payload: {
+        schemaVersion: 1,
+        payment: {
+          paymentRef: 'BANK-1',
+          receipt: {
+            id: 'pr1',
+            verificationResult: { secret: 'receipt-detail' },
+          },
+        },
+      },
+    };
+  }
+
+  it('redacts receipt verification details for the report owner', async () => {
+    mockFindById.mockResolvedValue({ ...report, status: 'paid' });
+    mockQuery.mockResolvedValue({ rows: [{ department: '技术部' }] });
+    mockFindDetailByReport.mockResolvedValue(detailFixture());
+    const token = signToken({ userId: 'owner-1', role: 'employee', department: '技术部' });
+
+    const response = await fetch(`${url}/expenses/r1/snapshots/s1`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as any;
+    expect(body.payload.payment.receipt.verificationResult).toBeNull();
+    expect(body.payload.payment.paymentRef).toBe('BANK-1');
+  });
+
+  it('keeps receipt verification details for finance', async () => {
+    mockFindById.mockResolvedValue({ ...report, status: 'paid' });
+    mockFindDetailByReport.mockResolvedValue(detailFixture());
+    const token = signToken({ userId: 'fin-1', role: 'finance', department: '财务部' });
+
+    const response = await fetch(`${url}/expenses/r1/snapshots/s1`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as any;
+    expect(body.payload.payment.receipt.verificationResult).toEqual({
+      secret: 'receipt-detail',
+    });
+  });
+});
