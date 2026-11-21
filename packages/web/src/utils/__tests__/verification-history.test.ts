@@ -16,6 +16,7 @@ describe('verification history labels', () => {
     expect(historyEventLabel('backfill')).toBe('历史回填');
     expect(historyEventLabel('custom')).toBe('custom');
     expect(historyEventLabel(null)).toBe('-');
+    expect(historyEventLabel('')).toBe('-');
   });
 
   it('maps causes', () => {
@@ -26,6 +27,9 @@ describe('verification history labels', () => {
     expect(historyCauseLabel('receipt_replaced')).toBe('换回单');
     expect(historyCauseLabel('system')).toBe('系统自动');
     expect(historyCauseLabel('backfill')).toBe('历史回填');
+    expect(historyCauseLabel('custom')).toBe('custom');
+    expect(historyCauseLabel(null)).toBe('-');
+    expect(historyCauseLabel('')).toBe('-');
   });
 
   it('maps statuses', () => {
@@ -37,6 +41,7 @@ describe('verification history labels', () => {
     expect(historyStatusLabel('invalidated')).toBe('已失效');
     expect(historyStatusLabel('custom')).toBe('custom');
     expect(historyStatusLabel(null)).toBe('-');
+    expect(historyStatusLabel('')).toBe('-');
   });
 });
 
@@ -75,6 +80,7 @@ describe('formatHistoryTime', () => {
     );
     expect(formatHistoryTime('not-a-date')).toBe('not-a-date');
     expect(formatHistoryTime(null)).toBe('-');
+    expect(formatHistoryTime('')).toBe('-');
   });
 });
 
