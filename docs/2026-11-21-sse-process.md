@@ -114,3 +114,65 @@ docker compose exec -T postgres psql -U sse -d sse \
 **下一次会话建议：** 从 P1-6（核对历史版本）或 P1-7（导出补齐）开始。
 P1-6 与本次快照的数据模型相邻，可复用 `report_snapshots` 的 append-only 与哈希经验；
 P1-11 改动最小，适合作为热身项。
+
+---
+
+## 八、P1-6：发票与回单核对历史版本
+
+> 设计：`docs/superpowers/specs/2026-11-21-invoice-verification-history-design.md`
+> 计划：`docs/superpowers/plans/2026-11-21-invoice-verification-history.md`
+> TDD 证据：`docs/testing/invoice-verification-history.tdd.md`
+
+### 落地内容
+
+- 迁移 `024_verification_history.sql`：`verification_runs` + `verification_run_items` append-only、SHA-256、无外键、失效事件、历史回填。
+- core：`IVerificationHistoryRepo`、`redactVerificationHistory`。
+- db：`PgVerificationHistoryRepo`；发票/回单仓储支持事务客户端。
+- api：发票核对、明细修改、发票上传、回单上传、回单核对写入历史；新增 `GET /expenses/:id/verification-history`；详情重复发票脱敏。
+- web：报销详情“核对历史”卡片。
+
+### 验证
+
+```text
+pnpm -r test
+  web           56 passed
+  core          63 passed
+  db            56 passed
+  auth          30 passed
+  ai           100 passed
+  notifications 29 passed
+  ontology     176 passed
+  api          193 passed
+  mcp           56 passed
+  合计         759 passed
+  （9 个有测试的包；ocr/shared 无测试）
+
+pnpm -r build
+  11 个包全部完成（shared/web/core/ocr/ai/auth/db/notifications/ontology/api/mcp）
+```
+
+### 部署与复测
+
+```bash
+pnpm --filter @sse/db migrate
+
+docker compose exec -T postgres psql -U sse -d sse \
+  -c "SELECT kind, event_type, legacy, COUNT(*) FROM verification_runs GROUP BY 1,2,3 ORDER BY 1,2,3;"
+```
+
+复测要点：
+
+1. 核对一次 → 新增 run 与逐张 items；
+2. 重复核对 → 旧 run 保留；
+3. 改明细/换发票 → 当前变 pending，出现失效事件；
+4. 回单上传/核对 → 同理；
+5. 回填数据 `legacy=true`；
+6. `UPDATE/DELETE` 两张历史表被拒绝；
+7. 员工看不到重复发票明细。
+
+### P1 清单进度
+
+| 优先级 | 项 | 状态 |
+|---|---|---|
+| P1-6 | 发票核对历史版本，不覆盖旧结果 | ✅ 已完成 |
+| P1-7 | 导出补齐明细/审批链/付款/发票字段；增加 XLSX 与导出审计 | 待处理 |
