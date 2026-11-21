@@ -112,6 +112,8 @@
         <div class="detail-side">
           <ApprovalTimeline :items="timeline" :rule-name="timeline.length > 0 ? timeline[0].rule : ''" />
 
+          <ReportSnapshots v-if="report" :report-id="report.id" />
+
           <PaymentReceiptPanel
             v-if="report && (report.status === 'paid' || report.paymentRef || report.paymentReceipts?.length)"
             :report-id="report.id"
@@ -167,6 +169,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api/index'
 import ApprovalTimeline from '../components/ApprovalTimeline.vue'
+import ReportSnapshots from '../components/ReportSnapshots.vue'
 import PaymentDialog from '../components/PaymentDialog.vue'
 import PaymentReceiptPanel from '../components/PaymentReceiptPanel.vue'
 import { apiErrorMessage, downloadFile } from '../utils/download'

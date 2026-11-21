@@ -75,6 +75,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '个人中心', icon: 'User' }
       },
       {
+        path: 'admin/snapshots',
+        name: 'AdminSnapshots',
+        component: () => import('@/pages/AdminSnapshots.vue'),
+        meta: { title: '内容快照', requiresAdmin: true }
+      },
+      {
         path: 'admin',
         name: 'Admin',
         component: () => import('@/pages/Admin.vue'),
