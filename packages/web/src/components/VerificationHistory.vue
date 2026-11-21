@@ -12,7 +12,13 @@
 
     <div v-else class="history-list">
       <div v-for="run in runs" :key="run.id" class="history-run">
-        <div class="run-head" @click="toggle(run.id)">
+        <button
+          type="button"
+          class="run-head"
+          :aria-expanded="!!expanded[run.id]"
+          :aria-controls="`history-items-${run.id}`"
+          @click="toggle(run.id)"
+        >
           <div class="run-main">
             <span class="run-event" :class="`event-${run.eventType}`">{{ historyEventLabel(run.eventType) }}</span>
             <span class="run-time">{{ formatHistoryTime(run.checkedAt) }}</span>
@@ -21,16 +27,16 @@
             <span v-if="!run.hashValid" class="run-tamper">哈希校验失败</span>
           </div>
           <div class="run-actor">{{ historyActorLabel(run) }} · {{ historyCauseLabel(run.cause) }}</div>
-        </div>
+        </button>
 
         <p class="run-summary">{{ historySummary(run) }}</p>
         <p v-if="run.reason" class="run-reason">{{ run.reason }}</p>
 
-        <div v-if="expanded[run.id]" class="run-items">
+        <div v-if="expanded[run.id]" :id="`history-items-${run.id}`" role="region" class="run-items">
           <div v-if="run.items.length === 0" class="history-empty">本次核对无发票/回单</div>
           <div v-for="item in run.items" :key="item.id" class="run-item">
             <div class="item-head">
-              <span class="item-file">📎 {{ item.fileName || item.subjectId }}</span>
+              <span class="item-file"><span aria-hidden="true">📎</span> {{ item.fileName || item.subjectId }}</span>
               <span class="run-badge" :class="`status-${item.status}`">{{ historyStatusLabel(item.status) }}</span>
             </div>
             <div v-if="item.result?.event === 'invalidated'" class="item-meta">
@@ -67,10 +73,34 @@ import {
   itemPreviousStatus,
 } from '../utils/verification-history'
 
+interface HistoryItem {
+  id: string
+  fileName?: string | null
+  subjectId?: string | null
+  status?: string | null
+  result?: Record<string, any> | null
+}
+
+interface HistoryRun {
+  id: string
+  eventType?: string | null
+  status?: string | null
+  checkedAt?: string | null
+  cause?: string | null
+  reason?: string | null
+  legacy?: boolean
+  hashValid?: boolean
+  actorType?: string | null
+  actorRole?: string | null
+  actorId?: string | null
+  summary?: { summary?: string; affected?: number }
+  items: HistoryItem[]
+}
+
 const props = defineProps<{ reportId: string }>()
 
 const auth = useAuthStore()
-const runs = ref<any[]>([])
+const runs = ref<HistoryRun[]>([])
 const loading = ref(false)
 const expanded = reactive<Record<string, boolean>>({})
 
@@ -80,6 +110,7 @@ function canSeeReceipts() {
 
 async function load() {
   loading.value = true
+  for (const key of Object.keys(expanded)) delete expanded[key]
   try {
     const { data } = await api.get(`/expenses/${props.reportId}/verification-history`, {
       params: { kind: canSeeReceipts() ? 'all' : 'invoice', limit: 50 },
@@ -106,7 +137,20 @@ onMounted(load)
 .history-empty { color: var(--text-muted); font-size: 0.82rem; }
 .history-list { display: flex; flex-direction: column; gap: 10px; }
 .history-run { border: 1px solid var(--border-light); border-radius: var(--radius-sm); padding: 10px 12px; }
-.run-head { cursor: pointer; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; }
+.run-head {
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
+}
 .run-main { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .run-event { font-weight: 600; font-size: 0.85rem; }
 .run-event.event-invalidate { color: var(--accent-coral); }
