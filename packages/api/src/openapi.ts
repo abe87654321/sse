@@ -757,7 +757,8 @@ export function buildOpenApiDocument(): Record<string, unknown> {
         get: {
           tags: ["Statistics"],
           operationId: "getStatistics",
-          summary: "Role-scoped aggregated statistics by category/department/month",
+          summary:
+            "Role-scoped statistics by category/department/month; amounts and counts cover approved + paid reports",
           parameters: [
             { name: "dateFrom", in: "query", schema: { type: "string", format: "date" } },
             { name: "dateTo", in: "query", schema: { type: "string", format: "date" } },

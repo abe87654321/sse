@@ -25,3 +25,15 @@ export type {
   SnapshotRecordInput,
 } from './report-snapshot';
 export { redactVerificationHistory } from './verification-history';
+export {
+  SPENDING_STATUSES,
+  resolveStatisticsFilter,
+  buildStatisticsPredicate,
+  statisticsScopeLabel,
+} from './statistics';
+export type {
+  StatisticsScope,
+  StatisticsQuery,
+  StatisticsFilter,
+  StatisticsPredicate,
+} from './statistics';

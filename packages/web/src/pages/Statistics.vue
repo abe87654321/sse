@@ -3,6 +3,7 @@
     <div class="page-header">
       <h2 class="page-header-title">统计分析</h2>
       <span v-if="scopeLabel" class="stat-scope">统计范围：{{ scopeLabel }}</span>
+      <span class="stat-basis">统计口径：已通过 + 已付款</span>
     </div>
 
     <div v-if="loadError" class="card stat-error">{{ loadError }}</div>
@@ -136,7 +137,8 @@ onMounted(async () => {
 <style scoped>
 .statistics-page { max-width: 900px; }
 .page-header { display: flex; align-items: center; gap: 12px; }
-.stat-scope {
+.stat-scope,
+.stat-basis {
   font-size: 0.8rem;
   color: var(--text-muted);
   background: var(--bg-warm);

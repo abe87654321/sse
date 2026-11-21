@@ -2,7 +2,12 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { auditFromRequest } from '../services/audit';
 import { PgExpenseRepo, pool } from '@sse/db';
 import { authMiddleware, resolveDataScope } from '@sse/auth';
-import type { DataScope } from '@sse/auth';
+import {
+  SPENDING_STATUSES,
+  buildStatisticsPredicate,
+  resolveStatisticsFilter,
+  statisticsScopeLabel,
+} from '@sse/core';
 import { UserRole } from '@sse/shared';
 import { requireRole } from '../middleware/rbac';
 import { AppError } from '../middleware/error';
@@ -16,75 +21,16 @@ function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Prom
   };
 }
 
-type StatisticsFilter = {
-  dateFrom?: string;
-  dateTo?: string;
-  department?: string;
-  userId?: string;
-};
-
-function readString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value : undefined;
-}
-
-function buildStatisticsFilter(
-  scope: DataScope,
-  query: Request['query']
-): StatisticsFilter {
+function resolveScope(req: Request) {
+  const scope = resolveDataScope({
+    role: req.user!.role,
+    userId: req.user!.userId,
+    department: req.user!.department,
+  });
   if (scope.kind === 'deny') {
     throw new AppError(403, 'UNAUTHORIZED', '当前角色无权查看统计');
   }
-
-  const dateFrom = readString(query.dateFrom);
-  const dateTo = readString(query.dateTo);
-
-  if (scope.kind === 'self') {
-    return { userId: scope.userId, dateFrom, dateTo };
-  }
-  if (scope.kind === 'department') {
-    return { department: scope.department, dateFrom, dateTo };
-  }
-  return { department: readString(query.department), dateFrom, dateTo };
-}
-
-function buildReportFilter(filter: StatisticsFilter): {
-  where: string;
-  values: any[];
-  needsUserJoin: boolean;
-} {
-  const conditions: string[] = [];
-  const values: any[] = [];
-  let idx = 1;
-
-  if (filter.userId) {
-    conditions.push(`er.user_id = $${idx++}`);
-    values.push(filter.userId);
-  }
-  if (filter.department) {
-    conditions.push(`u.department = $${idx++}`);
-    values.push(filter.department);
-  }
-  if (filter.dateFrom) {
-    conditions.push(`er.created_at >= $${idx++}`);
-    values.push(filter.dateFrom);
-  }
-  if (filter.dateTo) {
-    conditions.push(`er.created_at <= $${idx++}`);
-    values.push(filter.dateTo);
-  }
-
-  return {
-    where: conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '',
-    values,
-    needsUserJoin: Boolean(filter.department),
-  };
-}
-
-function scopeLabel(scope: DataScope): string {
-  if (scope.kind === 'self') return '本人';
-  if (scope.kind === 'department') return scope.department;
-  if (scope.kind === 'all') return '全公司';
-  return '无权限';
+  return scope;
 }
 
 router.use(authMiddleware);
@@ -92,14 +38,14 @@ router.use(authMiddleware);
 router.get(
   '/',
   asyncWrap(async (req, res) => {
-    const scope = resolveDataScope({
-      role: req.user!.role,
-      userId: req.user!.userId,
-      department: req.user!.department,
+    const scope = resolveScope(req);
+    const filter = resolveStatisticsFilter(scope, req.query);
+    const spending = buildStatisticsPredicate(filter, {
+      statuses: SPENDING_STATUSES,
     });
-    const filter = buildStatisticsFilter(scope, req.query);
-    const { where, values, needsUserJoin } = buildReportFilter(filter);
-    const userJoin = needsUserJoin ? 'JOIN users u ON u.id = er.user_id' : '';
+    const userJoin = spending.needsUserJoin
+      ? 'JOIN users u ON u.id = er.user_id'
+      : '';
 
     const stats = await expenseRepo.getStatistics(
       filter.dateFrom,
@@ -109,27 +55,30 @@ router.get(
     );
 
     const { rows: categoryStats } = await pool.query(
-      `SELECT ec.name as category, COALESCE(SUM(ei.amount), 0) as total_amount, COUNT(DISTINCT ei.report_id) as report_count
+      `SELECT COALESCE(ec.name, '未分类') as category,
+              COALESCE(SUM(ei.amount), 0) as total_amount,
+              COUNT(DISTINCT ei.report_id) as report_count
        FROM expense_items ei
        JOIN expense_reports er ON er.id = ei.report_id
        LEFT JOIN expense_categories ec ON ec.id = ei.category_id
        ${userJoin}
-       ${where}
-       GROUP BY ec.name
+       ${spending.where}
+       GROUP BY COALESCE(ec.name, '未分类')
        ORDER BY total_amount DESC`,
-      values
+      spending.params
     );
 
     const { rows: deptStats } = await pool.query(
-      `SELECT u.department, COALESCE(SUM(er.total_amount), 0) as total_amount,
+      `SELECT COALESCE(u.department, '未分配') as department,
+              COALESCE(SUM(er.total_amount), 0) as total_amount,
               COUNT(*) as report_count,
-              COUNT(*) FILTER (WHERE er.status = 'approved') as approved_count
+              COUNT(*) as approved_count
        FROM expense_reports er
-       JOIN users u ON u.id = er.user_id
-       ${where}
-       GROUP BY u.department
+       LEFT JOIN users u ON u.id = er.user_id
+       ${spending.where}
+       GROUP BY COALESCE(u.department, '未分配')
        ORDER BY total_amount DESC`,
-      values
+      spending.params
     );
 
     const { rows: monthlyStats } = await pool.query(
@@ -140,24 +89,25 @@ router.get(
                 COUNT(*) as report_count
          FROM expense_reports er
          ${userJoin}
-         ${where}
+         ${spending.where}
          GROUP BY month
          ORDER BY month DESC
          LIMIT 12
        ) recent_months
        ORDER BY month ASC`,
-      values
+      spending.params
     );
 
     res.json({
       scope: scope.kind,
-      scopeLabel: scopeLabel(scope),
+      scopeLabel: statisticsScopeLabel(scope),
       overview: {
         totalAmount: Number(stats.total_amount),
         totalCount: Number(stats.total_count),
         approvedCount: Number(stats.approved_count),
         rejectedCount: Number(stats.rejected_count),
         pendingCount: Number(stats.pending_count),
+        draftCount: Number(stats.draft_count),
       },
       byCategory: categoryStats.map((r: any) => ({
         category: r.category || '未分类',
@@ -183,22 +133,18 @@ router.get(
   '/export',
   requireRole(UserRole.FINANCE, UserRole.ADMIN),
   asyncWrap(async (req, res) => {
-    const scope = resolveDataScope({
-      role: req.user!.role,
-      userId: req.user!.userId,
-      department: req.user!.department,
-    });
-    const filter = buildStatisticsFilter(scope, req.query);
-    const { where, values } = buildReportFilter(filter);
+    const scope = resolveScope(req);
+    const filter = resolveStatisticsFilter(scope, req.query);
+    const predicate = buildStatisticsPredicate(filter);
 
     const { rows } = await pool.query(
       `SELECT er.serial_no, er.title, u.name as applicant, u.department,
               er.total_amount, er.status, er.created_at, er.submitted_at, er.completed_at
        FROM expense_reports er
        JOIN users u ON u.id = er.user_id
-       ${where}
+       ${predicate.where}
        ORDER BY er.created_at DESC`,
-      values
+      predicate.params
     );
 
     await auditFromRequest(req, {

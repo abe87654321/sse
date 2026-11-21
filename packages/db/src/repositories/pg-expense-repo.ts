@@ -1,5 +1,6 @@
 import type { ExpenseReport, ExpenseItem, CreateReportDto } from '@sse/shared';
 import type { IExpenseRepo, ExpenseQuery } from '@sse/core';
+import { buildStatisticsPredicate } from '@sse/core';
 import { pool } from '../connection';
 import type { Queryable } from '../transaction';
 
@@ -225,28 +226,28 @@ export class PgExpenseRepo implements IExpenseRepo {
     department?: string,
     userId?: string
   ): Promise<any> {
-    const conditions: string[] = [];
-    const values: any[] = [];
-    let idx = 1;
-
-    if (dateFrom) { conditions.push(`er.created_at >= $${idx++}`); values.push(dateFrom); }
-    if (dateTo) { conditions.push(`er.created_at <= $${idx++}`); values.push(dateTo); }
-    if (department) { conditions.push(`u.department = $${idx++}`); values.push(department); }
-    if (userId) { conditions.push(`er.user_id = $${idx++}`); values.push(userId); }
-
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const predicate = buildStatisticsPredicate({
+      dateFrom,
+      dateTo,
+      department,
+      userId,
+    });
+    const userJoin = predicate.needsUserJoin
+      ? 'LEFT JOIN users u ON u.id = er.user_id'
+      : '';
 
     const { rows } = await pool.query(
       `SELECT
-         COALESCE(SUM(er.total_amount), 0) as total_amount,
-         COUNT(*) as total_count,
-         COUNT(*) FILTER (WHERE er.status = 'approved') as approved_count,
+         COALESCE(SUM(er.total_amount) FILTER (WHERE er.status IN ('approved', 'paid')), 0) as total_amount,
+         COUNT(*) FILTER (WHERE er.status IN ('approved', 'paid')) as total_count,
+         COUNT(*) FILTER (WHERE er.status IN ('approved', 'paid')) as approved_count,
          COUNT(*) FILTER (WHERE er.status = 'rejected') as rejected_count,
-         COUNT(*) FILTER (WHERE er.status = 'pending') as pending_count
+         COUNT(*) FILTER (WHERE er.status = 'pending') as pending_count,
+         COUNT(*) FILTER (WHERE er.status = 'draft') as draft_count
        FROM expense_reports er
-       ${department ? 'JOIN users u ON u.id = er.user_id' : ''}
-       ${where}`,
-      values
+       ${userJoin}
+       ${predicate.where}`,
+      predicate.params
     );
 
     return rows[0];

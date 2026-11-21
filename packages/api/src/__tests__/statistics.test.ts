@@ -96,13 +96,26 @@ describe('statistics data scope', () => {
     const [categorySql, categoryParams] = mockQuery.mock.calls[0];
     expect(categorySql).toContain('er.user_id = $1');
     expect(categorySql).not.toContain('JOIN users u');
-    expect(categoryParams).toEqual(['u-emp', '2026-01-01', '2026-12-31']);
+    expect(categorySql).toContain("er.created_at < ($3::date + INTERVAL '1 day')");
+    expect(categorySql).toContain('er.status = ANY($4)');
+    expect(categoryParams).toEqual([
+      'u-emp',
+      '2026-01-01',
+      '2026-12-31',
+      ['approved', 'paid'],
+    ]);
 
     const [monthlySql, monthlyParams] = mockQuery.mock.calls[2];
     expect(monthlySql).toContain('ORDER BY month DESC');
     expect(monthlySql).toContain('LIMIT 12');
     expect(monthlySql).toContain('ORDER BY month ASC');
-    expect(monthlyParams).toEqual(['u-emp', '2026-01-01', '2026-12-31']);
+    expect(monthlySql).toContain('er.status = ANY($4)');
+    expect(monthlyParams).toEqual([
+      'u-emp',
+      '2026-01-01',
+      '2026-12-31',
+      ['approved', 'paid'],
+    ]);
 
     const body = (await response.json()) as any;
     expect(body.scope).toBe('self');
@@ -133,7 +146,8 @@ describe('statistics data scope', () => {
     const [categorySql, categoryParams] = mockQuery.mock.calls[0];
     expect(categorySql).toContain('JOIN users u ON u.id = er.user_id');
     expect(categorySql).toContain('u.department = $1');
-    expect(categoryParams).toEqual(['技术部']);
+    expect(categorySql).toContain('er.status = ANY($2)');
+    expect(categoryParams).toEqual(['技术部', ['approved', 'paid']]);
 
     const body = (await response.json()) as any;
     expect(body.scope).toBe('department');
@@ -157,7 +171,8 @@ describe('statistics data scope', () => {
 
     const [categorySql, categoryParams] = mockQuery.mock.calls[0];
     expect(categorySql).toContain('u.department = $1');
-    expect(categoryParams).toEqual(['市场部']);
+    expect(categorySql).toContain('er.status = ANY($2)');
+    expect(categoryParams).toEqual(['市场部', ['approved', 'paid']]);
 
     const body = (await response.json()) as any;
     expect(body.scope).toBe('all');
@@ -181,7 +196,52 @@ describe('statistics data scope', () => {
 
     const [categorySql, categoryParams] = mockQuery.mock.calls[0];
     expect(categorySql).not.toContain('u.department =');
-    expect(categoryParams).toEqual([]);
+    expect(categoryParams).toEqual([['approved', 'paid']]);
+  });
+
+  it('applies the same spending basis to every aggregate', async () => {
+    const token = signToken({ userId: 'u-fin', role: 'finance', department: '财务部' });
+
+    const response = await fetch(
+      `${url}/statistics?dateFrom=2026-01-01&dateTo=2026-12-31`,
+      { headers: { authorization: `Bearer ${token}` } }
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockGetStatistics).toHaveBeenCalledWith(
+      '2026-01-01',
+      '2026-12-31',
+      undefined,
+      undefined
+    );
+
+    const [categorySql, categoryParams] = mockQuery.mock.calls[0];
+    expect(categorySql).toContain("COALESCE(ec.name, '未分类')");
+    expect(categorySql).toContain('er.status = ANY($3)');
+    expect(categoryParams).toEqual([
+      '2026-01-01',
+      '2026-12-31',
+      ['approved', 'paid'],
+    ]);
+
+    const [deptSql, deptParams] = mockQuery.mock.calls[1];
+    expect(deptSql).toContain("COALESCE(u.department, '未分配')");
+    expect(deptSql).toContain('LEFT JOIN users u ON u.id = er.user_id');
+    expect(deptSql).toContain('er.status = ANY($3)');
+    expect(deptParams).toEqual([
+      '2026-01-01',
+      '2026-12-31',
+      ['approved', 'paid'],
+    ]);
+
+    const [monthlySql, monthlyParams] = mockQuery.mock.calls[2];
+    expect(monthlySql).toContain("TO_CHAR(er.created_at, 'YYYY-MM')");
+    expect(monthlySql).toContain('er.status = ANY($3)');
+    expect(monthlyParams).toEqual([
+      '2026-01-01',
+      '2026-12-31',
+      ['approved', 'paid'],
+    ]);
   });
 
   it('rejects unknown roles with 403 and does not query statistics', async () => {

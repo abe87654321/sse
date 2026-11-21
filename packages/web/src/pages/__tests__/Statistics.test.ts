@@ -38,6 +38,7 @@ describe('Statistics page', () => {
 
     expect(mocks.get).toHaveBeenCalledWith('/statistics')
     expect(wrapper.text()).toContain('本人')
+    expect(wrapper.text()).toContain('统计口径：已通过 + 已付款')
     expect(wrapper.text()).toContain('¥1.2k')
     expect(wrapper.text()).toContain('2 笔报销')
     expect(wrapper.text()).toContain('交通')

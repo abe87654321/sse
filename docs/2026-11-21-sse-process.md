@@ -105,7 +105,7 @@ docker compose exec -T postgres psql -U sse -d sse \
 | P1-5 | 报销单内容快照：提交、每步审批、付款时保存不可变 JSON 快照 | ✅ 已完成（本次会话） |
 | P1-6 | 发票核对历史版本，不覆盖旧结果 | ✅ 已完成（本次会话） |
 | P1-7 | 导出补齐明细/审批链/付款/发票字段；增加 XLSX 与导出审计 | 待处理 |
-| P1-8 | 修复统计过滤条件，确保类别/部门/月度与总览口径一致 | 待处理 |
+| P1-8 | 修复统计过滤条件，确保类别/部门/月度与总览口径一致 | ✅ 已完成（本次会话） |
 | P1-9 | 实现真实部门 CRUD，或移除无效入口 | 待处理 |
 | P1-10 | MCP Key 管理界面 + 哈希存储 + 过期/吊销/最后使用时间 | 待处理 |
 | P1-11 | 导航按角色过滤，消除 403/空页面 | 待处理 |
@@ -175,7 +175,7 @@ docker compose exec -T postgres psql -U sse -d sse \
 |---|---|---|
 | P1-6 | 发票核对历史版本，不覆盖旧结果 | ✅ 已完成 |
 | P1-7 | 导出补齐明细/审批链/付款/发票字段；增加 XLSX 与导出审计 | 待处理 |
-| P1-8 | 修复统计过滤条件，确保类别/部门/月度与总览口径一致 | 待处理 |
+| P1-8 | 修复统计过滤条件，确保类别/部门/月度与总览口径一致 | ✅ 已完成（本次会话） |
 | P1-9 | 实现真实部门 CRUD，或移除无效入口 | 待处理 |
 | P1-10 | MCP Key 管理界面 + 哈希存储 + 过期/吊销/最后使用时间 | 待处理 |
 | P1-11 | 导航按角色过滤，消除 403/空页面 | 待处理 |
@@ -201,3 +201,43 @@ docker compose exec -T postgres psql -U sse -d sse \
 - 未改动的原有未跟踪文件：`docs/handover-docs/**`、`docs/2026-11-12-sse-multi-role-analysis.md`。
 - 已知后续项：快照详情与 MCP `get_expense_detail` 的重复发票引用仍可能对员工暴露，已记录在 TDD 证据的 known gaps。
 - 下一次会话建议：从 P1-7 或 P1-11 开始。
+
+---
+
+## 十、P1-8：统计口径一致性
+
+> TDD 证据：`docs/testing/statistics-consistency.tdd.md`
+
+### 落地内容
+
+- 新增 core 共享统计契约：`resolveStatisticsFilter`、`buildStatisticsPredicate`、`statisticsScopeLabel`、`SPENDING_STATUSES`，API 与 MCP 复用同一套过滤/状态口径。
+- 统一“支出”口径为 `approved + paid`；总览金额/单数、类别、部门、月度全部使用同一状态集合；驳回/待审批/草稿单独计数。
+- `dateTo` 改为半开区间 `created_at < (dateTo::date + INTERVAL '1 day')`，不再漏掉截止日当天数据。
+- 类别统计显示 `未分类`；部门统计改用 `LEFT JOIN users` 并显示 `未分配`，保证部门合计可与总览对账。
+- MCP `get_statistics` 与 REST 对齐：相同 scope/日期/状态口径，新增 `scope`、状态计数、`by_month`。
+- 前端“统计分析”显示 `统计口径：已通过 + 已付款`。
+
+### 验证
+
+```text
+pnpm -r test
+  web           58 passed
+  core          70 passed
+  db            59 passed
+  auth          30 passed
+  ai           100 passed
+  notifications 29 passed
+  ontology     176 passed
+  api          201 passed
+  mcp           59 passed
+  合计         782 passed
+
+pnpm -r build
+  11/11 个包完成
+```
+
+### 已知边界
+
+- 月度趋势固定取最近 12 个月，因此有更早数据时其合计小于总览属预期。
+- 月度分组与日期比较都依赖 PostgreSQL 会话时区；跨时区部署仍需在测试机复核。
+- 未新增真实数据库对账测试；通过“同一谓词 + 同一状态集合”保证口径一致，并记录在 TDD 证据的 known gaps。
