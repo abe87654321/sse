@@ -757,13 +757,16 @@ export function buildOpenApiDocument(): Record<string, unknown> {
         get: {
           tags: ["Statistics"],
           operationId: "getStatistics",
-          summary: "Aggregated statistics by category/department/month",
+          summary: "Role-scoped aggregated statistics by category/department/month",
           parameters: [
             { name: "dateFrom", in: "query", schema: { type: "string", format: "date" } },
             { name: "dateTo", in: "query", schema: { type: "string", format: "date" } },
             { name: "department", in: "query", schema: { type: "string" } },
           ],
-          responses: { "200": ok("Statistics") },
+          responses: {
+            "200": ok("Statistics (employee=self, dept_approver=department, finance/admin=all)"),
+            "403": error("No access"),
+          },
         },
       },
       "/ontology/submit-from-text": {

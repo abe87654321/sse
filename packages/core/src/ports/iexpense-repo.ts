@@ -27,6 +27,11 @@ export interface IExpenseRepo {
     input: { paymentRef?: string | null; paymentComment?: string | null; updatedBy: string }
   ): Promise<boolean>;
   revertPayment(id: string, updatedBy: string): Promise<boolean>;
-  getStatistics(dateFrom?: string, dateTo?: string, department?: string): Promise<any>;
+  getStatistics(
+    dateFrom?: string,
+    dateTo?: string,
+    department?: string,
+    userId?: string
+  ): Promise<any>;
   getUserSummary(userId: string, dateFrom?: string, dateTo?: string): Promise<any>;
 }

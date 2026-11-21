@@ -1,9 +1,11 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { auditFromRequest } from '../services/audit';
 import { PgExpenseRepo, pool } from '@sse/db';
-import { authMiddleware } from '@sse/auth';
-import { requireRole } from '../middleware/rbac';
+import { authMiddleware, resolveDataScope } from '@sse/auth';
+import type { DataScope } from '@sse/auth';
 import { UserRole } from '@sse/shared';
+import { requireRole } from '../middleware/rbac';
+import { AppError } from '../middleware/error';
 
 const router = Router();
 const expenseRepo = new PgExpenseRepo();
@@ -14,18 +16,96 @@ function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Prom
   };
 }
 
+type StatisticsFilter = {
+  dateFrom?: string;
+  dateTo?: string;
+  department?: string;
+  userId?: string;
+};
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function buildStatisticsFilter(
+  scope: DataScope,
+  query: Request['query']
+): StatisticsFilter {
+  if (scope.kind === 'deny') {
+    throw new AppError(403, 'UNAUTHORIZED', '当前角色无权查看统计');
+  }
+
+  const dateFrom = readString(query.dateFrom);
+  const dateTo = readString(query.dateTo);
+
+  if (scope.kind === 'self') {
+    return { userId: scope.userId, dateFrom, dateTo };
+  }
+  if (scope.kind === 'department') {
+    return { department: scope.department, dateFrom, dateTo };
+  }
+  return { department: readString(query.department), dateFrom, dateTo };
+}
+
+function buildReportFilter(filter: StatisticsFilter): {
+  where: string;
+  values: any[];
+  needsUserJoin: boolean;
+} {
+  const conditions: string[] = [];
+  const values: any[] = [];
+  let idx = 1;
+
+  if (filter.userId) {
+    conditions.push(`er.user_id = $${idx++}`);
+    values.push(filter.userId);
+  }
+  if (filter.department) {
+    conditions.push(`u.department = $${idx++}`);
+    values.push(filter.department);
+  }
+  if (filter.dateFrom) {
+    conditions.push(`er.created_at >= $${idx++}`);
+    values.push(filter.dateFrom);
+  }
+  if (filter.dateTo) {
+    conditions.push(`er.created_at <= $${idx++}`);
+    values.push(filter.dateTo);
+  }
+
+  return {
+    where: conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '',
+    values,
+    needsUserJoin: Boolean(filter.department),
+  };
+}
+
+function scopeLabel(scope: DataScope): string {
+  if (scope.kind === 'self') return '本人';
+  if (scope.kind === 'department') return scope.department;
+  if (scope.kind === 'all') return '全公司';
+  return '无权限';
+}
+
 router.use(authMiddleware);
-router.use(requireRole(UserRole.FINANCE, UserRole.ADMIN));
 
 router.get(
   '/',
   asyncWrap(async (req, res) => {
-    const { dateFrom, dateTo, department } = req.query;
+    const scope = resolveDataScope({
+      role: req.user!.role,
+      userId: req.user!.userId,
+      department: req.user!.department,
+    });
+    const filter = buildStatisticsFilter(scope, req.query);
+    const { where, values, needsUserJoin } = buildReportFilter(filter);
+    const userJoin = needsUserJoin ? 'JOIN users u ON u.id = er.user_id' : '';
 
     const stats = await expenseRepo.getStatistics(
-      dateFrom as string | undefined,
-      dateTo as string | undefined,
-      department as string | undefined
+      filter.dateFrom,
+      filter.dateTo,
+      filter.department,
+      filter.userId
     );
 
     const { rows: categoryStats } = await pool.query(
@@ -33,9 +113,11 @@ router.get(
        FROM expense_items ei
        JOIN expense_reports er ON er.id = ei.report_id
        LEFT JOIN expense_categories ec ON ec.id = ei.category_id
-       WHERE 1=1
+       ${userJoin}
+       ${where}
        GROUP BY ec.name
-       ORDER BY total_amount DESC`
+       ORDER BY total_amount DESC`,
+      values
     );
 
     const { rows: deptStats } = await pool.query(
@@ -44,21 +126,32 @@ router.get(
               COUNT(*) FILTER (WHERE er.status = 'approved') as approved_count
        FROM expense_reports er
        JOIN users u ON u.id = er.user_id
+       ${where}
        GROUP BY u.department
-       ORDER BY total_amount DESC`
+       ORDER BY total_amount DESC`,
+      values
     );
 
     const { rows: monthlyStats } = await pool.query(
-      `SELECT TO_CHAR(er.created_at, 'YYYY-MM') as month,
-              COALESCE(SUM(er.total_amount), 0) as total_amount,
-              COUNT(*) as report_count
-       FROM expense_reports er
-       GROUP BY month
-       ORDER BY month ASC
-       LIMIT 12`
+      `SELECT month, total_amount, report_count
+       FROM (
+         SELECT TO_CHAR(er.created_at, 'YYYY-MM') as month,
+                COALESCE(SUM(er.total_amount), 0) as total_amount,
+                COUNT(*) as report_count
+         FROM expense_reports er
+         ${userJoin}
+         ${where}
+         GROUP BY month
+         ORDER BY month DESC
+         LIMIT 12
+       ) recent_months
+       ORDER BY month ASC`,
+      values
     );
 
     res.json({
+      scope: scope.kind,
+      scopeLabel: scopeLabel(scope),
       overview: {
         totalAmount: Number(stats.total_amount),
         totalCount: Number(stats.total_count),
@@ -88,18 +181,24 @@ router.get(
 
 router.get(
   '/export',
+  requireRole(UserRole.FINANCE, UserRole.ADMIN),
   asyncWrap(async (req, res) => {
-    const { dateFrom, dateTo } = req.query;
+    const scope = resolveDataScope({
+      role: req.user!.role,
+      userId: req.user!.userId,
+      department: req.user!.department,
+    });
+    const filter = buildStatisticsFilter(scope, req.query);
+    const { where, values } = buildReportFilter(filter);
 
     const { rows } = await pool.query(
       `SELECT er.serial_no, er.title, u.name as applicant, u.department,
               er.total_amount, er.status, er.created_at, er.submitted_at, er.completed_at
        FROM expense_reports er
        JOIN users u ON u.id = er.user_id
-       WHERE ($1::text IS NULL OR er.created_at >= $1::timestamptz)
-         AND ($2::text IS NULL OR er.created_at <= $2::timestamptz)
+       ${where}
        ORDER BY er.created_at DESC`,
-      [dateFrom || null, dateTo || null]
+      values
     );
 
     await auditFromRequest(req, {
@@ -109,8 +208,9 @@ router.get(
       outcome: 'success',
       details: {
         format: req.query.format === 'csv' || req.headers.accept?.includes('text/csv') ? 'csv' : 'json',
-        dateFrom: dateFrom || null,
-        dateTo: dateTo || null,
+        scope: scope.kind,
+        dateFrom: filter.dateFrom || null,
+        dateTo: filter.dateTo || null,
         rows: rows.length,
       },
     });
@@ -138,7 +238,7 @@ router.get(
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader(
         'Content-Disposition',
-        `attachment; filename="expenses_${dateFrom || 'all'}_${dateTo || 'all'}.csv"`
+        `attachment; filename="expenses_${filter.dateFrom || 'all'}_${filter.dateTo || 'all'}.csv"`
       );
       res.send('\uFEFF' + csvRows.join('\n'));
     } else {

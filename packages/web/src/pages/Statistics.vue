@@ -2,7 +2,10 @@
   <div class="statistics-page">
     <div class="page-header">
       <h2 class="page-header-title">统计分析</h2>
+      <span v-if="scopeLabel" class="stat-scope">统计范围：{{ scopeLabel }}</span>
     </div>
+
+    <div v-if="loadError" class="card stat-error">{{ loadError }}</div>
 
     <div class="stats-grid">
       <div class="card stat-summary" v-for="s in summaries" :key="s.label">
@@ -75,6 +78,8 @@ const months = ref<any[]>([])
 const categories = ref<any[]>([])
 const maxAmount = ref(1)
 const maxCatAmount = ref(1)
+const scopeLabel = ref('')
+const loadError = ref('')
 
 function formatK(n: number): string {
   if (n >= 10000) return (n / 10000).toFixed(1) + 'w'
@@ -88,11 +93,13 @@ function formatMonth(ym: string): string {
 }
 
 onMounted(async () => {
+  loadError.value = ''
   try {
     const res = await api.get('/statistics')
     const data = res.data
 
     const { overview, byCategory, monthly } = data
+    scopeLabel.value = data.scopeLabel || ''
     const approvedCount = overview.approvedCount || 0
     const rejectedCount = overview.rejectedCount || 0
     const totalCount = overview.totalCount || 0
@@ -119,12 +126,31 @@ onMounted(async () => {
       color: `linear-gradient(90deg, ${barColors[i % barColors.length]}, ${barColors[(i + 3) % barColors.length]})`,
     }))
     maxCatAmount.value = Math.max(1, ...categories.value.map((c: any) => c.amount))
-  } catch {}
+  } catch (error: any) {
+    loadError.value =
+      error?.response?.data?.error?.message || '统计数据加载失败，请稍后重试'
+  }
 })
 </script>
 
 <style scoped>
 .statistics-page { max-width: 900px; }
+.page-header { display: flex; align-items: center; gap: 12px; }
+.stat-scope {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: var(--bg-warm);
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.stat-error {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-coral-bg);
+  color: var(--accent-coral);
+  font-size: 0.85rem;
+}
 
 .stats-grid {
   display: grid;

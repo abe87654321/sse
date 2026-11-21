@@ -219,7 +219,12 @@ export class PgExpenseRepo implements IExpenseRepo {
     }
   }
 
-  async getStatistics(dateFrom?: string, dateTo?: string, department?: string): Promise<any> {
+  async getStatistics(
+    dateFrom?: string,
+    dateTo?: string,
+    department?: string,
+    userId?: string
+  ): Promise<any> {
     const conditions: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -227,6 +232,7 @@ export class PgExpenseRepo implements IExpenseRepo {
     if (dateFrom) { conditions.push(`er.created_at >= $${idx++}`); values.push(dateFrom); }
     if (dateTo) { conditions.push(`er.created_at <= $${idx++}`); values.push(dateTo); }
     if (department) { conditions.push(`u.department = $${idx++}`); values.push(department); }
+    if (userId) { conditions.push(`er.user_id = $${idx++}`); values.push(userId); }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
