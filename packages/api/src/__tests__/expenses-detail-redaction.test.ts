@@ -108,3 +108,37 @@ it('keeps duplicate invoice details for finance', async () => {
   const body = (await response.json()) as any;
   expect(body.invoices[0].verificationResult.duplicates[0].serialNo).toBe('RE-2');
 });
+
+it('keeps duplicate invoice details for department approvers', async () => {
+  mockQuery
+    .mockResolvedValueOnce({ rows: [{ department: '技术部' }] }) // assertReportAccess
+    .mockResolvedValueOnce({ rows: [{ id: 'it-1', report_id: 'r1', category_id: 'c1', amount: '100', expense_date: '2026-11-21', description: 'x' }] }) // items
+    .mockResolvedValueOnce({ rows: [{ category_id: 'c1' }] }) // category ids
+    .mockResolvedValueOnce({ rows: [{ id: 'inv-1', item_id: 'it-1', file_name: 'a.pdf', verification_status: 'warning', verification_result: { duplicates: [{ invoiceId: 'inv-2', serialNo: 'RE-2' }] } }] }); // invoices
+
+  const token = signToken({ userId: 'dept-1', role: 'dept_approver', department: '技术部' });
+  const response = await fetch(`${url}/expenses/r1`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as any;
+  expect(body.invoices[0].verificationResult.duplicates[0].serialNo).toBe('RE-2');
+});
+
+it('returns invoice unchanged when verificationResult is missing', async () => {
+  mockQuery
+    .mockResolvedValueOnce({ rows: [{ department: '技术部' }] }) // assertReportAccess
+    .mockResolvedValueOnce({ rows: [{ id: 'it-1', report_id: 'r1', category_id: 'c1', amount: '100', expense_date: '2026-11-21', description: 'x' }] }) // items
+    .mockResolvedValueOnce({ rows: [{ category_id: 'c1' }] }) // category ids
+    .mockResolvedValueOnce({ rows: [{ id: 'inv-1', item_id: 'it-1', file_name: 'a.pdf', verification_status: 'pending' }] }); // invoices
+
+  const token = signToken({ userId: 'owner-1', role: 'employee', department: '技术部' });
+  const response = await fetch(`${url}/expenses/r1`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as any;
+  expect(body.invoices[0].verificationResult).toBeUndefined();
+});
