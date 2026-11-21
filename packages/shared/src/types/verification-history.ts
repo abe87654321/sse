@@ -46,7 +46,7 @@ export type VerificationRunItem = {
   itemId?: string | null;
   fileName?: string | null;
   status: VerificationHistoryStatus;
-  result: Record<string, any>;
+  result: Record<string, unknown>;
   hashValid: boolean;
   createdAt: string | Date;
 };
