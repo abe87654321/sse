@@ -39,3 +39,13 @@ export type {
   ReportSnapshotAction,
   ReportSnapshotPayment,
 } from './report-snapshot';
+export type {
+  VerificationHistoryKind,
+  VerificationHistoryEventType,
+  VerificationHistoryCause,
+  VerificationHistoryStatus,
+  VerificationRunSummary,
+  VerificationRunItem,
+  VerificationRun,
+  VerificationHistoryResponse,
+} from './verification-history';
