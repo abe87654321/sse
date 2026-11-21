@@ -275,6 +275,13 @@ router.get(
         [itemIds]
       );
       invoices = invRows.map(mapInvoiceRow);
+      const canSeeDuplicateDetails =
+        role === UserRole.ADMIN ||
+        role === UserRole.FINANCE ||
+        role === UserRole.DEPT_APPROVER;
+      if (!canSeeDuplicateDetails) {
+        invoices = invoices.map(redactInvoiceDuplicateDetails);
+      }
     }
 
     let paidByName: string | undefined;
@@ -1298,6 +1305,18 @@ function mapInvoiceRow(row: any) {
     verificationResult: row.verification_result ?? undefined,
     verifiedAt: row.verified_at ?? undefined,
     uploadedAt: row.uploaded_at,
+  };
+}
+
+function redactInvoiceDuplicateDetails(invoice: any) {
+  const duplicates = invoice?.verificationResult?.duplicates;
+  if (!Array.isArray(duplicates) || duplicates.length === 0) return invoice;
+  return {
+    ...invoice,
+    verificationResult: {
+      ...invoice.verificationResult,
+      duplicates: [{ restricted: true }],
+    },
   };
 }
 
