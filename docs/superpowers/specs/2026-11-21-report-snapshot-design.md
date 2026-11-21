@@ -174,7 +174,7 @@ CREATE INDEX IF NOT EXISTS idx_report_snapshots_actor
 说明：
 
 - `approval.rule` 非空时结构为 `{ id, name, minAmount, maxAmount, priority, chain: [{ step, role, assigneeId, label }] }`。
-- `approval.rule` 在历史回填中为 `null`（规则不可还原），这是预期。
+- `approval.rule` 在历史回填与付款快照中为 `null`（历史规则不可还原；付款时规则已在提交/审批快照中固化），这是预期。
 - `approval.action` 仅在审批/驳回快照中出现；提交/付款快照为 `null`。
 - `payment` 仅在付款快照中出现，其余为 `null`。
 - `verification.aggregateStatus` 复用 `aggregateVerificationStatus` 的优先级：
