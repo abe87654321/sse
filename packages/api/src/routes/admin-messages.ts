@@ -38,7 +38,7 @@ router.get('/:id/deliveries', asyncWrap(async (req, res) => {
 }));
 
 router.post('/', asyncWrap(async (req, res) => {
-  const { title, body, body_ai, target_roles, target_user_ids, delivery_channels, send_now } = req.body;
+  const { title, body, body_ai, body_ai_instruction, target_roles, target_user_ids, delivery_channels, send_now } = req.body;
   if (!title || !body) throw new AppError(400, 'INVALID_PARAMS', '标题和正文不能为空');
 
   const roles = target_roles || [];
@@ -51,6 +51,7 @@ router.post('/', asyncWrap(async (req, res) => {
   const msg = await repo.createSystemMessage({
     title, body,
     body_ai: body_ai || undefined,
+    body_ai_instruction: body_ai_instruction || undefined,
     target_roles: roles,
     target_user_ids: userIds,
     sender_id: req.user!.userId,

@@ -83,32 +83,64 @@ router.post(
   })
 );
 
+function cleanPolishedText(raw: string): string {
+  let text = String(raw || '').trim();
+  // Some models wrap the answer in a fenced block despite the instruction.
+  const fenced = text.match(/^```[a-z]*\s*\n([\s\S]*?)\n```$/i);
+  if (fenced) text = fenced[1].trim();
+  // Drop a leading label such as "润色后：" that some models add.
+  text = text.replace(/^(润色后|修改后|优化后)\s*[:：]\s*/u, '');
+  return text.trim();
+}
+
 router.post(
   '/polish',
   asyncWrap(async (req, res) => {
     const { body, instruction, previous } = req.body;
-    if (!body) throw new AppError(400, 'INVALID_PARAMS', '请提供原文 body');
-
-    const config = loadAiConfig();
-    const provider = createFillProvider(config);
-    if (!provider) {
-      throw new AppError(503, 'AI_DISABLED', '智能填单引擎未启用');
+    const source = typeof body === 'string' ? body.trim() : '';
+    if (!source) throw new AppError(400, 'INVALID_PARAMS', '请提供原文 body');
+    if (source.length > 20000) {
+      throw new AppError(400, 'INVALID_PARAMS', '正文过长，请分段后再润色');
     }
 
-    const prompt = `你是企业通知编辑助手。请润色以下通知，使其更专业、简洁、友好。
-保持原意不变，不要添加原文没有的信息。
-${instruction ? `用户要求: ${instruction}` : ''}
-${previous ? `上次润色版: ${previous}` : ''}
+    const config = loadAiConfig();
+    if (!config.fillEngine.enabled) {
+      throw new AppError(503, 'AI_DISABLED', '系统管理中的智能填单引擎未启用');
+    }
+    if (!config.fillEngine.endpoint || !config.fillEngine.model) {
+      throw new AppError(503, 'AI_NOT_CONFIGURED', '请先在系统管理中配置 AI 模型');
+    }
 
-原文: ${body}
+    const provider = createFillProvider(config);
+    if (!provider) {
+      throw new AppError(503, 'AI_DISABLED', '系统管理中的智能填单引擎未启用');
+    }
 
-请只返回润色后的正文，不要添加任何额外说明。`;
+    const requirement = typeof instruction === 'string' ? instruction.trim() : '';
+    const previousDraft = typeof previous === 'string' ? previous.trim() : '';
+    const prompt = [
+      '你是企业通知编辑助手。请润色用户提供的通知正文。',
+      '要求：保持原意不变，不要添加原文没有的信息；语气专业、简洁、友好。',
+      requirement ? `用户额外要求：${requirement}` : '',
+      previousDraft ? `上一版润色结果（请在此基础上按要求调整）：\n${previousDraft}` : '',
+      '只返回润色后的正文，不要添加任何额外说明，不要使用 Markdown 代码块。',
+    ].filter(Boolean).join('\n');
 
+    const startedAt = Date.now();
     try {
-      const result = await provider.analyzeText(body, prompt);
-      res.json({ polished_body: result });
-    } catch {
-      throw new AppError(500, 'AI_FAILED', '模型调用失败，请检查 AI 配置');
+      const result = cleanPolishedText(await provider.analyzeText(source, prompt));
+      if (!result) {
+        throw new AppError(502, 'AI_EMPTY_RESPONSE', '模型未返回润色结果，请调整模型或稍后重试');
+      }
+      res.json({
+        polished_body: result,
+        model: config.fillEngine.model,
+        elapsed_ms: Date.now() - startedAt,
+      });
+    } catch (error: any) {
+      if (error instanceof AppError) throw error;
+      const detail = error?.message ? `：${error.message}` : '';
+      throw new AppError(502, 'AI_FAILED', `模型调用失败${detail}`);
     }
   })
 );

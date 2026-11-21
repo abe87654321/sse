@@ -38,9 +38,19 @@
         <h3 class="form-section-title font-heading">{{ editingId ? '编辑消息' : '撰写广播消息' }}</h3>
 
         <div class="field"><label>标题</label><input v-model="form.title" placeholder="请输入消息标题" /></div>
-        <div class="field"><label>正文</label><textarea v-model="form.body" rows="5" placeholder="请输入消息正文"></textarea></div>
+        <div class="field"><label>正文</label><textarea v-model="form.body" rows="5" placeholder="请输入消息正文" @input="onBodyInput"></textarea></div>
 
-        <button class="btn-secondary btn-sm" style="margin-bottom:12px" @click="aiPolish" :disabled="!form.body || polishing">✨ AI 润色</button>
+        <div class="field">
+          <label>AI 润色要求（可选）</label>
+          <input v-model="polishInstruction" placeholder="例如：更正式一些、控制在 200 字以内" />
+        </div>
+        <div class="polish-actions">
+          <button class="btn-secondary btn-sm" data-test="ai-polish" @click="aiPolish" :disabled="!form.body || polishing">
+            {{ polishing ? '润色中...' : '✨ AI 润色' }}
+          </button>
+          <button v-if="canUndoPolish" class="btn-text btn-sm" data-test="undo-polish" @click="undoPolish">↩ 撤销润色</button>
+          <span v-if="polishedActive" class="text-muted polish-status">已采用 AI 润色（原文已保留，可撤销）</span>
+        </div>
 
         <div class="field"><label>目标角色</label>
           <div class="checkbox-group">
@@ -61,7 +71,7 @@
         </div>
 
         <div class="modal-actions">
-          <button class="btn-secondary btn-sm" @click="saveDraft">保存草稿</button>
+          <button class="btn-secondary btn-sm" data-test="save-draft" @click="saveDraft">保存草稿</button>
           <button class="btn-primary btn-sm" @click="sendNow">立即发送</button>
           <button class="btn-text btn-sm" @click="closeComposer">取消</button>
         </div>
@@ -71,19 +81,20 @@
     <div v-if="showPolishDialog" class="modal-overlay" @click.self="showPolishDialog = false">
       <div class="modal-card polish-modal">
         <h3 class="form-section-title font-heading">AI 润色对比</h3>
+        <p v-if="polishedModel" class="text-muted polish-model">使用模型：{{ polishedModel }}</p>
         <div class="polish-compare">
-          <div class="polish-col"><h4>原文</h4><p>{{ form.body }}</p></div>
+          <div class="polish-col"><h4>原文</h4><p>{{ originalBody || form.body }}</p></div>
           <div class="polish-col"><h4>润色后</h4><p>{{ polishedBody }}</p></div>
         </div>
         <div class="field" style="margin-top:12px"><label>调整要求</label>
           <div class="polish-refine">
             <input v-model="polishInstruction" placeholder="例如：更正式一些" @keyup.enter="aiPolish" />
-            <button class="btn-secondary btn-sm" @click="aiPolish" :disabled="polishing">再次润色</button>
+            <button class="btn-secondary btn-sm" @click="aiPolish" :disabled="polishing">{{ polishing ? '润色中...' : '再次润色' }}</button>
           </div>
         </div>
         <div class="modal-actions" style="margin-top:16px">
-          <button class="btn-primary btn-sm" @click="acceptPolish">采用润色</button>
-          <button class="btn-secondary btn-sm" @click="showPolishDialog = false">保留原文</button>
+          <button class="btn-primary btn-sm" data-test="accept-polish" @click="acceptPolish" :disabled="!polishedBody">采用润色</button>
+          <button class="btn-secondary btn-sm" data-test="keep-original" @click="showPolishDialog = false">保留原文</button>
         </div>
       </div>
     </div>
@@ -130,9 +141,13 @@ const editingId = ref('')
 const polishedBody = ref('')
 const polishInstruction = ref('')
 const polishing = ref(false)
+const originalBody = ref('')
+const polishedModel = ref('')
+const polishedActive = ref(false)
+const appliedInstruction = ref('')
 
 const form = reactive({
-  title: '', body: '', body_ai: '',
+  title: '', body: '', body_ai: '', body_ai_instruction: '',
   target_roles: [] as string[],
   specificUsers: [] as any[],
   delivery_channels: [] as string[],
@@ -197,15 +212,23 @@ async function fetchMessages() {
   try { const res = await api.get('/admin/messages'); messages.value = res.data || [] } catch {}
 }
 
+function messagePayload() {
+  const usingPolish = polishedActive.value && !!originalBody.value && form.body !== originalBody.value
+  return {
+    title: form.title,
+    body: usingPolish ? originalBody.value : (form.body || form.title),
+    body_ai: usingPolish ? form.body : '',
+    body_ai_instruction: usingPolish ? appliedInstruction.value : '',
+    target_roles: form.target_roles,
+    target_user_ids: form.specificUsers.map(u => u.id),
+    delivery_channels: form.delivery_channels,
+  }
+}
+
 async function saveDraft() {
   try {
     if (!form.title.trim()) { alert('请输入标题'); return }
-    const payload = {
-      title: form.title, body: form.body || form.title, body_ai: form.body_ai,
-      target_roles: form.target_roles,
-      target_user_ids: form.specificUsers.map(u => u.id),
-      delivery_channels: form.delivery_channels,
-    }
+    const payload = messagePayload()
     if (editingId.value) { await api.put(`/admin/messages/${editingId.value}`, payload) }
     else { await api.post('/admin/messages', payload) }
     closeComposer(); fetchMessages()
@@ -218,13 +241,7 @@ async function saveDraft() {
 async function sendNow() {
   try {
     if (!form.title.trim()) { alert('请输入标题'); return }
-    const payload = {
-      title: form.title, body: form.body || form.title, body_ai: form.body_ai,
-      target_roles: form.target_roles,
-      target_user_ids: form.specificUsers.map(u => u.id),
-      delivery_channels: form.delivery_channels,
-      send_now: true,
-    }
+    const payload = { ...messagePayload(), send_now: true }
     if (form.target_roles.length === 0 && form.specificUsers.length === 0) { alert('请选择目标角色或指定用户'); return }
     const res = await api.post('/admin/messages', payload)
     alert(`发送成功，已推送给 ${res.data.sent_to} 人`)
@@ -251,28 +268,84 @@ async function deleteDraft(id: string) {
 }
 
 function editDraft(m: any) {
-  form.title = m.title; form.body = m.body; form.body_ai = m.body_ai || ''
+  originalBody.value = m.body || ''
+  form.title = m.title
+  form.body = m.body_ai || m.body || ''
+  form.body_ai = m.body_ai || ''
+  form.body_ai_instruction = m.body_ai_instruction || ''
+  polishedActive.value = !!m.body_ai
+  polishedBody.value = m.body_ai || ''
+  polishedModel.value = ''
+  appliedInstruction.value = m.body_ai_instruction || ''
+  polishInstruction.value = m.body_ai_instruction || ''
   form.target_roles = m.target_roles || []; form.delivery_channels = m.delivery_channels || []
   form.specificUsers = []; editingId.value = m.id; showComposer.value = true
 }
 
 function closeComposer() {
   showComposer.value = false; editingId.value = ''
-  form.title = ''; form.body = ''; form.body_ai = ''
+  form.title = ''; form.body = ''; form.body_ai = ''; form.body_ai_instruction = ''
   form.target_roles = []; form.specificUsers = []; form.delivery_channels = []
+  originalBody.value = ''; polishedBody.value = ''; polishedModel.value = ''
+  polishedActive.value = false; appliedInstruction.value = ''; polishInstruction.value = ''
+}
+
+const canUndoPolish = computed(() => !!originalBody.value && form.body !== originalBody.value)
+
+function onBodyInput() {
+  if (polishedActive.value && form.body !== polishedBody.value) {
+    polishedActive.value = false
+    polishedBody.value = ''
+    form.body_ai = ''
+  }
+}
+
+function polishErrorMessage(err: any) {
+  return err?.response?.data?.error?.message
+    || err?.response?.data?.message
+    || err?.message
+    || 'AI 润色失败，请检查模型连接'
 }
 
 async function aiPolish() {
   if (!form.body) return
+  if (!originalBody.value || !polishedActive.value) originalBody.value = form.body
   polishing.value = true
   try {
-    const res = await api.post('/ai/polish', { body: form.body, instruction: polishInstruction.value || undefined, previous: polishedBody.value || undefined })
-    polishedBody.value = res.data.polished_body; showPolishDialog.value = true
-  } catch { alert('AI 润色失败，请检查模型连接') }
-  finally { polishing.value = false }
+    const previous = polishedBody.value || (polishedActive.value ? form.body : '')
+    const res = await api.post('/ai/polish', {
+      body: originalBody.value,
+      instruction: polishInstruction.value.trim() || undefined,
+      previous: previous || undefined,
+    }, { timeout: 120000 })
+    polishedBody.value = res.data.polished_body
+    polishedModel.value = res.data.model || ''
+    appliedInstruction.value = polishInstruction.value.trim()
+    showPolishDialog.value = true
+  } catch (err) {
+    alert(polishErrorMessage(err))
+  } finally { polishing.value = false }
 }
 
-function acceptPolish() { form.body = polishedBody.value; form.body_ai = polishedBody.value; polishInstruction.value = ''; showPolishDialog.value = false }
+function acceptPolish() {
+  if (!polishedBody.value) return
+  form.body = polishedBody.value
+  form.body_ai = polishedBody.value
+  form.body_ai_instruction = appliedInstruction.value
+  polishedActive.value = true
+  showPolishDialog.value = false
+}
+
+function undoPolish() {
+  if (!originalBody.value) return
+  form.body = originalBody.value
+  form.body_ai = ''
+  form.body_ai_instruction = ''
+  polishedBody.value = ''
+  polishedModel.value = ''
+  appliedInstruction.value = ''
+  polishedActive.value = false
+}
 
 async function openDeliveries(id: string) {
   deliveryLoading.value = true
@@ -312,6 +385,9 @@ onMounted(fetchMessages)
 .checkbox-group label { display: flex; align-items: center; gap: 4px; font-size: 0.9rem; cursor: pointer; }
 .checkbox-group label input[type="checkbox"] { width: auto; }
 
+.polish-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.polish-status { font-size: 0.8rem; }
+.polish-model { font-size: 0.78rem; margin-bottom: 8px; }
 .polish-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .polish-col { padding: 12px; background: var(--bg-warm); border-radius: var(--radius-sm); }
 .polish-col h4 { margin-bottom: 8px; font-size: 0.85rem; color: var(--text-muted); }
