@@ -1,10 +1,10 @@
-import type { VerificationRun } from '@sse/shared';
+import type { VerificationHistoryKind, VerificationRun } from '@sse/shared';
 
 const RESTRICTED_MARKER = [{ restricted: true }];
 
 function redactItemResult(
   result: Record<string, unknown>,
-  kind: string
+  kind: VerificationHistoryKind
 ): Record<string, unknown> {
   if (!result || typeof result !== 'object') return result;
   const clone = { ...result };
