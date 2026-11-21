@@ -2,10 +2,12 @@ const mockQuery = jest.fn();
 
 jest.mock('@sse/db', () => ({
   pool: { query: (...args: any[]) => mockQuery(...args) },
+  withTransaction: jest.fn(),
   PgApprovalRecordRepo: jest.fn().mockImplementation(() => ({})),
   PgExpenseRepo: jest.fn().mockImplementation(() => ({})),
   PgApprovalRuleRepo: jest.fn().mockImplementation(() => ({})),
   PgUserRepo: jest.fn().mockImplementation(() => ({})),
+  PgReportSnapshotRepo: jest.fn().mockImplementation(() => ({})),
 }));
 
 import express from 'express';

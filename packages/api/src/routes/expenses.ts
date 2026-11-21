@@ -7,10 +7,11 @@ import {
   PgUserRepo,
   PgPaymentReceiptRepo,
   PgPaymentAuditRepo,
+  PgReportSnapshotRepo,
   pool,
   withTransaction,
 } from '@sse/db';
-import { ReportService, aggregateVerificationStatus, planItemSync, shouldReOcr, verifyInvoices, evaluateReportDeletion, NoApproverError } from '@sse/core';
+import { ReportService, aggregateVerificationStatus, planItemSync, shouldReOcr, verifyInvoices, evaluateReportDeletion, NoApproverError, ApprovalEngine } from '@sse/core';
 import { ReportStatus, InvoiceFormat, UserRole, ApprovalResult } from '@sse/shared';
 import { paymentPaidMessage } from '@sse/notifications';
 import { sendNotificationSafe } from '../services/notifications';
@@ -36,6 +37,8 @@ const recordRepo = new PgApprovalRecordRepo();
 const invoiceRepo = new PgInvoiceRepo();
 const paymentReceiptRepo = new PgPaymentReceiptRepo();
 const paymentAuditRepo = new PgPaymentAuditRepo();
+const snapshotRepo = new PgReportSnapshotRepo();
+const approvalEngine = new ApprovalEngine(ruleRepo, recordRepo);
 const reportService = new ReportService(expenseRepo, ruleRepo, recordRepo);
 const minio = new MinioStorage();
 
@@ -297,6 +300,29 @@ router.get(
   })
 );
 
+router.get(
+  '/:id/snapshots',
+  asyncWrap(async (req, res) => {
+    const report = await expenseRepo.findById(req.params.id);
+    if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
+    await assertReportAccess(report, req.user!);
+    const items = await snapshotRepo.findByReportId(report.id);
+    res.json({ items });
+  })
+);
+
+router.get(
+  '/:id/snapshots/:snapshotId',
+  asyncWrap(async (req, res) => {
+    const report = await expenseRepo.findById(req.params.id);
+    if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
+    await assertReportAccess(report, req.user!);
+    const detail = await snapshotRepo.findDetailByReport(report.id, req.params.snapshotId);
+    if (!detail) throw new AppError(404, 'NOT_FOUND', '快照不存在');
+    res.json(detail);
+  })
+);
+
 router.post(
   '/:id/verify',
   asyncWrap(async (req, res) => {
@@ -530,6 +556,16 @@ router.post(
             paymentComment: paymentComment ?? null,
             receiptId: receipt?.id ?? null,
           },
+        },
+        client
+      );
+
+      await snapshotRepo.capture(
+        {
+          reportId: id,
+          snapshotType: 'pay',
+          actor: { type: 'user', id: userId, role },
+          rule: null,
         },
         client
       );
@@ -782,11 +818,14 @@ router.post(
   '/:id/submit',
   asyncWrap(async (req, res) => {
     const { id } = req.params;
+    const { userId, role } = req.user!;
 
     const report = await expenseRepo.findById(id);
     if (!report) throw new AppError(404, 'NOT_FOUND', '报销单不存在');
-    if (report.userId !== req.user!.userId) throw new AppError(403, 'UNAUTHORIZED', '无权操作');
-    if (report.status !== ReportStatus.DRAFT && report.status !== ReportStatus.REJECTED) throw new AppError(400, 'INVALID_PARAMS', '只能提交草稿或已驳回状态的报销单');
+    if (report.userId !== userId) throw new AppError(403, 'UNAUTHORIZED', '无权操作');
+    if (report.status !== ReportStatus.DRAFT && report.status !== ReportStatus.REJECTED) {
+      throw new AppError(400, 'INVALID_PARAMS', '只能提交草稿或已驳回状态的报销单');
+    }
 
     const { rows: items } = await pool.query(
       'SELECT category_id FROM expense_items WHERE report_id = $1',
@@ -794,52 +833,65 @@ router.post(
     );
     const categoryIds = items.map((r: any) => r.category_id);
 
-    const ApprovalEngine = (await import('@sse/core')).ApprovalEngine;
-    const engine = new ApprovalEngine(ruleRepo, recordRepo);
-    const matchedRule = await engine.matchRule(report.totalAmount, categoryIds);
-    console.log('[Submit] totalAmount:', report.totalAmount, 'categoryIds:', categoryIds, 'matchedRule:', matchedRule?.name || 'NONE', 'chainLen:', matchedRule?.approvalChain?.length);
-
+    const matchedRule = await approvalEngine.matchRule(report.totalAmount, categoryIds);
     const userRepo = new PgUserRepo();
     const reporter = await userRepo.findById(report.userId);
     const dept = reporter?.department || '';
 
-    let effectiveChain = matchedRule?.approvalChain;
     if (matchedRule && matchedRule.approvalChain.length > 1) {
-      const { effectiveChain: dedupedChain, merged } = await engine.dedupeApprovalChain(
-        matchedRule, userRepo, dept
+      const { effectiveChain, merged } = await approvalEngine.dedupeApprovalChain(
+        matchedRule,
+        userRepo,
+        dept
       );
       if (merged) {
-        effectiveChain = dedupedChain;
         matchedRule.approvalChain = effectiveChain;
       }
     }
 
-    let currentStep = 0;
-    if (matchedRule && matchedRule.approvalChain.length > 0) {
-      const firstStep = matchedRule.approvalChain[0];
-      console.log('[Submit] firstStep:', JSON.stringify(firstStep));
-      if (firstStep.role || firstStep.assigneeId) {
-        try {
-          const record = await engine.startApproval(id, matchedRule, userRepo, dept);
-          console.log('[Submit] startApproval OK, record step:', record.step);
-          currentStep = record.step;
-        } catch (error) {
-          if (error instanceof NoApproverError) {
-            throw new AppError(400, 'NO_APPROVER', '未找到该审批步骤的审批人，请检查部门与角色配置');
+    await withTransaction(pool, async (client) => {
+      let currentStep = 0;
+      if (matchedRule && matchedRule.approvalChain.length > 0) {
+        const firstStep = matchedRule.approvalChain[0];
+        if (firstStep.role || firstStep.assigneeId) {
+          try {
+            const record = await approvalEngine.startApproval(
+              id,
+              matchedRule,
+              userRepo,
+              dept,
+              client
+            );
+            currentStep = record.step;
+          } catch (error) {
+            if (error instanceof NoApproverError) {
+              throw new AppError(
+                400,
+                'NO_APPROVER',
+                '未找到该审批步骤的审批人，请检查部门与角色配置'
+              );
+            }
+            throw error;
           }
-          throw error;
         }
-      } else {
-        console.log('[Submit] firstStep has no role or assigneeId, skipping startApproval');
       }
-    } else {
-      console.log('[Submit] no matchedRule or empty chain, skipping startApproval');
-    }
 
-    await pool.query(
-      'UPDATE expense_reports SET status = $1, current_step = $2, submitted_at = NOW(), updated_at = NOW() WHERE id = $3',
-      [ReportStatus.PENDING, currentStep, id]
-    );
+      await client.query(
+        'UPDATE expense_reports SET status = $1, current_step = $2, submitted_at = NOW(), updated_at = NOW() WHERE id = $3',
+        [ReportStatus.PENDING, currentStep, id]
+      );
+
+      await snapshotRepo.capture(
+        {
+          reportId: id,
+          snapshotType: 'submit',
+          actor: { type: 'user', id: userId, role },
+          rule: matchedRule,
+        },
+        client
+      );
+    });
+
     res.json({ message: '提交成功', status: ReportStatus.PENDING });
   })
 );

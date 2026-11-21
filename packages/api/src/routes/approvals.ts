@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { PgApprovalRecordRepo, PgExpenseRepo, PgApprovalRuleRepo, PgUserRepo, pool } from '@sse/db';
+import { PgApprovalRecordRepo, PgExpenseRepo, PgApprovalRuleRepo, PgUserRepo, PgReportSnapshotRepo, pool, withTransaction } from '@sse/db';
 import { ApprovalEngine, aggregateVerificationStatus, NoApproverError } from '@sse/core';
 import { ApprovalResult, ReportStatus, UserRole } from '@sse/shared';
 import { expenseApprovedMessage, expenseRejectedMessage } from '@sse/notifications';
@@ -13,6 +13,7 @@ const recordRepo = new PgApprovalRecordRepo();
 const ruleRepo = new PgApprovalRuleRepo();
 const expenseRepo = new PgExpenseRepo();
 const engine = new ApprovalEngine(ruleRepo, recordRepo);
+const snapshotRepo = new PgReportSnapshotRepo();
 
 function notifyApproved(report: { userId: string; serialNo: string; title: string }) {
   void sendNotificationSafe(
@@ -154,13 +155,6 @@ router.post(
       );
     }
 
-    if (acknowledgeVerification === true) {
-      await pool.query(
-        'UPDATE approval_records SET verification_acknowledged = true WHERE id = $1',
-        [pendingRecord.id]
-      );
-    }
-
     const { rows: items } = await pool.query(
       'SELECT category_id FROM expense_items WHERE report_id = $1',
       [reportId]
@@ -201,49 +195,81 @@ router.post(
       }
     }
 
-    await engine.approveStep(
-      reportId,
-      pendingRecord.step,
-      ApprovalResult.APPROVED,
-      comment
-    );
+    const action = {
+      recordId: pendingRecord.id,
+      step: pendingRecord.step,
+      result: ApprovalResult.APPROVED,
+      comment,
+    };
+
+    let nextStep: number | null = null;
+    await withTransaction(pool, async (client) => {
+      if (acknowledgeVerification === true) {
+        await client.query(
+          'UPDATE approval_records SET verification_acknowledged = true WHERE id = $1',
+          [pendingRecord.id]
+        );
+      }
+
+      await engine.approveStep(
+        reportId,
+        pendingRecord.step,
+        ApprovalResult.APPROVED,
+        comment,
+        client
+      );
+
+      if (!matchedRule || isLast) {
+        await expenseRepo.updateStatus(reportId, ReportStatus.APPROVED, undefined, client);
+      } else {
+        let nextRecord;
+        try {
+          nextRecord = await engine.createNextStep(
+            reportId,
+            matchedRule,
+            pendingRecord.step,
+            userRepo,
+            ownerDepartment,
+            client
+          );
+        } catch (error) {
+          if (error instanceof NoApproverError) {
+            throw new AppError(400, 'NO_APPROVER', '未找到下一审批步骤的审批人，请检查部门与角色配置');
+          }
+          throw error;
+        }
+        if (!nextRecord) {
+          throw new AppError(400, 'NO_APPROVER', '未找到下一审批步骤的审批人，请检查部门与角色配置');
+        }
+        nextStep = nextRecord.step;
+        await expenseRepo.updateStatus(reportId, ReportStatus.PENDING, nextRecord.step, client);
+      }
+
+      await snapshotRepo.capture(
+        {
+          reportId,
+          snapshotType: 'approve',
+          actor: { type: 'user', id: userId, role },
+          rule: matchedRule,
+          action,
+        },
+        client
+      );
+    });
 
     if (!matchedRule) {
-      await expenseRepo.updateStatus(reportId, ReportStatus.APPROVED);
       notifyApproved(report);
       res.json({ message: '审批成功（无匹配规则，直接通过）', result: ApprovalResult.APPROVED });
       return;
     }
 
     if (isLast) {
-      await expenseRepo.updateStatus(reportId, ReportStatus.APPROVED);
       notifyApproved(report);
       res.json({ message: '审批成功，流程结束', result: ApprovalResult.APPROVED });
       return;
     }
 
-    let nextRecord;
-    try {
-      nextRecord = await engine.createNextStep(
-        reportId,
-        matchedRule,
-        pendingRecord.step,
-        userRepo,
-        ownerDepartment
-      );
-    } catch (error) {
-      if (error instanceof NoApproverError) {
-        throw new AppError(400, 'NO_APPROVER', '未找到下一审批步骤的审批人，请检查部门与角色配置');
-      }
-      throw error;
-    }
-    if (!nextRecord) {
-      throw new AppError(400, 'NO_APPROVER', '未找到下一审批步骤的审批人，请检查部门与角色配置');
-    }
-
-    await expenseRepo.updateStatus(reportId, ReportStatus.PENDING, nextRecord.step);
-
-    res.json({ message: '审批成功，已推进至下一审批步骤', result: ApprovalResult.APPROVED, nextStep: nextRecord.step });
+    res.json({ message: '审批成功，已推进至下一审批步骤', result: ApprovalResult.APPROVED, nextStep });
   })
 );
 
@@ -283,14 +309,31 @@ router.post(
       throw new AppError(400, 'INVALID_PARAMS', '没有需要你审批的步骤');
     }
 
-    await engine.approveStep(
-      reportId,
-      pendingRecord.step,
-      ApprovalResult.REJECTED,
-      comment
-    );
-
-    await expenseRepo.updateStatus(reportId, ReportStatus.REJECTED);
+    await withTransaction(pool, async (client) => {
+      await engine.approveStep(
+        reportId,
+        pendingRecord.step,
+        ApprovalResult.REJECTED,
+        comment,
+        client
+      );
+      await expenseRepo.updateStatus(reportId, ReportStatus.REJECTED, undefined, client);
+      await snapshotRepo.capture(
+        {
+          reportId,
+          snapshotType: 'reject',
+          actor: { type: 'user', id: userId, role },
+          rule: null,
+          action: {
+            recordId: pendingRecord.id,
+            step: pendingRecord.step,
+            result: ApprovalResult.REJECTED,
+            comment,
+          },
+        },
+        client
+      );
+    });
 
     void sendNotificationSafe(
       report.userId,
