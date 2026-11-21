@@ -4,6 +4,7 @@ import type {
   PaymentReceiptStatus,
   PaymentReceiptVerification,
 } from '@sse/shared';
+import type { SqlExecutor } from '@sse/core';
 import { pool } from '../connection';
 
 export type UpsertPaymentReceiptInput = {
@@ -37,13 +38,13 @@ function mapReceipt(row: any): PaymentReceipt {
 }
 
 export class PgPaymentReceiptRepo {
-  async findById(id: string): Promise<PaymentReceipt | null> {
-    const { rows } = await pool.query('SELECT * FROM payment_receipts WHERE id = $1', [id]);
+  async findById(id: string, db: SqlExecutor = pool): Promise<PaymentReceipt | null> {
+    const { rows } = await db.query('SELECT * FROM payment_receipts WHERE id = $1', [id]);
     return rows.length === 0 ? null : mapReceipt(rows[0]);
   }
 
-  async findByReportId(reportId: string): Promise<PaymentReceipt | null> {
-    const { rows } = await pool.query('SELECT * FROM payment_receipts WHERE report_id = $1', [reportId]);
+  async findByReportId(reportId: string, db: SqlExecutor = pool): Promise<PaymentReceipt | null> {
+    const { rows } = await db.query('SELECT * FROM payment_receipts WHERE report_id = $1', [reportId]);
     return rows.length === 0 ? null : mapReceipt(rows[0]);
   }
 
@@ -66,8 +67,8 @@ export class PgPaymentReceiptRepo {
     }));
   }
 
-  async upsert(input: UpsertPaymentReceiptInput): Promise<PaymentReceipt> {
-    const { rows } = await pool.query(
+  async upsert(input: UpsertPaymentReceiptInput, db: SqlExecutor = pool): Promise<PaymentReceipt> {
+    const { rows } = await db.query(
       `INSERT INTO payment_receipts
          (report_id, file_name, file_format, file_size, storage_key, storage_bucket, checksum, uploaded_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -99,8 +100,8 @@ export class PgPaymentReceiptRepo {
     return mapReceipt(rows[0]);
   }
 
-  async findPending(limit = 5): Promise<PaymentReceipt[]> {
-    const { rows } = await pool.query(
+  async findPending(limit = 5, db: SqlExecutor = pool): Promise<PaymentReceipt[]> {
+    const { rows } = await db.query(
       `SELECT * FROM payment_receipts
         WHERE verification_status = 'pending'
         ORDER BY uploaded_at ASC
@@ -114,9 +115,10 @@ export class PgPaymentReceiptRepo {
     id: string,
     status: PaymentReceiptStatus,
     result: PaymentReceiptVerification,
-    ocrResult?: unknown
+    ocrResult?: unknown,
+    db: SqlExecutor = pool
   ): Promise<void> {
-    await pool.query(
+    await db.query(
       `UPDATE payment_receipts
           SET verification_status = $1,
               verification_result = $2,

@@ -1,5 +1,5 @@
 import type { DuplicateInvoiceRef, Invoice, VerificationStatus } from '@sse/shared';
-import type { IInvoiceRepo } from '@sse/core';
+import type { IInvoiceRepo, SqlExecutor } from '@sse/core';
 import { pool } from '../connection';
 
 function mapInvoice(row: any): Invoice {
@@ -22,18 +22,21 @@ function mapInvoice(row: any): Invoice {
 }
 
 export class PgInvoiceRepo implements IInvoiceRepo {
-  async findById(id: string): Promise<Invoice | null> {
-    const { rows } = await pool.query('SELECT * FROM invoices WHERE id = $1', [id]);
+  async findById(id: string, db: SqlExecutor = pool): Promise<Invoice | null> {
+    const { rows } = await db.query('SELECT * FROM invoices WHERE id = $1', [id]);
     return rows.length === 0 ? null : mapInvoice(rows[0]);
   }
 
-  async findByItemId(itemId: string): Promise<Invoice | null> {
-    const { rows } = await pool.query('SELECT * FROM invoices WHERE item_id = $1', [itemId]);
+  async findByItemId(itemId: string, db: SqlExecutor = pool): Promise<Invoice | null> {
+    const { rows } = await db.query('SELECT * FROM invoices WHERE item_id = $1', [itemId]);
     return rows.length === 0 ? null : mapInvoice(rows[0]);
   }
 
-  async create(invoice: Omit<Invoice, 'id' | 'uploadedAt'>): Promise<Invoice> {
-    const { rows } = await pool.query(
+  async create(
+    invoice: Omit<Invoice, 'id' | 'uploadedAt'>,
+    db: SqlExecutor = pool
+  ): Promise<Invoice> {
+    const { rows } = await db.query(
       `INSERT INTO invoices (item_id, file_name, file_format, file_size, storage_key, storage_bucket, checksum, ocr_result)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
@@ -51,8 +54,13 @@ export class PgInvoiceRepo implements IInvoiceRepo {
     return mapInvoice(rows[0]);
   }
 
-  async updateOcrResult(id: string, ocrResult: any, invoiceNo?: string): Promise<void> {
-    await pool.query(
+  async updateOcrResult(
+    id: string,
+    ocrResult: any,
+    invoiceNo?: string,
+    db: SqlExecutor = pool
+  ): Promise<void> {
+    await db.query(
       `UPDATE invoices
           SET ocr_result = $1, invoice_no = COALESCE($2, invoice_no)
         WHERE id = $3`,
@@ -60,8 +68,13 @@ export class PgInvoiceRepo implements IInvoiceRepo {
     );
   }
 
-  async updateVerification(id: string, status: VerificationStatus, result: unknown): Promise<void> {
-    await pool.query(
+  async updateVerification(
+    id: string,
+    status: VerificationStatus,
+    result: unknown,
+    db: SqlExecutor = pool
+  ): Promise<void> {
+    await db.query(
       `UPDATE invoices
           SET verification_status = $1, verification_result = $2, verified_at = NOW()
         WHERE id = $3`,
@@ -69,8 +82,12 @@ export class PgInvoiceRepo implements IInvoiceRepo {
     );
   }
 
-  async findDuplicatesByInvoiceNo(invoiceNo: string, excludeInvoiceId: string): Promise<DuplicateInvoiceRef[]> {
-    const { rows } = await pool.query(
+  async findDuplicatesByInvoiceNo(
+    invoiceNo: string,
+    excludeInvoiceId: string,
+    db: SqlExecutor = pool
+  ): Promise<DuplicateInvoiceRef[]> {
+    const { rows } = await db.query(
       `SELECT i.id AS invoice_id, er.id AS report_id, er.serial_no, er.status
          FROM invoices i
          JOIN expense_items ei ON ei.id = i.item_id
