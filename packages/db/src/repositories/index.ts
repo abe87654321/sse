@@ -8,6 +8,7 @@ export { PgReasoningRuleRepo } from './pg-reasoning-rule-repo';
 export { PgPaymentReceiptRepo } from './pg-payment-receipt-repo';
 export { PgPaymentAuditRepo } from './pg-payment-audit-repo';
 export { PgAuditRepo } from './pg-audit-repo';
+export { PgReportSnapshotRepo } from './pg-report-snapshot-repo';
 export type {
   AuditActorType,
   AuditEvent,
