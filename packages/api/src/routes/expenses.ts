@@ -564,15 +564,39 @@ router.post(
     const storageKey = `payment-receipts/${id}/${Date.now()}.${ext}`;
 
     await minio.upload(storageKey, 'payment-receipts', req.file.buffer, contentType);
-    const receipt = await paymentReceiptRepo.upsert({
-      reportId: id,
-      fileName: req.file.originalname,
-      fileFormat: ext,
-      fileSize: req.file.size,
-      storageKey,
-      storageBucket: 'payment-receipts',
-      checksum,
-      uploadedBy: userId,
+    const receipt = await withTransaction(pool, async (client) => {
+      await client.query(
+        'SELECT id FROM payment_receipts WHERE report_id = $1 FOR UPDATE',
+        [id]
+      );
+
+      const existing = await paymentReceiptRepo.findByReportId(id, client);
+      if (existing) {
+        await getHistoryRepo().invalidateReceipt(
+          {
+            reportId: id,
+            receiptId: existing.id,
+            cause: 'receipt_replaced',
+            reason: '打款回单被替换，原核对结果失效',
+            actor: { type: 'user', id: userId, role },
+          },
+          client
+        );
+      }
+
+      return paymentReceiptRepo.upsert(
+        {
+          reportId: id,
+          fileName: req.file!.originalname,
+          fileFormat: ext,
+          fileSize: req.file!.size,
+          storageKey,
+          storageBucket: 'payment-receipts',
+          checksum,
+          uploadedBy: userId,
+        },
+        client
+      );
     });
 
     queuePaymentReceiptVerification(receipt.id);
@@ -618,7 +642,18 @@ router.post(
       throw new AppError(404, 'NOT_FOUND', '打款回单不存在');
     }
 
-    const result = await runPaymentReceiptVerification(receipt.id, req.body?.force === true);
+    const result = await runPaymentReceiptVerification(
+      receipt.id,
+      req.body?.force === true,
+      {
+        actor: {
+          type: 'user',
+          id: req.user!.userId,
+          role: req.user!.role,
+        },
+        cause: req.body?.force === true ? 'force_ocr' : 'manual',
+      }
+    );
     res.json(result);
   })
 );
