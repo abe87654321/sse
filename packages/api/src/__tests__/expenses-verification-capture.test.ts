@@ -2,6 +2,7 @@ const mockQuery = jest.fn();
 const mockFindById = jest.fn();
 const mockRecordRun = jest.fn();
 const mockInvalidateInvoiceReport = jest.fn();
+const mockFindDuplicates = jest.fn();
 
 jest.mock('@sse/ai', () => ({ MINERU_PARSER_VERSION: 1 }));
 jest.mock('../services/ai-engines', () => ({ createOCREngine: jest.fn() }));
@@ -31,7 +32,7 @@ jest.mock('@sse/db', () => ({
   PgInvoiceRepo: jest.fn().mockImplementation(() => ({
     updateOcrResult: jest.fn(),
     updateVerification: jest.fn(),
-    findDuplicatesByInvoiceNo: jest.fn(async () => []),
+    findDuplicatesByInvoiceNo: (...args: any[]) => mockFindDuplicates(...args),
   })),
   PgApprovalRuleRepo: jest.fn().mockImplementation(() => ({ findActive: jest.fn(async () => []) })),
   PgApprovalRecordRepo: jest.fn().mockImplementation(() => ({ findByReportId: jest.fn(async () => []) })),
@@ -75,6 +76,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockQuery.mockReset();
   mockQuery.mockResolvedValue({ rows: [] });
 });
 
@@ -123,5 +125,81 @@ describe('POST /expenses/:id/verify history capture', () => {
     });
     expect(input.items).toEqual([]);
     expect(mockRecordRun.mock.calls[0][1]).toBeTruthy();
+  });
+});
+
+describe('POST /expenses/:id/verify with invoices', () => {
+  it('records a verify run with one item when OCR is already cached', async () => {
+    const invoiceRow = {
+      id: 'inv-1',
+      item_id: 'it-1',
+      file_name: 'a.pdf',
+      file_format: 'pdf',
+      file_size: 1024,
+      storage_key: 'invoices/a.pdf',
+      storage_bucket: 'invoices',
+      checksum: 'abc',
+      invoice_no: 'NO-1',
+      ocr_result: {
+        parserVersion: 1,
+        invoiceNo: 'NO-1',
+        totalAmount: 100,
+        invoiceDate: '2026-11-21',
+      },
+      verification_status: 'pending',
+      verification_result: null,
+      verified_at: null,
+      uploaded_at: new Date('2026-11-21T08:00:00Z'),
+    };
+
+    mockFindById.mockResolvedValue(report);
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ department: '技术部' }] }) // assertReportAccess
+      .mockResolvedValueOnce({ rows: [invoiceRow] }) // initial invoice preload
+      .mockResolvedValueOnce({ rows: [{ total_amount: '100' }] }) // report lock
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'it-1',
+            report_id: 'r1',
+            category_id: 'c1',
+            amount: '100',
+            expense_date: '2026-11-21',
+            description: 'x',
+          },
+        ],
+      }) // items inside transaction
+      .mockResolvedValueOnce({ rows: [invoiceRow] }); // invoices inside transaction
+    mockFindDuplicates.mockResolvedValue([]);
+    mockRecordRun.mockResolvedValue({ id: 'run-1' });
+    const token = signToken({ userId: 'owner-1', role: 'employee', department: '技术部' });
+
+    const response = await fetch(`${url}/expenses/r1/verify`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockRecordRun).toHaveBeenCalledTimes(1);
+    const input = mockRecordRun.mock.calls[0][0];
+    expect(input).toMatchObject({
+      reportId: 'r1',
+      kind: 'invoice',
+      eventType: 'verify',
+      cause: 'manual',
+      status: 'pass',
+    });
+    expect(input.items).toHaveLength(1);
+    expect(input.items[0]).toMatchObject({
+      subjectId: 'inv-1',
+      itemId: 'it-1',
+      fileName: 'a.pdf',
+      status: 'pass',
+    });
+    expect(input.items[0].result.status).toBe('pass');
   });
 });
