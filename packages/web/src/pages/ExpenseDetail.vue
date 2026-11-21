@@ -114,6 +114,8 @@
 
           <ReportSnapshots v-if="report" :report-id="report.id" />
 
+          <VerificationHistory v-if="report" :report-id="report.id" />
+
           <PaymentReceiptPanel
             v-if="report && (report.status === 'paid' || report.paymentRef || report.paymentReceipts?.length)"
             :report-id="report.id"
@@ -170,6 +172,7 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api/index'
 import ApprovalTimeline from '../components/ApprovalTimeline.vue'
 import ReportSnapshots from '../components/ReportSnapshots.vue'
+import VerificationHistory from '../components/VerificationHistory.vue'
 import PaymentDialog from '../components/PaymentDialog.vue'
 import PaymentReceiptPanel from '../components/PaymentReceiptPanel.vue'
 import { apiErrorMessage, downloadFile } from '../utils/download'
