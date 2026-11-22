@@ -12,6 +12,7 @@ import { UserRole } from '@sse/shared';
 import { welcomeMessage } from '@sse/notifications';
 import { AppError } from '../middleware/error';
 import { sendNotificationSafe } from '../services/notifications';
+import { syncDepartmentChange } from '../services/department-ontology';
 
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -527,6 +528,7 @@ router.post(
     const name = readDepartmentName(req.body);
     try {
       const created = await departmentRepo.create(name);
+      void syncDepartmentChange({ action: 'create', name: created.name });
       res.status(201).json(created);
     } catch (error) {
       mapDepartmentError(error, 'create');
@@ -550,7 +552,23 @@ router.patch(
       if (!renamed) {
         throw new AppError(404, 'NOT_FOUND', '部门不存在');
       }
-      res.json(renamed);
+
+      const { rows: affectedUsers } = await pool.query(
+        `SELECT u.id, u.name, u.role, u.status, u.deleted_at, d.name AS department
+           FROM users u
+           JOIN departments d ON d.id = u.department_id
+          WHERE u.department_id = $1
+          ORDER BY u.id`,
+        [req.params.id]
+      );
+      void syncDepartmentChange({
+        action: 'rename',
+        name: renamed.name,
+        previousName: existing.name,
+        users: affectedUsers,
+      });
+
+      res.json({ ...renamed, affectedUsers: affectedUsers.length });
     } catch (error) {
       mapDepartmentError(error, 'rename');
     }
@@ -572,6 +590,7 @@ router.delete(
     }
     try {
       await departmentRepo.delete(req.params.id);
+      void syncDepartmentChange({ action: 'delete', name: existing.name });
       res.json({ message: '部门已删除' });
     } catch (error) {
       if ((error as any)?.code === '23503') {

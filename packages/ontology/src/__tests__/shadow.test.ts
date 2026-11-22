@@ -268,6 +268,22 @@ describe('compareShadow', () => {
     expect(categorySamples[0].params[1]).toBe(2);
   });
 
+  it('resolves user departments in the sampling SQL', async () => {
+    const store = await buildGraph(DB);
+    const pool = new FakeShadowPool(DB);
+
+    const report = await compareShadow(store, pool);
+
+    expect(report.equal).toBe(true);
+    expect(
+      pool.calls.some(
+        (call) =>
+          call.sql.includes('FROM users WHERE id > $1') &&
+          call.sql.includes('FROM departments WHERE id = users.department_id')
+      )
+    ).toBe(true);
+  });
+
   it('uses an injectable clock for checkedAt', async () => {
     const store = await buildGraph(DB);
     const fixed = new Date('2026-11-10T12:34:56.000Z');

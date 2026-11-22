@@ -59,11 +59,15 @@ async function projectTable(
   batchSize: number,
 ): Promise<void> {
   let lastId = ZERO_UUID;
+  const selectSql =
+    table === 'users'
+      ? `SELECT u.*, COALESCE(d.name, '未分配') AS department
+           FROM users u
+           LEFT JOIN departments d ON d.id = u.department_id
+          WHERE u.id > $1 ORDER BY u.id LIMIT $2`
+      : `SELECT * FROM ${table} WHERE id > $1 ORDER BY id LIMIT $2`;
   for (;;) {
-    const { rows } = await pool.query(
-      `SELECT * FROM ${table} WHERE id > $1 ORDER BY id LIMIT $2`,
-      [lastId, batchSize],
-    );
+    const { rows } = await pool.query(selectSql, [lastId, batchSize]);
     if (rows.length === 0) break;
 
     for (const row of rows) {

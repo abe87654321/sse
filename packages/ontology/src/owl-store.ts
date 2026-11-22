@@ -66,16 +66,33 @@ export class OwlStore {
     return true;
   }
 
+  private removeMatching(
+    subject: any,
+    predicate: any,
+    object: any
+  ): void {
+    for (const quad of this.store.getQuads(subject, predicate, object, null)) {
+      this.store.removeQuad(quad);
+    }
+  }
+
+  setProperty(uri: string, key: string, value: string): void {
+    const subject = namedNode(uri);
+    const predicateNode = namedNode(this.baseUri + key);
+    this.removeMatching(subject, predicateNode, null);
+    this.store.addQuad(subject, predicateNode, literal(value));
+  }
+
   deleteEntity(uri: string): void {
-    this.store.removeMatches(namedNode(uri), null, null, null);
-    this.store.removeMatches(null, null, namedNode(uri), null);
+    this.removeMatching(namedNode(uri), null, null);
+    this.removeMatching(null, null, namedNode(uri));
   }
 
   deleteRelation(fromUri: string, predicate: string, toUri: string): void {
     const subject = namedNode(fromUri);
     const predicateNode = namedNode(this.baseUri + predicate);
     const objectUri = toUri.startsWith('http') ? toUri : `${this.baseUri}${toUri}`;
-    this.store.removeMatches(subject, predicateNode, namedNode(objectUri), null);
+    this.removeMatching(subject, predicateNode, namedNode(objectUri));
   }
 
   getStore() {

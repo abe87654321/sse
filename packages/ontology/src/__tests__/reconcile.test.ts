@@ -1,4 +1,4 @@
-import { canonicalChecksum } from '../graph/checksum';
+﻿import { canonicalChecksum } from '../graph/checksum';
 import { MemoryGraphStore } from '../graph/memory-store';
 import { setGraphContext } from '../graph/graph-context';
 import { GRAPH, sse, uri } from '../graph/namespaces';
@@ -31,7 +31,7 @@ class FakePool {
     const statement = sql.replace(/\s+/g, ' ').trim();
     this.queries.push(statement);
 
-    const tableMatch = /^SELECT \* FROM (\w+)/.exec(statement);
+    const tableMatch = /^SELECT (?:u\.)?\*.*? FROM (\w+)/.exec(statement);
     if (tableMatch) {
       const rows = (this.data[tableMatch[1]] ?? [])
         .filter(row => String(row.id) > String(params[0]))
@@ -180,7 +180,7 @@ describe('reconcile', () => {
     const maxIndex = pool.queries.findIndex(
       sql => sql.includes('MAX(id)') && sql.includes('ontology_outbox'),
     );
-    const scanIndex = pool.queries.findIndex(sql => sql.startsWith('SELECT * FROM users'));
+    const scanIndex = pool.queries.findIndex(sql => sql.includes('FROM users u'));
     expect(maxIndex).toBeGreaterThanOrEqual(0);
     expect(scanIndex).toBeGreaterThan(maxIndex);
   });
@@ -199,7 +199,7 @@ describe('reconcile', () => {
     const result = await rebuildGraph(store, pool as any, { batchSize: 2 });
 
     expect(result.counts.subjects).toBeGreaterThanOrEqual(5);
-    const userScans = pool.queries.filter(sql => sql.startsWith('SELECT * FROM users'));
+    const userScans = pool.queries.filter(sql => sql.includes('FROM users u'));
     expect(userScans).toHaveLength(3);
 
     const people = await store.query(
@@ -266,6 +266,19 @@ describe('reconcile', () => {
     );
     if (inferred.kind !== 'select') throw new Error('expected select');
     expect(inferred.rows.map((row) => row.r)).toContain(uri.report('r1'));
+  });
+
+  it('resolves user departments through the departments table', async () => {
+    const store = new MemoryGraphStore();
+    const pool = new FakePool();
+
+    await rebuildGraph(store, pool as any);
+
+    expect(
+      pool.queries.some((sql) =>
+        sql.includes('LEFT JOIN departments d ON d.id = u.department_id')
+      )
+    ).toBe(true);
   });
 
   it('marks a reconcile job failed when the rebuild throws', async () => {

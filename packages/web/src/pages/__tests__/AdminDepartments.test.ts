@@ -64,7 +64,7 @@ describe('AdminDepartments', () => {
   })
 
   it('renames a department through PATCH by id', async () => {
-    mocks.patch.mockResolvedValue({ data: {} })
+    mocks.patch.mockResolvedValue({ data: { affectedUsers: 2 } })
     const wrapper = mountPage()
     await flushPromises()
 
@@ -75,6 +75,7 @@ describe('AdminDepartments', () => {
     await flushPromises()
 
     expect(mocks.patch).toHaveBeenCalledWith('/admin/departments/d-tech', { name: '研发部' })
+    expect(wrapper.text()).toContain('2 名用户需重新登录')
   })
 
   it('disables delete for protected and non-empty departments', async () => {

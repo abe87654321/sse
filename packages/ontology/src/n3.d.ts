@@ -5,6 +5,7 @@ declare module 'n3' {
     getQuads(subject: any, predicate: any, object: any, graph: any): any[];
     match(subject: any, predicate: any, object: any, graph?: any): any[];
     removeMatches(subject: any, predicate: any, object: any, graph?: any): void;
+    removeQuad(quad: any): void;
     countQuads(subject: any, predicate: any, object: any, graph: any): number;
     has(quad: any): boolean;
     [Symbol.iterator](): Iterator<any>;

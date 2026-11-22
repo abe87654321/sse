@@ -34,6 +34,11 @@ jest.mock('../services/notifications', () => ({
   sendNotificationSafe: jest.fn(),
 }));
 
+const mockSyncDepartmentChange = jest.fn();
+jest.mock('../services/department-ontology', () => ({
+  syncDepartmentChange: (...args: any[]) => mockSyncDepartmentChange(...args),
+}));
+
 jest.mock('@sse/notifications', () => ({
   welcomeMessage: jest.fn(() => ({ type: 'welcome', title: 'w', body: 'w', channels: [] })),
 }));
@@ -117,6 +122,7 @@ afterAll(async () => {
 beforeEach(() => {
   process.env.AUDIT_EVENTS = '0';
   for (const mock of Object.values(mocks)) mock.mockReset();
+  mockSyncDepartmentChange.mockReset();
 });
 
 describe('GET /admin/departments', () => {
@@ -144,6 +150,10 @@ describe('POST /admin/departments', () => {
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toMatchObject({ id: 'd-new', name: '市场部' });
     expect(mocks.deptCreate).toHaveBeenCalledWith('市场部');
+    expect(mockSyncDepartmentChange).toHaveBeenCalledWith({
+      action: 'create',
+      name: '市场部',
+    });
   });
 
   it('rejects an empty name', async () => {
@@ -166,15 +176,36 @@ describe('POST /admin/departments', () => {
 });
 
 describe('PATCH /admin/departments/:id', () => {
-  it('renames a department', async () => {
+  it('renames a department and reports affected users', async () => {
     mocks.deptFindById.mockResolvedValue(techDept);
     mocks.deptRename.mockResolvedValue({ ...techDept, name: '研发部' });
+    mocks.query.mockResolvedValue({
+      rows: [
+        {
+          id: 'u1',
+          name: 'Alice',
+          role: 'employee',
+          status: 'active',
+          deleted_at: null,
+          department: '研发部',
+        },
+      ],
+    });
 
     const response = await request('PATCH', '/admin/departments/d-tech', { name: '研发部' });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ name: '研发部' });
+    await expect(response.json()).resolves.toMatchObject({
+      name: '研发部',
+      affectedUsers: 1,
+    });
     expect(mocks.deptRename).toHaveBeenCalledWith('d-tech', '研发部');
+    expect(mockSyncDepartmentChange).toHaveBeenCalledWith({
+      action: 'rename',
+      name: '研发部',
+      previousName: '技术部',
+      users: [expect.objectContaining({ id: 'u1', department: '研发部' })],
+    });
   });
 
   it('protects the system department', async () => {
@@ -209,6 +240,10 @@ describe('DELETE /admin/departments/:id', () => {
 
     expect(response.status).toBe(200);
     expect(mocks.deptDelete).toHaveBeenCalledWith('d-tech');
+    expect(mockSyncDepartmentChange).toHaveBeenCalledWith({
+      action: 'delete',
+      name: '技术部',
+    });
   });
 
   it('refuses to delete a department with users', async () => {

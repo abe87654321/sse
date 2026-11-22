@@ -68,6 +68,7 @@
       </table>
     </div>
     <p v-if="rowError" class="form-error">{{ rowError }}</p>
+    <p v-if="renameNotice" class="notice">{{ renameNotice }}</p>
   </div>
 </template>
 
@@ -88,6 +89,7 @@ const newDeptName = ref('')
 const adding = ref(false)
 const addError = ref('')
 const rowError = ref('')
+const renameNotice = ref('')
 const editingId = ref<string | null>(null)
 const editingName = ref('')
 const savingRename = ref(false)
@@ -138,6 +140,7 @@ async function addDepartment() {
 function startRename(d: Department) {
   if (d.isProtected) return
   rowError.value = ''
+  renameNotice.value = ''
   editingId.value = d.id
   editingName.value = d.name
 }
@@ -152,9 +155,15 @@ async function saveRename() {
   const name = editingName.value.trim()
   if (!name) return
   rowError.value = ''
+  renameNotice.value = ''
   savingRename.value = true
   try {
-    await api.patch('/admin/departments/' + encodeURIComponent(editingId.value), { name })
+    const r = await api.patch('/admin/departments/' + encodeURIComponent(editingId.value), { name })
+    const affected = Number(r.data?.affectedUsers || 0)
+    renameNotice.value =
+      affected > 0
+        ? `已重命名为「${name}」，${affected} 名用户需重新登录后生效。`
+        : `已重命名为「${name}」。`
     cancelRename()
     await fetchDepartments()
   } catch (e: any) {
@@ -184,6 +193,7 @@ async function deleteDepartment(d: Department) {
 .add-input { flex: 1; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font-family: var(--font-body); font-size: .875rem }
 .inline-input { max-width: 220px }
 .form-error { margin-top: 8px; font-size: .8rem; color: var(--accent-coral) }
+.notice { margin-top: 12px; padding: 10px 12px; border-radius: var(--radius-sm); font-size: .8rem; background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border) }
 .field-hint { margin-top: 8px; font-size: .78rem; color: var(--text-secondary) }
 .badge-protected { margin-left: 8px; padding: 2px 8px; border-radius: 999px; font-size: .7rem; background: var(--bg-input); color: var(--text-secondary); border: 1px solid var(--border) }
 .row-actions { display: flex; gap: 8px }

@@ -44,6 +44,7 @@ interface ColumnSpec {
   column: string;
   predicate: string;
   type: ValueType;
+  expression?: string;
   transform?: (row: Record<string, any>) => unknown;
 }
 
@@ -81,6 +82,8 @@ const TABLES: TableSpec[] = [
         column: 'department',
         predicate: 'department',
         type: 'string',
+        expression:
+          "COALESCE((SELECT name FROM departments WHERE id = users.department_id), '未分配')",
         transform: (row) => row.department ?? '未分配',
       },
       { column: 'role', predicate: 'role', type: 'string' },
@@ -461,7 +464,12 @@ async function compareSampleRows(
   sampleSize: number,
   differences: ShadowDifference[],
 ): Promise<void> {
-  const columns = [...spec.columns.map((column) => column.column), ...(spec.extraSelect ?? [])];
+  const columns = [
+    ...spec.columns.map((column) =>
+      column.expression ? `${column.expression} AS ${column.column}` : column.column
+    ),
+    ...(spec.extraSelect ?? []),
+  ];
   const selectList = ['id', ...columns].join(', ');
   let lastId = ZERO_UUID;
   let sampled = 0;
