@@ -9,6 +9,7 @@ function mapUser(row: any): User {
     phone: row.phone,
     email: row.email ?? undefined,
     department: row.department,
+    departmentId: row.department_id ?? undefined,
     role: row.role,
     parentId: row.parent_id ?? undefined,
     status: row.status,
@@ -20,16 +21,25 @@ function mapUser(row: any): User {
   };
 }
 
-const USER_COLUMNS = 'id, name, phone, email, department, role, parent_id, status, deleted_at, avatar_url, notify_prefs, created_at, updated_at';
+const USER_COLUMNS = `u.id, u.name, u.phone, u.email, u.department_id, u.role, u.parent_id,
+  u.status, u.deleted_at, u.avatar_url, u.notify_prefs, u.created_at, u.updated_at,
+  d.name AS department`;
+const USER_FROM = 'FROM users u LEFT JOIN departments d ON d.id = u.department_id';
 
 export class PgUserRepo implements IUserRepo {
   async findById(id: string): Promise<User | null> {
-    const { rows } = await pool.query(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1`, [id]);
+    const { rows } = await pool.query(
+      `SELECT ${USER_COLUMNS} ${USER_FROM} WHERE u.id = $1`,
+      [id]
+    );
     return rows.length === 0 ? null : mapUser(rows[0]);
   }
 
   async findByPhone(phone: string): Promise<User | null> {
-    const { rows } = await pool.query(`SELECT ${USER_COLUMNS} FROM users WHERE phone = $1`, [phone]);
+    const { rows } = await pool.query(
+      `SELECT ${USER_COLUMNS} ${USER_FROM} WHERE u.phone = $1`,
+      [phone]
+    );
     return rows.length === 0 ? null : mapUser(rows[0]);
   }
 
@@ -37,7 +47,7 @@ export class PgUserRepo implements IUserRepo {
     phone: string
   ): Promise<{ user: User; passwordHash: string } | null> {
     const { rows } = await pool.query(
-      `SELECT ${USER_COLUMNS}, password_hash FROM users WHERE phone = $1`,
+      `SELECT ${USER_COLUMNS}, u.password_hash ${USER_FROM} WHERE u.phone = $1`,
       [phone]
     );
     return rows.length === 0
@@ -49,7 +59,7 @@ export class PgUserRepo implements IUserRepo {
     id: string
   ): Promise<{ user: User; passwordHash: string } | null> {
     const { rows } = await pool.query(
-      `SELECT ${USER_COLUMNS}, password_hash FROM users WHERE id = $1`,
+      `SELECT ${USER_COLUMNS}, u.password_hash ${USER_FROM} WHERE u.id = $1`,
       [id]
     );
     return rows.length === 0
@@ -59,7 +69,7 @@ export class PgUserRepo implements IUserRepo {
 
   async findDeptApprovers(department: string): Promise<User[]> {
     const { rows } = await pool.query(
-      `SELECT ${USER_COLUMNS} FROM users WHERE department = $1 AND role = $2`,
+      `SELECT ${USER_COLUMNS} ${USER_FROM} WHERE d.name = $1 AND u.role = $2`,
       [department, 'dept_approver']
     );
     return rows.map(mapUser);
@@ -68,20 +78,22 @@ export class PgUserRepo implements IUserRepo {
   async findByRole(role: string, department?: string): Promise<User[]> {
     if (department) {
       const { rows } = await pool.query(
-        `SELECT ${USER_COLUMNS} FROM users WHERE role = $1 AND department = $2 AND status = 'active' ORDER BY name`,
+        `SELECT ${USER_COLUMNS} ${USER_FROM} WHERE u.role = $1 AND d.name = $2 AND u.status = 'active' ORDER BY u.name`,
         [role, department]
       );
       return rows.map(mapUser);
     }
     const { rows } = await pool.query(
-      `SELECT ${USER_COLUMNS} FROM users WHERE role = $1 AND status = 'active' ORDER BY name`,
+      `SELECT ${USER_COLUMNS} ${USER_FROM} WHERE u.role = $1 AND u.status = 'active' ORDER BY u.name`,
       [role]
     );
     return rows.map(mapUser);
   }
 
   async findAll(): Promise<User[]> {
-    const { rows } = await pool.query(`SELECT ${USER_COLUMNS} FROM users ORDER BY name`);
+    const { rows } = await pool.query(
+      `SELECT ${USER_COLUMNS} ${USER_FROM} ORDER BY u.name`
+    );
     return rows.map(mapUser);
   }
 

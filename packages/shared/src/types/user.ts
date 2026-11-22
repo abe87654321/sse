@@ -11,6 +11,7 @@ export type User = {
   phone: string;
   email?: string;
   department: string;
+  departmentId?: string;
   role: string;
   parentId?: string;
   status: string;
