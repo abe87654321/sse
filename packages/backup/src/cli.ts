@@ -6,6 +6,13 @@ import {
   type CreateBackupDeps,
 } from './backup';
 import { LocalBackupStore } from './storage/local-store';
+import { MinioBackupStore } from './storage/minio-store';
+import { resolveBackupPackage } from './storage/resolve';
+import { createMinioClient } from './minio/client';
+import { verifyPackage } from './verify';
+import { defaultRestoreDeps, restoreBackup } from './restore';
+import { cleanupDrill, defaultCleanupDeps } from './drill-cleanup';
+import { listRestoreRecords } from './restore-records';
 
 export interface CliOverrides {
   createDeps?: CreateBackupDeps;
@@ -17,6 +24,13 @@ export async function runCli(argv: string[], overrides: CliOverrides = {}): Prom
   const logger = overrides.logger ?? ((line: string) => console.log(line));
   const program = new Command();
   program.name('sse-backup').exitOverride();
+
+  const minioStore = (backupDir: string) =>
+    new MinioBackupStore(
+      createMinioClient(config.minio),
+      config.minioBackupBucket,
+      config.minioBackupPrefix
+    );
 
   program
     .command('create')
@@ -44,9 +58,85 @@ export async function runCli(argv: string[], overrides: CliOverrides = {}): Prom
       for (const item of await store.list()) logger(item.id);
     });
 
+  program
+    .command('verify')
+    .requiredOption('--from <idOrPath>')
+    .option('--out <dir>', '本地备份根目录')
+    .action(async (options) => {
+      const backupDir = options.out || config.backupDir;
+      const pkg = await resolveBackupPackage({
+        idOrPath: options.from,
+        backupDir,
+        minio: minioStore(backupDir),
+      });
+      const result = await verifyPackage(pkg);
+      logger(result.ok ? 'verify ok' : `verify failed: ${result.failures.join(', ')}`);
+      if (!result.ok) process.exitCode = 3;
+    });
+
+  program
+    .command('restore')
+    .requiredOption('--from <idOrPath>')
+    .requiredOption('--target-db <name>')
+    .option('--target-minio-prefix <prefix>', '演练对象前缀')
+    .option('--dry-run', '只做预检', false)
+    .option('--out <dir>', '本地备份根目录')
+    .action(async (options) => {
+      const backupDir = options.out || config.backupDir;
+      const pkg = await resolveBackupPackage({
+        idOrPath: options.from,
+        backupDir,
+        minio: minioStore(backupDir),
+      });
+      const targetMinioPrefix =
+        options.targetMinioPrefix || `drills/${options.targetDb}/`;
+      const result = await restoreBackup(
+        {
+          from: pkg,
+          targetDb: options.targetDb,
+          targetMinioPrefix,
+          dryRun: Boolean(options.dryRun),
+        },
+        defaultRestoreDeps({ ...config, backupDir })
+      );
+      logger(`restore ok: ${result.ok}`);
+      if ('restoreId' in result) logger(`restore id: ${result.restoreId}`);
+    });
+
+  program
+    .command('drills')
+    .option('--out <dir>', '本地备份根目录')
+    .action(async (options) => {
+      for (const record of listRestoreRecords(options.out || config.backupDir)) {
+        logger(`${record.id} ${record.targetDb} ${record.status}`);
+      }
+    });
+
+  program
+    .command('drill:clean')
+    .requiredOption('--target-db <name>')
+    .option('--target-minio-prefix <prefix>', '演练对象前缀')
+    .option('--confirm <text>', '必须为 CLEANUP <targetDb>')
+    .option('--restore-id <id>')
+    .option('--out <dir>', '本地备份根目录')
+    .action(async (options) => {
+      const backupDir = options.out || config.backupDir;
+      const result = await cleanupDrill(
+        {
+          targetDb: options.targetDb,
+          targetMinioPrefix:
+            options.targetMinioPrefix || `drills/${options.targetDb}/`,
+          confirm: options.confirm || '',
+          restoreId: options.restoreId,
+        },
+        defaultCleanupDeps({ ...config, backupDir })
+      );
+      logger(`drill cleaned: ${result.targetDb}`);
+    });
+
   try {
     await program.parseAsync(argv, { from: 'user' });
-    return process.exitCode ?? 0;
+    return typeof process.exitCode === 'number' ? process.exitCode : 0;
   } catch (error) {
     logger(error instanceof Error ? error.message : String(error));
     return 1;

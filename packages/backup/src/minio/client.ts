@@ -11,7 +11,7 @@ export interface ObjectSource {
 }
 
 export interface ObjectStore {
-  listObjects(bucket: string): Promise<MinioObject[]>;
+  listObjects(bucket: string, prefix?: string): Promise<MinioObject[]>;
   getObject(bucket: string, key: string): Promise<Buffer>;
   putObject(bucket: string, key: string, data: Buffer): Promise<void>;
   removePrefix(bucket: string, prefix: string): Promise<void>;
@@ -29,8 +29,8 @@ export function createMinioClient(config: {
 
 export function minioObjectStore(client: Client): ObjectStore {
   return {
-    async listObjects(bucket: string): Promise<MinioObject[]> {
-      const stream = client.listObjectsV2(bucket, '', true);
+    async listObjects(bucket: string, prefix = ''): Promise<MinioObject[]> {
+      const stream = client.listObjectsV2(bucket, prefix, true);
       const objects: MinioObject[] = [];
       for await (const item of stream) {
         objects.push({ key: item.name, size: Number(item.size ?? 0) });

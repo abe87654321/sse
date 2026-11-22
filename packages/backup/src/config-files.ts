@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { copyFile, readFile, stat, writeFile } from 'fs/promises';
+import { copyFile, readFile, readdir, stat, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { ensureDir } from './fs-utils';
 import type { ConfigExport } from './types';
@@ -44,3 +44,22 @@ export async function exportConfigs(
   }
   return results;
 }
+
+export async function restoreConfigs(
+  packageFilesDir: string,
+  targetDir: string
+): Promise<string[]> {
+  await ensureDir(targetDir);
+  let names: string[];
+  try {
+    names = await readdir(packageFilesDir);
+  } catch {
+    return [];
+  }
+  for (const name of names) {
+    await copyFile(join(packageFilesDir, name), join(targetDir, name));
+  }
+  return names;
+}
+
+
