@@ -11,6 +11,7 @@
   "dependencies": {
     "@sse/ai": "workspace:*",
     "@sse/auth": "workspace:*",
+    "@sse/backup": "workspace:*",
     "@sse/core": "workspace:*",
     "@sse/db": "workspace:*",
     "@sse/notifications": "workspace:*",
@@ -19,6 +20,7 @@
     "@sse/shared": "workspace:*",
     "cors": "^2.8",
     "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
     "express": "^4.18",
     "minio": "^8.0.7",
     "multer": "^1.4"

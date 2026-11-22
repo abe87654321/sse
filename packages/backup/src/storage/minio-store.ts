@@ -22,6 +22,10 @@ export class MinioBackupStore {
     await this.client.fGetObject(this.bucket, this.objectKey(id), archivePath);
   }
 
+  async createReadStream(id: string): Promise<NodeJS.ReadableStream> {
+    return this.client.getObject(this.bucket, this.objectKey(id));
+  }
+
   async list(): Promise<string[]> {
     const stream = this.client.listObjectsV2(this.bucket, this.prefix, true);
     const ids: string[] = [];

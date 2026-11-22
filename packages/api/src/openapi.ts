@@ -770,6 +770,93 @@ export function buildOpenApiDocument(): Record<string, unknown> {
           },
         },
       },
+      "/admin/backups": {
+        get: {
+          tags: ["Admin"],
+          operationId: "listBackups",
+          summary: "List local or MinIO backup packages (admin only)",
+          parameters: [
+            { name: "location", in: "query", schema: { type: "string", enum: ["local", "minio"] } },
+          ],
+          responses: {
+            "200": ok("Backup list"),
+            "401": error("Unauthorized"),
+            "403": error("Admin only"),
+          },
+        },
+        post: {
+          tags: ["Admin"],
+          operationId: "createBackup",
+          summary: "Start a full backup job (admin only)",
+          requestBody: {
+            required: false,
+            content: json({
+              type: "object",
+              properties: {
+                includeSecrets: { type: "boolean" },
+                upload: { type: "boolean" },
+              },
+            }),
+          },
+          responses: {
+            "202": ok("Backup job"),
+            "403": error("Admin only"),
+          },
+        },
+      },
+      "/admin/backups/{id}/restore": {
+        post: {
+          tags: ["Admin"],
+          operationId: "restoreBackupDrill",
+          summary: "Restore a backup into a new drill database and MinIO prefix (admin only, disabled by default)",
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+          requestBody: {
+            required: true,
+            content: json({
+              type: "object",
+              required: ["targetDb", "confirm"],
+              properties: {
+                targetDb: { type: "string" },
+                targetMinioPrefix: { type: "string" },
+                dryRun: { type: "boolean" },
+                confirm: { type: "string", description: "Must be RESTORE <id>" },
+              },
+            }),
+          },
+          responses: {
+            "202": ok("Restore job"),
+            "400": error("Wrong confirmation or target database"),
+            "403": error("Restore disabled or admin only"),
+          },
+        },
+      },
+      "/admin/backups/drills/{restoreId}/cleanup": {
+        post: {
+          tags: ["Admin"],
+          operationId: "cleanupDrill",
+          summary: "Drop a drill database and clear its MinIO prefix (admin only)",
+          parameters: [
+            { name: "restoreId", in: "path", required: true, schema: { type: "string" } },
+          ],
+          requestBody: {
+            required: true,
+            content: json({
+              type: "object",
+              required: ["targetDb", "confirm"],
+              properties: {
+                targetDb: { type: "string" },
+                targetMinioPrefix: { type: "string" },
+                confirm: { type: "string", description: "Must be CLEANUP <targetDb>" },
+              },
+            }),
+          },
+          responses: {
+            "202": ok("Cleanup job"),
+            "400": error("Wrong confirmation or target database"),
+            "403": error("Restore disabled or admin only"),
+          },
+        },
+      },
       "/ontology/submit-from-text": {
         post: {
           tags: ["Ontology"],
