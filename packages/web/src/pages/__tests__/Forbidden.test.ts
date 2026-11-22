@@ -29,6 +29,7 @@ import Forbidden from '../Forbidden.vue'
 beforeEach(() => {
   routerMock.push.mockReset()
   routerMock.back.mockReset()
+  window.history.replaceState({}, '')
 })
 
 describe('Forbidden page', () => {
@@ -45,6 +46,26 @@ describe('Forbidden page', () => {
     const buttons = wrapper.findAll('button')
 
     await buttons[0].trigger('click')
+
+    expect(routerMock.push).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('goes back when there is an in-app history entry', async () => {
+    window.history.replaceState({ back: '/expenses' }, '')
+    const wrapper = mount(Forbidden)
+    const buttons = wrapper.findAll('button')
+
+    await buttons[1].trigger('click')
+
+    expect(routerMock.back).toHaveBeenCalled()
+  })
+
+  it('falls back to the dashboard when there is no in-app history entry', async () => {
+    window.history.replaceState({ back: null }, '')
+    const wrapper = mount(Forbidden)
+    const buttons = wrapper.findAll('button')
+
+    await buttons[1].trigger('click')
 
     expect(routerMock.push).toHaveBeenCalledWith('/dashboard')
   })

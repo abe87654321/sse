@@ -1,14 +1,14 @@
 <template>
   <div class="card forbidden-card">
-    <div class="forbidden-icon">&#128274;</div>
+    <div class="forbidden-icon" aria-hidden="true">&#128274;</div>
     <h2 class="forbidden-title font-heading">无权访问</h2>
     <p class="forbidden-text">
       你当前的角色（{{ currentRole }}）无权访问{{ targetSuffix }}。
       如需访问，请联系系统管理员调整权限。
     </p>
     <div class="forbidden-actions">
-      <button class="btn-primary" @click="goDashboard">返回工作台</button>
-      <button class="btn-secondary" @click="goBack">返回上一页</button>
+      <button type="button" class="btn-primary" @click="goDashboard">返回工作台</button>
+      <button type="button" class="btn-secondary" @click="goBack">返回上一页</button>
     </div>
   </div>
 </template>
@@ -38,7 +38,8 @@ function goDashboard() {
 }
 
 function goBack() {
-  if (window.history.length > 1) router.back()
+  const state = window.history.state as { back?: string | null } | null
+  if (state?.back) router.back()
   else router.push('/dashboard')
 }
 </script>
