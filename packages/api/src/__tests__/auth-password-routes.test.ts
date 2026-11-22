@@ -17,6 +17,20 @@ jest.mock('@sse/db', () => {
       findById: mocks.findById,
     })),
     PgApprovalRuleRepo: jest.fn().mockImplementation(() => ({})),
+    PgDepartmentRepo: jest.fn().mockImplementation(() => ({
+      findById: jest.fn(async (id: string) => ({
+        id,
+        name: 'tech',
+        userCount: 0,
+        isProtected: false,
+      })),
+      findByName: jest.fn(async (name: string) => ({
+        id: 'dept-tech',
+        name,
+        userCount: 0,
+        isProtected: false,
+      })),
+    })),
   };
 });
 

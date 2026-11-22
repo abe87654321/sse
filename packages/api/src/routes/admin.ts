@@ -1,5 +1,11 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { PgUserRepo, PgApprovalRuleRepo, PgAuditRepo, pool } from '@sse/db';
+import {
+  PgUserRepo,
+  PgApprovalRuleRepo,
+  PgAuditRepo,
+  PgDepartmentRepo,
+  pool,
+} from '@sse/db';
 import { authMiddleware, hashPassword, validatePassword } from '@sse/auth';
 import { requireRole } from '../middleware/rbac';
 import { UserRole } from '@sse/shared';
@@ -38,8 +44,11 @@ import { resetEngine } from './ontology-helpers';
 const router = Router();
 const userRepo = new PgUserRepo();
 const ruleRepo = new PgApprovalRuleRepo();
+const departmentRepo = new PgDepartmentRepo();
 
-const USER_COLUMNS = 'id, name, phone, email, department, role, parent_id, status, deleted_at, created_at, updated_at';
+const USER_COLUMNS = `u.id, u.name, u.phone, u.email, u.department_id, u.role, u.parent_id,
+  u.status, u.deleted_at, u.created_at, u.updated_at, d.name AS department`;
+const USER_FROM = 'FROM users u LEFT JOIN departments d ON d.id = u.department_id';
 
 const SAMPLE_INVOICE_PATH = join(
   __dirname,
@@ -98,6 +107,24 @@ function enforceRateLimit(req: Request, _res: Response, next: NextFunction) {
 router.use(authMiddleware);
 router.use(requireRole(UserRole.ADMIN));
 
+async function resolveDepartment(
+  body: any
+): Promise<{ id: string; name: string }> {
+  const rawId = body?.departmentId;
+  if (typeof rawId === 'string' && rawId.trim()) {
+    const dept = await departmentRepo.findById(rawId.trim());
+    if (!dept) throw new AppError(400, 'UNKNOWN_DEPARTMENT', '部门不存在');
+    return { id: dept.id, name: dept.name };
+  }
+  const rawName = body?.department;
+  if (typeof rawName === 'string' && rawName.trim()) {
+    const dept = await departmentRepo.findByName(rawName.trim());
+    if (!dept) throw new AppError(400, 'UNKNOWN_DEPARTMENT', '部门不存在');
+    return { id: dept.id, name: dept.name };
+  }
+  throw new AppError(400, 'INVALID_PARAMS', '部门不能为空');
+}
+
 let auditRepo: PgAuditRepo | null = null;
 function getAuditRepo(): PgAuditRepo {
   if (!auditRepo) auditRepo = new PgAuditRepo();
@@ -145,13 +172,13 @@ router.get(
     const include = req.query.include as string | undefined;
     if (include === 'deleted') {
       const { rows } = await pool.query(
-        `SELECT ${USER_COLUMNS} FROM users WHERE status = 'deleted' ORDER BY name`
+        `SELECT ${USER_COLUMNS} ${USER_FROM} WHERE u.status = 'deleted' ORDER BY u.name`
       );
       res.json(rows.map(mapUserRow));
       return;
     }
     const { rows } = await pool.query(
-      `SELECT ${USER_COLUMNS} FROM users WHERE status != 'deleted' ORDER BY name`
+      `SELECT ${USER_COLUMNS} ${USER_FROM} WHERE u.status != 'deleted' ORDER BY u.name`
     );
     res.json(rows.map(mapUserRow));
   })
@@ -160,9 +187,9 @@ router.get(
 router.post(
   '/users',
   asyncWrap(async (req, res) => {
-    const { name, phone, email, department, role, password } = req.body;
+    const { name, phone, email, role, password } = req.body;
 
-    if (!name || !phone || !department || !role) {
+    if (!name || !phone || !role) {
       throw new AppError(400, 'INVALID_PARAMS', '名称、手机号、部门、角色不能为空');
     }
 
@@ -175,6 +202,8 @@ router.post(
       throw new AppError(400, 'INVALID_PARAMS', invalidPassword);
     }
 
+    const department = await resolveDepartment(req.body);
+
     const existing = await userRepo.findByPhone(phone);
     if (existing) {
       throw new AppError(400, 'INVALID_PARAMS', '手机号已存在');
@@ -183,13 +212,14 @@ router.post(
     const passwordHash = await hashPassword(password);
 
     const { rows } = await pool.query(
-      `INSERT INTO users (name, phone, email, department, role, password_hash, status)
+      `INSERT INTO users (name, phone, email, department_id, role, password_hash, status)
        VALUES ($1, $2, $3, $4, $5, $6, 'active')
-       RETURNING ${USER_COLUMNS}`,
-      [name, phone, email || null, department, role, passwordHash]
+       RETURNING id, name, phone, email, department_id, role, parent_id, status,
+         deleted_at, created_at, updated_at`,
+      [name, phone, email || null, department.id, role, passwordHash]
     );
 
-    const created = mapUserRow(rows[0]);
+    const created = mapUserRow({ ...rows[0], department: department.name });
     void sendNotificationSafe(created.id, welcomeMessage({ name: created.name }));
     res.status(201).json(created);
   })
@@ -233,7 +263,9 @@ router.put(
   '/users/:id',
   asyncWrap(async (req, res) => {
     const { id } = req.params;
-    const { name, phone, email, department, role, status, password } = req.body;
+    const { name, phone, email, role, status, password } = req.body;
+    const departmentChanged =
+      req.body.departmentId !== undefined || req.body.department !== undefined;
 
     const user = await userRepo.findById(id);
     if (!user) {
@@ -251,7 +283,11 @@ router.put(
     if (name !== undefined) { fields.push(`name = $${idx++}`); values.push(name); }
     if (phone !== undefined) { fields.push(`phone = $${idx++}`); values.push(phone); }
     if (email !== undefined) { fields.push(`email = $${idx++}`); values.push(email); }
-    if (department !== undefined) { fields.push(`department = $${idx++}`); values.push(department); }
+    if (departmentChanged) {
+      const department = await resolveDepartment(req.body);
+      fields.push(`department_id = $${idx++}`);
+      values.push(department.id);
+    }
     if (role !== undefined) { fields.push(`role = $${idx++}`); values.push(role); }
     if (status !== undefined) { fields.push(`status = $${idx++}`); values.push(status); }
 
@@ -274,16 +310,24 @@ router.put(
     values.push(id);
 
     const { rows } = await pool.query(
-      `UPDATE users SET ${fields.join(', ')} WHERE id = $${idx} RETURNING ${USER_COLUMNS}`,
+      `UPDATE users SET ${fields.join(', ')} WHERE id = $${idx} RETURNING id`,
       values
     );
 
-    res.json(mapUserRow(rows[0]));
+    const updated = await userRepo.findById(rows[0].id);
+    if (!updated) {
+      throw new AppError(404, 'NOT_FOUND', '用户不存在');
+    }
+    res.json(updated);
 
     // async: sync name/department change to ontology
-    if (name !== undefined || department !== undefined) {
-      const updated = rows[0];
-      syncUserToOntology({ id: updated.id, name: updated.name, phone: updated.phone, department: updated.department }).catch(() => {});
+    if (name !== undefined || departmentChanged) {
+      syncUserToOntology({
+        id: updated.id,
+        name: updated.name,
+        phone: updated.phone,
+        department: updated.department,
+      }).catch(() => {});
     }
   })
 );
@@ -448,35 +492,93 @@ router.delete(
 
 // ========== 部门管理 ==========
 
+function readDepartmentName(body: any): string {
+  const name = body?.name;
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    throw new AppError(400, 'INVALID_PARAMS', '部门名称不能为空');
+  }
+  const trimmed = name.trim();
+  if (trimmed.length > 100) {
+    throw new AppError(400, 'INVALID_PARAMS', '部门名称不能超过 100 个字符');
+  }
+  return trimmed;
+}
+
+function mapDepartmentError(error: unknown, action: 'create' | 'rename'): never {
+  if ((error as any)?.code === '23505') {
+    throw new AppError(409, 'DEPARTMENT_EXISTS', '部门名称已存在');
+  }
+  if (action === 'rename' && (error as any)?.message?.includes('protected department')) {
+    throw new AppError(409, 'DEPARTMENT_PROTECTED', '系统保留部门不可修改');
+  }
+  throw error;
+}
+
 router.get(
   '/departments',
   asyncWrap(async (_req, res) => {
-    const { rows } = await pool.query(
-      'SELECT department as name, COUNT(*)::int as user_count FROM users WHERE department IS NOT NULL GROUP BY department ORDER BY department'
-    );
-    res.json(rows);
+    res.json(await departmentRepo.list());
   })
 );
 
 router.post(
   '/departments',
   asyncWrap(async (req, res) => {
-    const { name } = req.body;
-
-    if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      throw new AppError(400, 'INVALID_PARAMS', '部门名称不能为空');
+    const name = readDepartmentName(req.body);
+    try {
+      const created = await departmentRepo.create(name);
+      res.status(201).json(created);
+    } catch (error) {
+      mapDepartmentError(error, 'create');
     }
+  })
+);
 
-    const trimmed = name.trim();
-    const { rows } = await pool.query(
-      'SELECT COUNT(*)::int as count FROM users WHERE department = $1',
-      [trimmed]
-    );
-    if (rows[0].count > 0) {
-      throw new AppError(400, 'INVALID_PARAMS', '部门名称已存在');
+router.patch(
+  '/departments/:id',
+  asyncWrap(async (req, res) => {
+    const name = readDepartmentName(req.body);
+    const existing = await departmentRepo.findById(req.params.id);
+    if (!existing) {
+      throw new AppError(404, 'NOT_FOUND', '部门不存在');
     }
+    if (existing.isProtected) {
+      throw new AppError(409, 'DEPARTMENT_PROTECTED', '系统保留部门不可修改');
+    }
+    try {
+      const renamed = await departmentRepo.rename(req.params.id, name);
+      if (!renamed) {
+        throw new AppError(404, 'NOT_FOUND', '部门不存在');
+      }
+      res.json(renamed);
+    } catch (error) {
+      mapDepartmentError(error, 'rename');
+    }
+  })
+);
 
-    res.status(201).json({ name: trimmed });
+router.delete(
+  '/departments/:id',
+  asyncWrap(async (req, res) => {
+    const existing = await departmentRepo.findById(req.params.id);
+    if (!existing) {
+      throw new AppError(404, 'NOT_FOUND', '部门不存在');
+    }
+    if (existing.isProtected) {
+      throw new AppError(409, 'DEPARTMENT_PROTECTED', '系统保留部门不可删除');
+    }
+    if (existing.userCount > 0) {
+      throw new AppError(409, 'DEPARTMENT_IN_USE', '部门下仍有用户，无法删除');
+    }
+    try {
+      await departmentRepo.delete(req.params.id);
+      res.json({ message: '部门已删除' });
+    } catch (error) {
+      if ((error as any)?.code === '23503') {
+        throw new AppError(409, 'DEPARTMENT_IN_USE', '部门仍被引用，无法删除');
+      }
+      throw error;
+    }
   })
 );
 
@@ -855,6 +957,7 @@ function mapUserRow(row: any) {
     phone: row.phone,
     email: row.email ?? undefined,
     department: row.department,
+    departmentId: row.department_id ?? undefined,
     role: row.role,
     parentId: row.parent_id ?? undefined,
     status: row.status,
