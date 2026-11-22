@@ -9,6 +9,7 @@
     "lint": "pnpm -r lint",
     "migrate": "pnpm --filter @sse/db migrate",
     "migrate:rollback": "pnpm --filter @sse/db migrate:rollback",
+    "sse-backup": "pnpm --filter @sse/backup build && node packages/backup/dist/cli.js",
     "mcp": "pnpm --filter @sse/mcp build && node packages/mcp/dist/index.js",
     "mcp:http": "pnpm --filter @sse/mcp build && node packages/mcp/dist/http.js"
   },
