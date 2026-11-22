@@ -113,8 +113,10 @@ export async function restoreBackup(options: RestoreOptions, deps: RestoreDeps) 
       configs,
     };
   } catch (error) {
-    if (created) await deps.dropTargetDatabase(admin, options.targetDb);
-    await cleanupObjects(deps.objectStore, manifest, options.targetMinioPrefix);
+    if (created) {
+      await deps.dropTargetDatabase(admin, options.targetDb);
+      await cleanupObjects(deps.objectStore, manifest, options.targetMinioPrefix);
+    }
     if (record) markRestoreRecordDeleted(deps.backupDir, record.id);
     throw error;
   } finally {

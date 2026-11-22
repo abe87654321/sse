@@ -1,5 +1,6 @@
-import { Router, Request, Response, NextFunction } from 'express';
+﻿import { Router, Request, Response, NextFunction } from 'express';
 import { authMiddleware } from '@sse/auth';
+import { loadBackupConfig } from '@sse/backup';
 import { UserRole } from '@sse/shared';
 import { requireRole } from '../middleware/rbac';
 import { AppError } from '../middleware/error';
@@ -78,7 +79,7 @@ router.post(
     if (confirm !== `CLEANUP ${targetDb}`) {
       throw new AppError(400, 'CONFIRM_REQUIRED', '确认短语不正确');
     }
-    if (targetDb === (process.env.DB_NAME || 'sse')) {
+    if (targetDb === (loadBackupConfig().db.database)) {
       throw new AppError(400, 'TARGET_IS_LIVE_DB', '不能清除当前数据库');
     }
     const job = await getBackupService().startDrillCleanup(
@@ -161,7 +162,7 @@ router.post(
       throw new AppError(400, 'CONFIRM_REQUIRED', '确认短语不正确');
     }
     if (!targetDb) throw new AppError(400, 'INVALID_PARAMS', 'targetDb 必填');
-    if (targetDb === (process.env.DB_NAME || 'sse')) {
+    if (targetDb === (loadBackupConfig().db.database)) {
       throw new AppError(400, 'TARGET_IS_LIVE_DB', '不能恢复到当前数据库');
     }
 
