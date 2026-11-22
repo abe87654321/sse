@@ -40,7 +40,7 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
       sql += ` AND er.user_id = $${idx++}`;
       values.push(scope.userId);
     } else if (scope.kind === "department") {
-      sql += ` AND u.department = $${idx++}`;
+      sql += ` AND u.department_id = (SELECT id FROM departments WHERE name = $${idx++})`;
       values.push(scope.department);
     }
     if (filters.name) { sql += ` AND u.name ILIKE $${idx++}`; values.push(`%${filters.name}%`); }

@@ -76,13 +76,14 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
     );
 
     const { rows: byDepartment } = await pool.query(
-      `SELECT COALESCE(u.department, '未分配') AS department,
+      `SELECT COALESCE(d.name, '未分配') AS department,
               COALESCE(SUM(er.total_amount), 0) AS amount,
               COUNT(*) AS count
        FROM expense_reports er
        LEFT JOIN users u ON u.id = er.user_id
+       LEFT JOIN departments d ON d.id = u.department_id
        ${spending.where}
-       GROUP BY COALESCE(u.department, '未分配')
+       GROUP BY COALESCE(d.name, '未分配')
        ORDER BY amount DESC`,
       spending.params,
     );

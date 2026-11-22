@@ -1,4 +1,4 @@
-import { pool } from "@sse/db";
+﻿import { pool } from "@sse/db";
 import { resolveAuthContext, enforceReadAccess } from "../auth.js";
 import { ToolDefinition, ToolResult, parseISO8601Date, errorResult, successResult } from "./types.js";
 
@@ -29,7 +29,7 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
 
   try {
     const { rows: targetUsers } = await pool.query(
-      "SELECT department FROM users WHERE id = $1",
+      "SELECT d.name AS department FROM users u JOIN departments d ON d.id = u.department_id WHERE u.id = $1",
       [userId],
     );
     if (targetUsers.length === 0) {

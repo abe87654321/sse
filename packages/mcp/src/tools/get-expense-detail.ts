@@ -1,4 +1,4 @@
-import { pool, PgExpenseRepo, PgInvoiceRepo, PgApprovalRecordRepo } from "@sse/db";
+﻿import { pool, PgExpenseRepo, PgInvoiceRepo, PgApprovalRecordRepo } from "@sse/db";
 import { resolveAuthContext } from "../auth.js";
 import { ToolDefinition, ToolResult, errorResult, successResult, formatTimestamp } from "./types.js";
 import { UserRole } from "@sse/shared";
@@ -37,7 +37,7 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
       return errorResult("NOT_FOUND", `报销单 ${reportId} 不存在`);
     }
 
-    const { rows: userRows } = await pool.query("SELECT department FROM users WHERE id = $1", [report.userId]);
+    const { rows: userRows } = await pool.query("SELECT d.name AS department FROM users u JOIN departments d ON d.id = u.department_id WHERE u.id = $1", [report.userId]);
     const ownerDept = userRows[0]?.department ?? "";
 
     const viewerRole = auth.role as UserRole;

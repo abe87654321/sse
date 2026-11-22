@@ -86,7 +86,7 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
     let idx = 1;
 
     if (scope.kind === "department") {
-      conditions.push(`u.department = $${idx++}`);
+      conditions.push(`u.department_id = (SELECT id FROM departments WHERE name = $${idx++})`);
       values.push(scope.department);
     }
 

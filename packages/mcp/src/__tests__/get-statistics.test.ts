@@ -1,4 +1,4 @@
-const mockQuery = jest.fn();
+﻿const mockQuery = jest.fn();
 
 jest.mock("@sse/db", () => ({
   pool: { query: (...args: any[]) => mockQuery(...args) },
@@ -78,7 +78,7 @@ describe("get_statistics", () => {
 
     const [deptSql, deptParams] = mockQuery.mock.calls[2];
     expect(deptSql).toContain("LEFT JOIN users u ON u.id = er.user_id");
-    expect(deptSql).toContain("COALESCE(u.department, '未分配')");
+    expect(deptSql).toContain("COALESCE(d.name, '未分配')");
     expect(deptSql).toContain("er.status = ANY($4)");
     expect(deptParams).toEqual([
       "u-emp",
@@ -126,7 +126,7 @@ describe("get_statistics", () => {
     expect(statParams).toEqual(["市场部"]);
 
     const [categorySql, categoryParams] = mockQuery.mock.calls[1];
-    expect(categorySql).toContain("u.department = $1");
+    expect(categorySql).toContain("u.department_id = (SELECT id FROM departments WHERE name = $1)");
     expect(categorySql).toContain("er.status = ANY($2)");
     expect(categoryParams).toEqual(["市场部", ["approved", "paid"]]);
 

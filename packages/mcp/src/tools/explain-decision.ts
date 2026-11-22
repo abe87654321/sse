@@ -21,7 +21,7 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
   const reportId = args.report_id as string;
   if (!reportId) return errorResult("INVALID_PARAMS", "请提供 report_id");
   try {
-    const { rows: reports } = await pool.query("SELECT er.*, u.name as applicant_name, u.department FROM expense_reports er JOIN users u ON u.id = er.user_id WHERE er.id = $1", [reportId]);
+    const { rows: reports } = await pool.query("SELECT er.*, u.name as applicant_name, d.name AS department FROM expense_reports er JOIN users u ON u.id = er.user_id JOIN departments d ON d.id = u.department_id WHERE er.id = $1", [reportId]);
     if (reports.length === 0) return errorResult("NOT_FOUND", "报销单不存在");
     const report = reports[0];
     if (!enforceReadAccess(auth, report.user_id, report.department)) return errorResult("NOT_FOUND", "无权访问");

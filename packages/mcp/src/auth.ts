@@ -54,9 +54,10 @@ export async function refreshApiKeys(): Promise<void> {
   try {
     const { pool } = await import("@sse/db");
     const select = (expiryFilter: string) => pool.query(
-      `SELECT k.key, k.user_id, u.role, u.department
+      `SELECT k.key, k.user_id, u.role, d.name AS department
          FROM mcp_api_keys k
          JOIN users u ON u.id = k.user_id
+         JOIN departments d ON d.id = u.department_id
         WHERE k.is_active = true AND u.status = 'active'${expiryFilter}`,
     );
 
