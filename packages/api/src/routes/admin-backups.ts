@@ -15,6 +15,29 @@ function asyncWrap(fn: (req: Request, res: Response, next: NextFunction) => Prom
   };
 }
 
+function service() {
+  try {
+    return getBackupService();
+  } catch (error) {
+    throw new AppError(
+      500,
+      'BACKUP_INIT_FAILED',
+      error instanceof Error ? error.message : '备份服务初始化失败'
+    );
+  }
+}
+
+async function startCreate(options: any, actor: { userId: string; role: string }) {
+  try {
+    return await service().startCreate(options, actor);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'BACKUP_BUSY') {
+      throw new AppError(409, 'BACKUP_BUSY', '已有备份任务在运行');
+    }
+    throw error;
+  }
+}
+
 router.use(authMiddleware);
 router.use(requireRole(UserRole.ADMIN));
 
@@ -22,14 +45,14 @@ router.get(
   '/',
   asyncWrap(async (req, res) => {
     const location = req.query.location === 'minio' ? 'minio' : 'local';
-    res.json({ items: await getBackupService().listBackups(location) });
+    res.json({ items: await service().listBackups(location) });
   })
 );
 
 router.post(
   '/',
   asyncWrap(async (req, res) => {
-    const job = await getBackupService().startCreate(
+    const job = await startCreate(
       {
         includeSecrets: Boolean(req.body?.includeSecrets),
         upload: Boolean(req.body?.upload),
@@ -52,20 +75,20 @@ router.post(
 );
 
 router.get('/jobs', asyncWrap(async (_req, res) => {
-  res.json({ items: getBackupService().list() });
+  res.json({ items: service().list() });
 }));
 
 router.get(
   '/jobs/:jobId',
   asyncWrap(async (req, res) => {
-    const job = getBackupService().get(req.params.jobId);
+    const job = service().get(req.params.jobId);
     if (!job) throw new AppError(404, 'NOT_FOUND', '任务不存在');
     res.json(job);
   })
 );
 
 router.get('/drills', asyncWrap(async (_req, res) => {
-  res.json({ items: getBackupService().listDrills() });
+  res.json({ items: service().listDrills() });
 }));
 
 router.post(
@@ -82,7 +105,7 @@ router.post(
     if (targetDb === (loadBackupConfig().db.database)) {
       throw new AppError(400, 'TARGET_IS_LIVE_DB', '不能清除当前数据库');
     }
-    const job = await getBackupService().startDrillCleanup(
+    const job = await service().startDrillCleanup(
       {
         restoreId: req.params.restoreId,
         targetDb,
@@ -106,7 +129,7 @@ router.post(
 router.get(
   '/:id/download',
   asyncWrap(async (req, res) => {
-    await getBackupService().download(req.params.id, res);
+    await service().download(req.params.id, res);
     await auditFromRequest(req, {
       source: 'api',
       action: 'backup.download',
@@ -120,7 +143,7 @@ router.get(
 router.post(
   '/:id/verify',
   asyncWrap(async (req, res) => {
-    const job = await getBackupService().startVerify(req.params.id, {
+    const job = await service().startVerify(req.params.id, {
       userId: req.user!.userId,
       role: req.user!.role,
     });
@@ -139,7 +162,7 @@ router.post(
 router.post(
   '/:id/upload',
   asyncWrap(async (req, res) => {
-    await getBackupService().upload(req.params.id);
+    await service().upload(req.params.id);
     await auditFromRequest(req, {
       source: 'api',
       action: 'backup.upload',
@@ -166,7 +189,7 @@ router.post(
       throw new AppError(400, 'TARGET_IS_LIVE_DB', '不能恢复到当前数据库');
     }
 
-    const job = await getBackupService().startRestore(
+    const job = await service().startRestore(
       {
         from: req.params.id,
         targetDb,
@@ -190,7 +213,7 @@ router.post(
 router.delete(
   '/:id',
   asyncWrap(async (req, res) => {
-    await getBackupService().remove(req.params.id);
+    await service().remove(req.params.id);
     await auditFromRequest(req, {
       source: 'api',
       action: 'backup.delete',

@@ -118,13 +118,15 @@ const cleanupOpen = ref(false)
 const cleanupError = ref('')
 const cleanup = reactive({ id: '', targetDb: '', prefix: '', confirm: '' })
 
-async function load() {
+async function load(setError = true) {
   loading.value = true
   try {
     const res = await api.get('/admin/backups')
     items.value = res.data.items || []
   } catch (error: any) {
-    message.value = error?.response?.data?.error?.message || '加载备份失败'
+    if (setError) {
+      message.value = error?.response?.data?.error?.message || '加载备份失败'
+    }
   } finally {
     loading.value = false
   }
@@ -152,7 +154,7 @@ async function create() {
       upload: upload.value,
     })
     message.value = `备份任务已启动：${res.data.id}`
-    await load()
+    await load(false)
   } catch (error: any) {
     message.value = error?.response?.data?.error?.message || '创建备份失败'
   }

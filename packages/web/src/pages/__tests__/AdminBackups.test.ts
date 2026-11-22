@@ -48,6 +48,24 @@ describe('AdminBackups page', () => {
     })
   })
 
+  it('keeps the success message when the list refresh fails after create', async () => {
+    let backupCalls = 0
+    mocks.get.mockImplementation((url: string) => {
+      if (url === '/admin/backups/drills') return Promise.resolve({ data: { items: [] } })
+      backupCalls += 1
+      if (backupCalls === 1) return Promise.resolve({ data: { items: [] } })
+      return Promise.reject({ response: { data: { error: { message: '服务器内部错误' } } } })
+    })
+    mocks.post.mockResolvedValue({ data: { id: 'job-1', status: 'running' } })
+
+    const wrapper = mount(AdminBackups)
+    await flushPromises()
+    await wrapper.find('[data-test="create-backup"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('备份任务已启动')
+  })
+
   it('requires the restore confirmation phrase', async () => {
     arrange([{ id: 'b1', manifest: { counts: {} }, locations: ['local'] }])
     const wrapper = mount(AdminBackups)

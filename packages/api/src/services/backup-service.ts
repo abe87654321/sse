@@ -66,7 +66,12 @@ function buildBackupService(): BackupService {
   return Object.assign(jobs, {
     async listBackups(location: 'local' | 'minio'): Promise<any[]> {
       const localItems = await local.list();
-      const minioIds = new Set(await minio.list());
+      let minioIds = new Set<string>();
+      try {
+        minioIds = new Set(await minio.list());
+      } catch (error) {
+        console.error('[backup] failed to list MinIO backups', error);
+      }
       if (location === 'minio') {
         return [...minioIds].map((id) => ({ id, manifest: null, locations: ['minio'] }));
       }
