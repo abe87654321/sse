@@ -137,9 +137,16 @@ export async function runCli(argv: string[], overrides: CliOverrides = {}): Prom
   try {
     await program.parseAsync(argv, { from: 'user' });
     return typeof process.exitCode === 'number' ? process.exitCode : 0;
-  } catch (error) {
+  } catch (error: any) {
+    if (
+      error?.code === 'commander.helpDisplayed' ||
+      error?.code === 'commander.version' ||
+      error?.exitCode === 0
+    ) {
+      return 0;
+    }
     logger(error instanceof Error ? error.message : String(error));
-    return 1;
+    return typeof error?.exitCode === 'number' && error.exitCode > 0 ? error.exitCode : 1;
   }
 }
 
