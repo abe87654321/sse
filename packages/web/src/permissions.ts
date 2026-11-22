@@ -114,3 +114,25 @@ export function roleLabel(role: string | undefined): string {
   if (!role) return '未知角色'
   return ROLE_LABELS[role] ?? role
 }
+
+export type GuardDecision = 'allow' | 'login' | 'dashboard' | 'forbidden'
+
+export interface GuardMeta {
+  guest?: boolean
+  requiresAdmin?: boolean
+  allowedRoles?: readonly string[]
+}
+
+export function resolveGuard(input: {
+  isLoggedIn: boolean
+  role?: string
+  meta: GuardMeta
+}): GuardDecision {
+  const { isLoggedIn, role, meta } = input
+
+  if (meta.guest) return isLoggedIn ? 'dashboard' : 'allow'
+  if (!isLoggedIn) return 'login'
+  if (meta.requiresAdmin && role !== 'admin') return 'forbidden'
+  if (meta.allowedRoles && !canAccessRoute(role, meta.allowedRoles)) return 'forbidden'
+  return 'allow'
+}

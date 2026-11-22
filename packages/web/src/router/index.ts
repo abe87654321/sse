@@ -1,6 +1,18 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { resolveGuard } from '@/permissions'
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    title?: string
+    icon?: string
+    guest?: boolean
+    hidden?: boolean
+    requiresAdmin?: boolean
+    allowedRoles?: string[]
+  }
+}
 
 const routes: RouteRecordRaw[] = [
   {
@@ -48,19 +60,19 @@ const routes: RouteRecordRaw[] = [
         path: 'approvals',
         name: 'Approvals',
         component: () => import('@/pages/Approvals.vue'),
-        meta: { title: '审批管理', icon: 'Checked' }
+        meta: { title: '审批管理', icon: 'Checked', allowedRoles: ['dept_approver', 'finance', 'admin'] }
       },
       {
         path: 'approvals/:reportId',
         name: 'ApprovalHandle',
         component: () => import('@/pages/ApprovalHandle.vue'),
-        meta: { title: '审批处理', hidden: true }
+        meta: { title: '审批处理', hidden: true, allowedRoles: ['dept_approver', 'finance', 'admin'] }
       },
       {
         path: 'statistics',
         name: 'Statistics',
         component: () => import('@/pages/Statistics.vue'),
-        meta: { title: '统计分析', icon: 'DataAnalysis' }
+        meta: { title: '统计分析', icon: 'DataAnalysis', allowedRoles: ['finance', 'admin'] }
       },
       {
         path: 'notifications',
@@ -78,37 +90,37 @@ const routes: RouteRecordRaw[] = [
         path: 'admin/snapshots',
         name: 'AdminSnapshots',
         component: () => import('@/pages/AdminSnapshots.vue'),
-        meta: { title: '内容快照', requiresAdmin: true }
+        meta: { title: '内容快照', allowedRoles: ['admin'] }
       },
       {
         path: 'admin',
         name: 'Admin',
         component: () => import('@/pages/Admin.vue'),
-        meta: { title: '系统管理', icon: 'Setting', requiresAdmin: true }
+        meta: { title: '系统管理', icon: 'Setting', allowedRoles: ['admin'] }
       },
       {
         path: 'admin/users',
         name: 'AdminUsers',
         component: () => import('@/pages/AdminUsers.vue'),
-        meta: { title: '用户管理', requiresAdmin: true }
+        meta: { title: '用户管理', allowedRoles: ['admin'] }
       },
       {
         path: 'admin/departments',
         name: 'AdminDepartments',
         component: () => import('@/pages/AdminDepartments.vue'),
-        meta: { title: '部门管理', requiresAdmin: true }
+        meta: { title: '部门管理', allowedRoles: ['admin'] }
       },
       {
         path: 'admin/messages',
         name: 'AdminMessages',
         component: () => import('@/pages/AdminMessages.vue'),
-        meta: { title: '消息管理', requiresAdmin: true }
+        meta: { title: '消息管理', allowedRoles: ['admin'] }
       },
       {
         path: 'admin/reasoning-rules',
         name: 'AdminReasoningRules',
         component: () => import('@/pages/AdminReasoningRules.vue'),
-        meta: { title: '推理规则', requiresAdmin: true }
+        meta: { title: '推理规则', allowedRoles: ['admin'] }
       },
       {
         path: '/ontology',
@@ -131,15 +143,20 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach((to) => {
   const auth = useAuthStore()
-  if (to.meta.guest) {
-    if (auth.isLoggedIn) return next('/dashboard')
-    return next()
+  const decision = resolveGuard({
+    isLoggedIn: auth.isLoggedIn,
+    role: auth.user?.role,
+    meta: to.meta,
+  })
+
+  if (decision === 'login') return { path: '/login' }
+  if (decision === 'dashboard') return { path: '/dashboard' }
+  if (decision === 'forbidden') {
+    return { path: '/forbidden', query: { from: to.fullPath } }
   }
-  if (!auth.isLoggedIn) return next('/login')
-  if (to.meta.requiresAdmin && auth.user?.role !== 'admin') return next('/dashboard')
-  next()
+  return true
 })
 
 export default router

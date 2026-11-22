@@ -3,6 +3,7 @@ import {
   NAV_ITEMS,
   canAccessRoute,
   navItemsForRole,
+  resolveGuard,
   roleLabel,
 } from '@/permissions'
 
@@ -66,5 +67,46 @@ describe('roleLabel', () => {
   it('falls back for unknown or missing roles', () => {
     expect(roleLabel(undefined)).toBe('未知角色')
     expect(roleLabel('ghost')).toBe('ghost')
+  })
+})
+
+describe('resolveGuard', () => {
+  it('redirects guests to login', () => {
+    expect(resolveGuard({ isLoggedIn: false, meta: {} })).toBe('login')
+  })
+
+  it('sends logged-in users away from guest pages', () => {
+    expect(
+      resolveGuard({ isLoggedIn: true, role: 'employee', meta: { guest: true } })
+    ).toBe('dashboard')
+  })
+
+  it('forbids employees from statistics', () => {
+    expect(
+      resolveGuard({
+        isLoggedIn: true,
+        role: 'employee',
+        meta: { allowedRoles: ['finance', 'admin'] },
+      })
+    ).toBe('forbidden')
+  })
+
+  it('allows finance into approvals', () => {
+    expect(
+      resolveGuard({
+        isLoggedIn: true,
+        role: 'finance',
+        meta: { allowedRoles: ['dept_approver', 'finance', 'admin'] },
+      })
+    ).toBe('allow')
+  })
+
+  it('keeps requiresAdmin compatibility', () => {
+    expect(
+      resolveGuard({ isLoggedIn: true, role: 'finance', meta: { requiresAdmin: true } })
+    ).toBe('forbidden')
+    expect(
+      resolveGuard({ isLoggedIn: true, role: 'admin', meta: { requiresAdmin: true } })
+    ).toBe('allow')
   })
 })
