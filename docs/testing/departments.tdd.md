@@ -28,36 +28,50 @@
 5. 身份同步测试覆盖：自动建部门、复用已有部门、写入 `department_id`。
 6. Web 测试覆盖：部门选项来自 API、创建载荷带 `departmentId`、部门页 CRUD 与禁用条件。
 
-## 3. 全量验证（本地）
+## 3. 第 2 阶段：Ontology 同步与旧 JWT 提示
+
+| 行为 | 测试 |
+|---|---|
+| outbox 为 users 载荷补齐部门名，保留脱敏 denylist | `packages/db/src/__tests__/migration-026.test.ts`（3） |
+| 重建图谱时 users 通过 departments join 取名称 | `packages/ontology/src/__tests__/reconcile.test.ts` |
+| shadow 采样 SQL 解析用户部门名 | `packages/ontology/src/__tests__/shadow.test.ts` |
+| OwlStore 属性替换与实体删除（修复 n3 v1 removeMatches 不生效） | `packages/ontology/src/__tests__/owl-store.test.ts`（2） |
+| 部门创建/重命名/删除同步 legacy 与 v2 图谱 | `packages/api/src/services/__tests__/department-ontology.test.ts`（6） |
+| 重命名返回受影响用户数并触发同步 | `packages/api/src/__tests__/admin-departments.test.ts` |
+| 前端展示“需重新登录”提示 | `packages/web/src/pages/__tests__/AdminDepartments.test.ts` |
+
+## 4. 全量验证（本地）
 
 ```text
 pnpm -r test
   web           89 passed
   core          70 passed
   auth          30 passed
-  db            71 passed
+  db            74 passed
   ai           100 passed
   notifications 29 passed
-  ontology     176 passed
-  api          218 passed
+  ontology     180 passed
+  api          224 passed
   mcp           59 passed
-  合计         842 passed
+  合计         855 passed
 
 pnpm -r build
   11/11 个包完成（shared/web/core/ocr/ai/auth/db/notifications/ontology/api/mcp）
 ```
 
-## 4. 已知边界与未在本机验证项
+## 5. 已知边界与未在本机验证项
 
-1. **真实 PostgreSQL 迁移未在本机执行**：本机无 Docker，`025_departments.sql` 仅通过静态守卫测试。
+1. **真实 PostgreSQL 迁移未在本机执行**：本机无 Docker，`025`/`026` 仅通过静态守卫测试。
    部署前必须在测试机执行并核对回填结果。
 2. **重命名后的旧 JWT**：token 内仍带旧部门名；`dept_approver` 的旧 token 会因
-   `departments.name` 不存在而查不到数据（fail-closed，不越权）。建议重命名后提示相关用户重新登录。
-3. **Ontology**：部门 CRUD 不写本体；重命名后旧 `Department` 实体残留，待用户编辑时按新名称重同步。
+   `departments.name` 不存在而查不到数据（fail-closed，不越权）。重命名接口现在返回
+   `affectedUsers`，前端提示相关用户重新登录。
+3. **Ontology 同步是 best-effort**：legacy 与 v2 图谱都会更新，但失败不会回滚部门改名；
+   下一次 reconcile 或用户编辑会再次校正。
 4. **外部密钥**：`mcp_api_keys.department` 已删除；今后手工插入 key 时不要再写该列。
 5. **集成测试**：`test/ontology-outbox.test.ts` 已改为 `department_id`；`test/mdm.test.ts` 通过 API 自动建部门。
 
-## 5. 测试机迁移与复测
+## 6. 测试机迁移与复测
 
 ```bash
 git checkout feat/p1-9-departments   # 或合并后的 master
@@ -71,6 +85,10 @@ docker compose exec -T postgres psql -U sse -d sse -c "
   SELECT name, is_protected, COUNT(u.id) AS users
   FROM departments d LEFT JOIN users u ON u.department_id = d.id
   GROUP BY d.id ORDER BY d.name;"
+
+# 迁移 026 生效：users 事件应带 department 名称
+docker compose exec -T postgres psql -U sse -d sse -c "
+  SELECT version FROM schema_migrations WHERE version = '026_ontology_user_department';"
 ```
 
 复测要点：
@@ -81,3 +99,5 @@ docker compose exec -T postgres psql -U sse -d sse -c "
 4. SCIM/MDM 推送新部门名后自动出现在部门页，`audit_events` 有 `department.auto_create`。
 5. 统计页按部门筛选与总览口径一致。
 6. 直接 `UPDATE/DELETE` “未分配” 被触发器拒绝。
+7. 重命名后刷新本体页：人员节点显示新部门，旧 Department 节点消失；重命名响应含 `affectedUsers`。
+8. 执行一次 reconcile 后 shadow 对比（如启用 `ONTOLOGY_V2=shadow`）不出现部门差异。

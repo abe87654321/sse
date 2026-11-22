@@ -122,6 +122,15 @@
 - [ ] 写 `docs/testing/departments.tdd.md` 与过程记录。
 - [ ] 提交 `docs: record P1-9 departments`.
 
+### Task 11: 第 2 阶段（Ontology + 重命名提示）
+
+- [ ] 迁移 `026_ontology_user_department.sql`：outbox 为 users 补部门名。
+- [ ] `reconcile` 与 `shadow` 解析部门名。
+- [ ] `OwlStore.setProperty` 并修复 n3 v1 `removeMatches` 空操作。
+- [ ] `services/department-ontology.ts`：legacy + v2 同步 create/rename/delete。
+- [ ] 重命名返回 `affectedUsers`，前端提示重新登录。
+- [ ] 验证：`pnpm -r test` 855 passed；`pnpm -r build` 11/11。
+
 ## 自审
 
-- 覆盖设计第 3-7 节；无占位；类型统一使用 `departmentId`/`department`/`userCount`/`isProtected`。
+- 覆盖设计第 3-9 节；无占位；类型统一使用 `departmentId`/`department`/`userCount`/`isProtected`。

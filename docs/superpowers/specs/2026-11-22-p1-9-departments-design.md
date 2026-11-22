@@ -153,5 +153,14 @@ export interface Department {
 ## 8. 非目标与已知缺口
 
 - 不做部门层级、成本中心、部门级审批规则。
-- 部门 CRUD 不写 Ontology；重命名后旧 Department 实体残留，待用户编辑时重同步。
 - 重命名后已登录 `dept_approver` 需重新登录才能看到新部门数据（fail-closed）。
+
+## 9. 第 2 阶段补充（已实施）
+
+- **Ontology 同步**：新增/重命名/删除部门时同步 legacy OwlStore 与 v2 图谱；
+  重命名迁移用户 `belongsTo` 与 `department` 属性并删除旧 Department 实体；同步为 best-effort。
+- **v2 投影修正**：迁移 026 为 outbox 的 `users` 载荷补部门名称；`reconcile` join `departments`；
+  `shadow` 使用 SQL 表达式解析部门名。
+- **OwlStore 修复**：n3 v1 `removeMatches` 返回新 Store 而非原地删除，改为 `getQuads + removeQuad`；
+  新增 `setProperty`。
+- **重命名提示**：`PATCH /admin/departments/:id` 返回 `affectedUsers`，前端提示相关用户重新登录。

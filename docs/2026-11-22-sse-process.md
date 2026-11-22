@@ -167,3 +167,55 @@ pnpm -r build
 | P1-12 | 只读审计员角色 + 审计查询页 | 待处理 |
 
 **下一次会话建议：** P1-10（安全价值最高，迁移 014 已支持过期字段）或 P1-7（导出补齐）。
+
+---
+
+# P1-9 第 2 阶段：Ontology 同步与重命名提示
+
+> 分支仍为 `feat/p1-9-departments`；提交 `e5b3e24`。
+
+## 范围
+
+1. **A. 部门变更同步 Ontology**：新增/重命名/删除部门时同步 legacy OwlStore 与 v2 图谱；
+   重命名时把用户的 `belongsTo` 与新 `department` 属性迁移到新 URI，并删除旧 Department 实体。
+2. **B. 重命名后旧 JWT 提示**：`PATCH /admin/departments/:id` 返回受影响用户数，前端提示重新登录。
+3. **顺带修复第 1 阶段遗留**：v2 投影仍读 `users.department`，迁移后所有用户会被投影成“未分配”。
+
+## 落地内容
+
+| 层 | 变更 |
+|---|---|
+| 迁移 | `026_ontology_user_department.sql`：重写 outbox 触发器，为 `users` 载荷补 `department` 名称，保留脱敏 denylist |
+| ontology | `reconcile` 的 users 查询 join `departments`；`shadow` 支持 SQL 表达式列并解析部门名；`OwlStore` 新增 `setProperty`，并修复 n3 v1 `removeMatches` 不生效导致的 `deleteEntity/deleteRelation` 空操作 |
+| api | `services/department-ontology.ts`：legacy + v2 部门同步（create/rename/delete、用户关系迁移）；admin 路由接线；重命名返回 `affectedUsers` |
+| web | 部门页重命名后展示“N 名用户需重新登录”提示 |
+
+## 关键提交
+
+| SHA | 说明 |
+|---|---|
+| `e5b3e24` | feat: sync department changes to ontology and fix v2 department projection |
+
+## 验证
+
+```text
+pnpm -r test    -> 855 passed（web 89 / core 70 / auth 30 / db 74 / ai 100 /
+                              notifications 29 / ontology 180 / api 224 / mcp 59）
+pnpm -r build   -> 11/11 个包完成
+```
+
+本机无 Docker，**迁移 025/026 仍需在测试机真实执行**。
+
+## 测试机复测新增点
+
+1. 重命名部门：本体页人员节点显示新部门，旧 Department 节点消失；响应含 `affectedUsers`。
+2. `ONTOLOGY_V2=shadow` 下执行一次 reconcile/shadow，对比无部门差异。
+3. 迁移 026 后，`users` 的 outbox 事件 `new_row` 含 `department` 名称且不含手机号/邮箱等敏感字段。
+4. 删除空部门后，本体页不再出现该 Department 节点。
+
+## 更新后的已知缺口
+
+1. 重命名后的旧 JWT 仍 fail-closed；已提供 `affectedUsers` 提示，未做每请求 DB 校验。
+2. Ontology 同步为 best-effort，失败不回滚部门改名；下一次 reconcile 或用户编辑会校正。
+3. `mcp_api_keys.department` 已删除，手工建 key 时不要再写该列。
+4. 集成测试 `test/ontology-outbox.test.ts` 需在配置 `TEST_DATABASE_URL` 的环境复跑。
