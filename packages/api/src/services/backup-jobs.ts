@@ -110,13 +110,27 @@ export class BackupJobService {
       } catch (error) {
         job.status = 'failed';
         job.error = error instanceof Error ? error.message : String(error);
+        console.error(`[backup] ${kind} job failed`, error);
       } finally {
         job.finishedAt = new Date().toISOString();
-        this.persist(job);
+        try {
+          this.persist(job);
+        } catch (persistError) {
+          console.error('[backup] failed to persist job', persistError);
+        }
         this.active = null;
-        if (lock) await lock.release();
+        if (lock) {
+          try {
+            await lock.release();
+          } catch (releaseError) {
+            console.error('[backup] failed to release backup lock', releaseError);
+          }
+        }
       }
-    })();
+    })().catch((error) => {
+      console.error('[backup] job runner crashed', error);
+      this.active = null;
+    });
     return job;
   }
 

@@ -52,6 +52,7 @@ export async function restoreBackup(options: RestoreOptions, deps: RestoreDeps) 
 
   const admin = deps.createAdminClient();
   let target: any;
+  let targetClosed = false;
   let record: any;
   let created = false;
   try {
@@ -113,14 +114,28 @@ export async function restoreBackup(options: RestoreOptions, deps: RestoreDeps) 
       configs,
     };
   } catch (error) {
+    // Close the target pool first. DROP DATABASE ... WITH (FORCE) would
+    // otherwise terminate its idle clients and emit an unhandled 'error'.
+    if (target?.end && !targetClosed) {
+      try {
+        await target.end();
+      } catch (closeError) {
+        console.error('[backup] failed to close target pool', closeError);
+      }
+      targetClosed = true;
+    }
     if (created) {
-      await deps.dropTargetDatabase(admin, options.targetDb);
+      try {
+        await deps.dropTargetDatabase(admin, options.targetDb);
+      } catch (dropError) {
+        console.error('[backup] failed to drop drill database', dropError);
+      }
       await cleanupObjects(deps.objectStore, manifest, options.targetMinioPrefix);
     }
     if (record) markRestoreRecordDeleted(deps.backupDir, record.id);
     throw error;
   } finally {
-    if (target?.end) await target.end();
+    if (!targetClosed && target?.end) await target.end();
     if (admin.end) await admin.end();
   }
 }
