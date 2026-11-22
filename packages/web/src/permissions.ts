@@ -81,12 +81,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
     roles: ADMIN_ROLES,
     icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
   },
-  {
-    path: '/admin/backups',
-    label: '备份与恢复',
-    roles: ADMIN_ROLES,
-    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>',
-  },
 ]
 
 const ROLE_LABELS: Record<string, string> = {

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  NAV_ITEMS,
   canAccessRoute,
   navItemsForRole,
   resolveGuard,
@@ -31,7 +30,19 @@ describe('navItemsForRole', () => {
   })
 
   it('gives admins every entry', () => {
-    expect(paths('admin')).toEqual(NAV_ITEMS.map((item) => item.path))
+    expect(paths('admin')).toEqual([
+      '/dashboard',
+      '/expenses',
+      '/approvals',
+      '/statistics',
+      '/ontology',
+      '/admin',
+      '/admin/users',
+      '/admin/departments',
+      '/admin/messages',
+      '/admin/reasoning-rules',
+      '/admin/snapshots',
+    ])
   })
 
   it('fails closed for unknown or missing roles', () => {
