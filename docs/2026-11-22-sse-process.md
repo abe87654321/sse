@@ -59,6 +59,31 @@
 2. 可选补充 `DefaultLayout` 组件挂载测试，覆盖导航渲染与审批红点门控。
 3. P1-7 合并后，将 `/admin/backups` 导航项重新加回 `NAV_ITEMS` 并补对应路由测试。
 
----
+## 会话收尾
 
-分支：`feat/p1-11-role-navigation`（基于 master）。该分支尚未推送（无 upstream）。
+- 分支 `feat/p1-11-role-navigation` 已本地 fast-forward 合并到 `master`，功能分支已删除。
+- 最终 HEAD：`4e24772`；已推送到 `origin/master`（`cd69516..4e24772`）。
+- 合并后在 `master` 复测：`pnpm --filter @sse/web test` 83 passed；`pnpm --filter @sse/web build` 通过。
+- 未跟踪文件保持原样，未提交：`docs/handover-docs/**`、`docs/2026-11-12-sse-multi-role-analysis.md`。
+
+### 测试机更新（仅前端，无数据库迁移）
+
+```bash
+cd /path/to/sse
+git checkout master
+git pull --ff-only
+git rev-parse --short HEAD          # 期望 4e24772
+pnpm install --frozen-lockfile
+pnpm --filter @sse/web build        # 产物 packages/web/dist/
+
+# 让静态站点生效（按实际部署方式二选一）
+sudo nginx -s reload
+# 或重启提供静态文件的 web 服务/容器
+# 若用 dev server：重启 `pnpm --filter @sse/web dev --host`
+```
+
+复测前重新登录一次，以刷新 `localStorage` 中的角色信息。
+
+### 下一次会话建议
+
+P1-9（部门 CRUD）或 P1-10（MCP Key 管理）；同时可将 `vue-tsc --noEmit` 类型检查脚本作为独立小项处理。
