@@ -115,6 +115,12 @@ const routes: RouteRecordRaw[] = [
         name: 'ontology',
         component: () => import('../pages/Ontology.vue'),
         meta: { title: '本体可视化', icon: 'Share' },
+      },
+      {
+        path: 'forbidden',
+        name: 'Forbidden',
+        component: () => import('@/pages/Forbidden.vue'),
+        meta: { title: '无权访问', hidden: true }
       }
     ]
   }
