@@ -84,6 +84,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { APPROVER_ROLES, canAccessRoute } from '@/permissions'
 import api from '../api/index'
 
 const auth = useAuthStore()
@@ -98,10 +99,7 @@ const statusLabels: Record<string, string> = {
   draft: '草稿', pending: '待审批', approved: '已通过', rejected: '已驳回', paid: '已付款'
 }
 
-const showApprovals = computed(() => {
-  const role = auth.user?.role
-  return role === 'dept_approver' || role === 'finance' || role === 'admin'
-})
+const showApprovals = computed(() => canAccessRoute(auth.user?.role, APPROVER_ROLES))
 
 const pendingCount = ref(0)
 const recentExpenses = ref<any[]>([])

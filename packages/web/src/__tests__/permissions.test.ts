@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ADMIN_ROLES,
   ALL_ROLES,
+  APPROVER_ROLES,
   canAccessRoute,
   navItemsForRole,
   resolveGuard,
@@ -116,6 +117,20 @@ describe('resolveGuard', () => {
     ).toBe('allow')
   })
 
+  it('allows every known role into scoped statistics', () => {
+    for (const role of ALL_ROLES) {
+      expect(
+        resolveGuard({ isLoggedIn: true, role, meta: { allowedRoles: ALL_ROLES } })
+      ).toBe('allow')
+    }
+  })
+
+  it('fails closed for a ghost role on a restricted route', () => {
+    expect(
+      resolveGuard({ isLoggedIn: true, role: 'ghost', meta: { allowedRoles: ['admin'] } })
+    ).toBe('forbidden')
+  })
+
   it('forbids non-admins from admin routes', () => {
     expect(
       resolveGuard({
@@ -141,7 +156,7 @@ describe('resolveGuard', () => {
       resolveGuard({
         isLoggedIn: true,
         role: 'finance',
-        meta: { allowedRoles: ['dept_approver', 'finance', 'admin'] },
+        meta: { allowedRoles: APPROVER_ROLES },
       })
     ).toBe('allow')
   })

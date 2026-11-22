@@ -62,6 +62,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import api from '../api/index'
+import { FINANCE_ROLES, canAccessRoute } from '../permissions'
 import { useAuthStore } from '../stores/auth'
 import {
   formatHistoryTime,
@@ -105,7 +106,7 @@ const loading = ref(false)
 const expanded = reactive<Record<string, boolean>>({})
 
 function canSeeReceipts() {
-  return auth.user?.role === 'finance' || auth.user?.role === 'admin'
+  return canAccessRoute(auth.user?.role, FINANCE_ROLES)
 }
 
 async function load() {

@@ -139,6 +139,7 @@ import {
   type OntologyStatus,
 } from '../api/ontology'
 import { useAuthStore } from '../stores/auth'
+import { ADMIN_ROLES, canAccessRoute } from '../permissions'
 import GraphExplorer from '../components/ontology/GraphExplorer.vue'
 import EntityDetail from '../components/ontology/EntityDetail.vue'
 import ValidationPanel from '../components/ontology/ValidationPanel.vue'
@@ -202,7 +203,7 @@ const generating = ref(false)
 const adminMessage = ref('')
 const adminWarning = ref(false)
 
-const isAdmin = computed(() => auth.user?.role === 'admin')
+const isAdmin = computed(() => canAccessRoute(auth.user?.role, ADMIN_ROLES))
 
 function errorMessage(err: unknown): string {
   const anyErr = err as {
