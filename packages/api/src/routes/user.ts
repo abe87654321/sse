@@ -29,7 +29,7 @@ router.get('/search', asyncWrap(async (req, res) => {
 
   if (role) {
     const { rows } = await pool.query(
-      "SELECT id, name, phone, department, role FROM users WHERE status = 'active' AND role = $1 ORDER BY name",
+      "SELECT u.id, u.name, u.phone, d.name AS department, u.role FROM users u JOIN departments d ON d.id = u.department_id WHERE u.status = 'active' AND u.role = $1 ORDER BY u.name",
       [role]
     );
     res.json(rows);
@@ -38,13 +38,13 @@ router.get('/search', asyncWrap(async (req, res) => {
 
   if (q) {
     const { rows } = await pool.query(
-      "SELECT id, name, phone, department, role FROM users WHERE status = 'active' AND (name ILIKE $1 OR phone ILIKE $1) ORDER BY name LIMIT 20",
+      "SELECT u.id, u.name, u.phone, d.name AS department, u.role FROM users u JOIN departments d ON d.id = u.department_id WHERE u.status = 'active' AND (u.name ILIKE $1 OR u.phone ILIKE $1) ORDER BY u.name LIMIT 20",
       [`%${q}%`]
     );
     res.json(rows);
   } else {
     const { rows } = await pool.query(
-      "SELECT id, name, phone, department, role FROM users WHERE status = 'active' ORDER BY name LIMIT 50"
+      "SELECT u.id, u.name, u.phone, d.name AS department, u.role FROM users u JOIN departments d ON d.id = u.department_id WHERE u.status = 'active' ORDER BY u.name LIMIT 50"
     );
     res.json(rows);
   }

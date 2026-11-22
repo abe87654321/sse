@@ -328,7 +328,7 @@ router.post('/query-expense-status', asyncWrap(async (req, res) => {
 
   if (role !== 'admin' && role !== 'finance') {
     if (role === 'dept_approver' && department) {
-      sql += ` AND u.department = $${idx++}`;
+      sql += ` AND u.department_id = (SELECT id FROM departments WHERE name = $${idx++})`;
       values.push(department);
     } else {
       sql += ` AND er.user_id = $${idx++}`;

@@ -25,7 +25,7 @@ router.post('/Users', asyncWrap(async (req, res) => {
 router.get('/Users/:id', asyncWrap(async (req, res) => {
   const localId = req.params.id;
   const { rows } = await pool.query(
-    'SELECT u.*, im.external_id FROM users u LEFT JOIN identity_mappings im ON im.local_user_id = u.id AND im.source = $1 WHERE u.id = $2',
+    'SELECT u.*, d.name AS department, im.external_id FROM users u JOIN departments d ON d.id = u.department_id LEFT JOIN identity_mappings im ON im.local_user_id = u.id AND im.source = $1 WHERE u.id = $2',
     ['scim', localId]
   );
   if (rows.length === 0) { res.status(404).json({ detail: 'User not found' }); return; }

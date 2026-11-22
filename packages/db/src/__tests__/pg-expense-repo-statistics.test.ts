@@ -43,7 +43,9 @@ describe('PgExpenseRepo.getStatistics', () => {
     const [sql, params] = mockQuery.mock.calls[0];
     expect(sql).toContain('LEFT JOIN users u ON u.id = er.user_id');
     expect(sql).toContain('er.user_id = $1');
-    expect(sql).toContain('u.department = $2');
+    expect(sql).toContain(
+      'u.department_id = (SELECT id FROM departments WHERE name = $2)'
+    );
     expect(sql).toContain('er.created_at >= $3::date');
     expect(sql).toContain("er.created_at < ($4::date + INTERVAL '1 day')");
     expect(params).toEqual(['u1', '技术部', '2026-01-01', '2026-12-31']);

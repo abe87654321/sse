@@ -6,6 +6,7 @@ jest.mock('@sse/db', () => ({
   PgUserRepo: jest.fn().mockImplementation(() => ({})),
   PgApprovalRuleRepo: jest.fn().mockImplementation(() => ({})),
   PgAuditRepo: jest.fn().mockImplementation(() => ({ query: mockAuditQuery })),
+  PgDepartmentRepo: jest.fn().mockImplementation(() => ({})),
 }));
 
 import express from 'express';
