@@ -82,8 +82,14 @@ describe('roleLabel', () => {
 })
 
 describe('resolveGuard', () => {
-  it('redirects guests to login', () => {
+  it('redirects anonymous users on protected routes to login', () => {
     expect(resolveGuard({ isLoggedIn: false, meta: {} })).toBe('login')
+  })
+
+  it('allows anonymous users onto guest routes', () => {
+    expect(
+      resolveGuard({ isLoggedIn: false, meta: { guest: true } })
+    ).toBe('allow')
   })
 
   it('sends logged-in users away from guest pages', () => {
