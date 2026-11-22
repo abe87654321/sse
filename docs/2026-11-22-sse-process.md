@@ -17,14 +17,16 @@
 |---|---|---|---|---|
 | 工作台 / 报销列表 / 本体 | ✓ | ✓ | ✓ | ✓ |
 | 审批管理 | — | ✓ | ✓ | ✓ |
-| 统计分析 | — | — | ✓ | ✓ |
+| 统计分析 | ✓ | ✓ | ✓ | ✓ |
 | 系统管理 | — | — | — | ✓ |
+
+> 说明：原始分析文档中“统计接口仅 finance/admin”的结论在 P1-8 之后已过时。`/statistics` 现按角色返回范围数据（employee 本人 / dept_approver 本部门 / finance+admin 全量），`/statistics/export` 仍仅 `finance/admin`。本次后续修复将 Web 权限矩阵与之对齐。
 
 ## 验证
 
-- `pnpm --filter @sse/web test`：**Test Files 13 passed (13)，Tests 78 passed (78)**，耗时 3.04s，退出码 0。
-  - 其中 P1-11 相关：`src/__tests__/permissions.test.ts` 15 项、`src/router/__tests__/routes.test.ts` 1 项、`src/pages/__tests__/Forbidden.test.ts` 4 项全部通过。
-- `pnpm --filter @sse/web build`：vite v5.4.21，**206 modules transformed**，`✓ built in 4.75s`，退出码 0，产物写入 `packages/web/dist/`。
+- `pnpm --filter @sse/web test`：**Test Files 13 passed (13)，Tests 81 passed (81)**，耗时 3.10s，退出码 0。
+  - 其中 P1-11 相关：`src/__tests__/permissions.test.ts` 17 项、`src/router/__tests__/routes.test.ts` 2 项、`src/pages/__tests__/Forbidden.test.ts` 4 项、`src/pages/__tests__/Statistics.test.ts` 2 项全部通过。
+- `pnpm --filter @sse/web build`：vite v5.4.21，**206 modules transformed**，`✓ built in 4.73s`，退出码 0，产物写入 `packages/web/dist/`。
 
 ## 关键提交
 
@@ -37,12 +39,13 @@
 | `ab7b1d7` | fix(web): drop backup nav entry until backup routes land |
 | `d5bee03` | test(web): cover guest guard branch and nav route targets |
 | `95e0e4c` | feat(web): filter sidebar navigation by role |
+| `146db3e` | fix(web): align statistics access with scoped API and unify role matrix |
 
 ## 复测要点
 
-1. **employee**：侧栏不出现“审批管理”“统计分析”；直接访问 `/approvals`、`/statistics`、`/admin/**` 均进入 `/forbidden?from=...`。
-2. **dept_approver**：可见“审批管理”；访问 `/statistics` 进入无权限页。
-3. **finance**：可见“审批管理”与“统计分析”；访问 `/admin/**` 进入无权限页。
+1. **employee**：侧栏不出现“审批管理”；可直接打开“统计分析”查看本人范围数据；访问 `/approvals`、`/admin/**` 均进入 `/forbidden?from=...`。
+2. **dept_approver**：可见“审批管理”；可打开“统计分析”查看本部门范围数据。
+3. **finance**：可见“审批管理”与“统计分析”（全量）；访问 `/admin/**` 进入无权限页。
 4. **admin**：可见全部 11 个导航项（6 个一级入口 + 5 个系统管理子项）。
 5. **无权限页按钮**：“返回工作台”回到 `/dashboard`；“返回上一页”在存在历史时回退，否则回 `/dashboard`。
 6. **备份入口**：当前分支基于 master，尚无 `/admin/backups` 路由，故 `NAV_ITEMS` 中暂不包含备份入口；P1-7 合并后需重新补回。

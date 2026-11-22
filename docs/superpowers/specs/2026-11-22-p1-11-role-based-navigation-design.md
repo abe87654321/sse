@@ -8,7 +8,7 @@
 
 ### 目标
 
-- 侧边导航只展示当前角色可访问的入口，不再对员工展示“审批管理”“统计分析”。
+- 侧边导航只展示当前角色可访问的入口，不再对员工展示“审批管理”；统计分析按角色数据范围开放。
 - 受角色限制的路由增加守卫：登录用户直接访问无权限 URL 时进入“无权限”页，而不是静默跳转或无意义空页面。
 - “无权限”页明确说明当前角色、目标页面，并提供“返回工作台”“返回上一页”。
 - 导航与路由守卫共用同一份角色矩阵，避免两处判断漂移。
@@ -27,7 +27,7 @@
 |---|---|---|
 | `DefaultLayout.vue` | 导航对所有人显示工作台、报销列表、审批管理、统计分析、本体可视化 | 员工看到“审批管理”“统计分析” |
 | `api/routes/approvals.ts` | `/approvals/pending` 仅 `dept_approver/finance/admin` | 员工进入后 403，页面提示“加载审批列表失败” |
-| `api/routes/statistics.ts` | `/statistics` 仅 `finance/admin` | 员工、部门审批人进入后 403，页面显示加载失败 |
+| `api/routes/statistics.ts` | `/statistics` 按角色返回范围内数据：employee 本人（`scope: self`）、dept_approver 本部门、finance/admin 全量；`/statistics/export` 仍仅 `finance/admin` | 统计页对所有已知角色可见，数据由 API 按角色收窄；导出保持财务/管理员 |
 | `router/index.ts` | 只校验 `requiresAdmin` | 受限路由无角色守卫；无权限时静默 `next('/dashboard')`，无解释 |
 
 ### 角色与真实权限（以服务端为准）
@@ -37,11 +37,11 @@
 | 工作台 `/dashboard` | ✓ | ✓ | ✓ | ✓ |
 | 报销列表 `/expenses` | ✓ | ✓ | ✓ | ✓ |
 | 审批管理 `/approvals` | — | ✓ | ✓ | ✓ |
-| 统计分析 `/statistics` | — | — | ✓ | ✓ |
+| 统计分析 `/statistics` | ✓ | ✓ | ✓ | ✓ |
 | 本体可视化 `/ontology`（只读） | ✓ | ✓ | ✓ | ✓ |
 | 系统管理 `/admin/**` | — | — | — | ✓ |
 
-说明：`finance` 在 `/approvals/pending` 中可见按 `approver_id` 匹配的步骤，且页面已有对应审批入口，因此审批管理对 finance 开放。
+说明：`finance` 在 `/approvals/pending` 中可见按 `approver_id` 匹配的步骤，且页面已有对应审批入口，因此审批管理对 finance 开放。`/statistics` 自 P1-8 起由 API 按角色返回范围数据，故所有已知角色均可进入；仅 `/statistics/export` 保持 `finance/admin`。
 
 ## 3. 关键决策
 
@@ -82,7 +82,7 @@ export function roleLabel(role: string | undefined): string
 
 ```ts
 meta: { title: '审批管理', allowedRoles: ['dept_approver', 'finance', 'admin'] }
-meta: { title: '统计分析', allowedRoles: ['finance', 'admin'] }
+meta: { title: '统计分析', allowedRoles: ALL_ROLES }
 meta: { title: '用户管理', allowedRoles: ['admin'] }   // admin/** 全部改用 allowedRoles
 ```
 
@@ -137,7 +137,7 @@ router.beforeEach((to) => {
 | `router.back()` 无历史 | 回退到 `/dashboard` |
 | 管理员访问 `/admin` | 放行 |
 | finance 访问 `/approvals` | 放行（API 允许） |
-| dept_approver 访问 `/statistics` | 跳 `/forbidden` |
+| dept_approver 访问 `/statistics` | 放行，展示本部门范围数据 |
 | 本体页 | 全员可进；编辑工具仍由页面内 `isAdmin` 控制 |
 
 ## 7. 测试策略
@@ -153,12 +153,13 @@ router.beforeEach((to) => {
 
 ## 8. 验收标准
 
-1. 员工登录：侧栏仅工作台、报销列表、本体可视化；访问 `/approvals`、`/statistics` 显示无权限页。
-2. 部门审批人登录：多出审批管理；访问 `/statistics` 显示无权限页。
-3. 财务登录：可见审批管理、统计分析；访问 `/admin/**` 显示无权限页。
+1. 员工登录：侧栏包含工作台、报销列表、统计分析、本体可视化；访问 `/approvals`、`/admin/**` 显示无权限页；`/statistics` 正常打开并展示仅本人范围数据。
+2. 部门审批人登录：多出审批管理；可打开 `/statistics` 并展示本部门范围数据。
+3. 财务登录：可见审批管理、统计分析（全量数据）；访问 `/admin/**` 显示无权限页。
 4. 管理员：可见全部导航与 `系统管理` 子项。
-5. 无权限页显示当前角色与被拒绝页面，两个返回按钮可用。
-6. `pnpm --filter @sse/web test`、`pnpm --filter @sse/web build` 通过。
+5. 未知角色：仅进入无 `roles` 限制的公共入口，受限路由一律无权限（fail closed）。
+6. 无权限页显示当前角色与被拒绝页面，两个返回按钮可用。
+7. `pnpm --filter @sse/web test`、`pnpm --filter @sse/web build` 通过。
 
 ## 9. 回滚
 
