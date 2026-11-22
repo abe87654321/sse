@@ -71,7 +71,8 @@ describe('PgDepartmentRepo.resolveOrCreate', () => {
 
     expect(id).toBe('d1');
     const [sql, params] = mockQuery.mock.calls[0];
-    expect(sql).toContain('ON CONFLICT (name) DO UPDATE');
+    expect(sql).toContain('ON CONFLICT (name) DO NOTHING');
+    expect(sql).toContain('SELECT id FROM departments WHERE name = $1');
     expect(params).toEqual(['未分配']);
   });
 

@@ -76,9 +76,15 @@ export class PgDepartmentRepo {
   async resolveOrCreate(name?: string | null): Promise<string> {
     const trimmed = (name || '').trim() || UNASSIGNED_DEPARTMENT;
     const { rows } = await pool.query(
-      `INSERT INTO departments (name) VALUES ($1)
-       ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-       RETURNING id`,
+      `WITH inserted AS (
+         INSERT INTO departments (name) VALUES ($1)
+         ON CONFLICT (name) DO NOTHING
+         RETURNING id
+       )
+       SELECT id FROM inserted
+       UNION ALL
+       SELECT id FROM departments WHERE name = $1
+       LIMIT 1`,
       [trimmed]
     );
     return rows[0].id;

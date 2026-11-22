@@ -87,3 +87,83 @@ sudo nginx -s reload
 ### 下一次会话建议
 
 P1-9（部门 CRUD）或 P1-10（MCP Key 管理）；同时可将 `vue-tsc --noEmit` 类型检查脚本作为独立小项处理。
+
+---
+
+# P1-9 部门管理（真实 CRUD + 数据正规化）
+
+> 对应 `docs/2026-11-12-sse-multi-role-analysis.md` P1 第 9 项：
+> “实现真实部门 CRUD，或移除无效入口。”
+>
+> 设计：`docs/superpowers/specs/2026-11-22-p1-9-departments-design.md`
+> 计划：`docs/superpowers/plans/2026-11-22-p1-9-departments.md`
+> TDD 证据：`docs/testing/departments.tdd.md`
+> 分支：`feat/p1-9-departments`（基线 `e66c674`）
+
+## 落地内容
+
+| 层 | 变更 |
+|---|---|
+| 迁移 | `025_departments.sql`：`departments(id,name UNIQUE,is_protected)`、“未分配”受保护、从 `users.department` 回填、`users.department_id` NOT NULL + FK RESTRICT、删除文本列与 `mcp_api_keys.department`、保护触发器 |
+| db | `PgDepartmentRepo`（list/find/create/rename/delete/resolveOrCreate）；`PgUserRepo` 与快照仓储改走 departments join；`Department` 类型 |
+| shared | `User.departmentId?` |
+| core | 统计谓词改为 `u.department_id = (SELECT id FROM departments WHERE name = $n)` |
+| api | 部门 GET/POST/PATCH/DELETE；用户创建/更新支持 `departmentId` 或名称，未知 400 `UNKNOWN_DEPARTMENT`；审批/报销/统计/用户搜索/SCIM/本体查询改 join；SCIM/MDM 自动建部门并写审计；审计分类 `department.*` |
+| mcp | key 刷新与 8 处工具 SQL 改 join/名称子查询 |
+| web | `AdminDepartments.vue` id 驱动 CRUD（重命名、删除保护/占用禁用）；`AdminUsers.vue` 部门下拉来自 API，使用 `departmentId` |
+
+## 关键提交
+
+| SHA | 说明 |
+|---|---|
+| `52ac905` | feat(db): add departments table and repository |
+| `2b4de8e` | refactor(db): read user department via departments join |
+| `d91224c` | refactor(statistics): resolve department by id |
+| `b86d462` | feat(api): implement department CRUD and user department resolution |
+| `2985a94` | refactor(api): resolve departments through join |
+| `2908d40` | feat(api): auto-create departments for identity sync |
+| `041e569` | refactor(mcp): resolve departments through join |
+| `f879da0` | feat(web): wire department management |
+| `c22d265` | fix(api): finish department join migration in user, scim and ontology routes |
+
+## 验证
+
+```text
+pnpm -r test    -> 842 passed（web 89 / core 70 / auth 30 / db 71 / ai 100 /
+                              notifications 29 / ontology 176 / api 218 / mcp 59）
+pnpm -r build   -> 11/11 个包完成
+```
+
+本机无 Docker，**未执行真实 PostgreSQL 迁移 025**；迁移 SQL 通过静态守卫测试，部署前须在测试机执行。
+
+## 上线顺序（单副本约束）
+
+```bash
+# 1. 停 API（旧代码仍引用 users.department，迁移后不可继续运行）
+# 2. 迁移
+pnpm --filter @sse/db migrate
+# 3. 重新构建并启动 API / Web
+pnpm -r build
+```
+
+## 已知缺口
+
+1. 重命名部门后，已登录 `dept_approver` 的旧 JWT 仍带旧部门名，数据范围 fail-closed；需重新登录。
+2. 部门 CRUD 不写 Ontology；重命名后旧 Department 实体残留，待用户编辑时重同步。
+3. `mcp_api_keys.department` 已删除，手工建 key 时不要再写该列。
+4. 集成测试 `test/ontology-outbox.test.ts` 已改为 `department_id`，需在配置了 `TEST_DATABASE_URL` 的环境复跑。
+
+## P1 清单进度
+
+| 优先级 | 项 | 状态 |
+|---|---|---|
+| P1-5 | 报销单内容快照 | ✅ 已完成 |
+| P1-6 | 发票核对历史版本 | ✅ 已完成 |
+| P1-7 | 导出补齐明细/审批链/付款/发票 + XLSX + 导出审计 | 待处理 |
+| P1-8 | 统计口径一致性 | ✅ 已完成 |
+| P1-9 | 真实部门 CRUD | ✅ 已完成（本次会话） |
+| P1-10 | MCP Key 管理界面 + 哈希存储 + 过期/吊销/最后使用 | 待处理 |
+| P1-11 | 导航按角色过滤 | ✅ 已完成 |
+| P1-12 | 只读审计员角色 + 审计查询页 | 待处理 |
+
+**下一次会话建议：** P1-10（安全价值最高，迁移 014 已支持过期字段）或 P1-7（导出补齐）。
