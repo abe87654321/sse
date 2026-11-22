@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **执行后调整（2026-11-22）：** 最终实现将“统计分析”对所有已知角色开放（`/statistics` 已按角色返回本人/本部门/全量数据，`/statistics/export` 仍仅 finance/admin），角色组统一由 `permissions.ts` 导出并在路由与组件复用。下方计划中“`/statistics` 仅 finance/admin”的早期描述以 `docs/superpowers/specs/2026-11-22-p1-11-role-based-navigation-design.md` 与 `docs/2026-11-22-sse-process.md` 为准。
+
 **Goal:** 前端导航只显示当前角色可访问的入口，并用无权限页替换受限路由的 403/空页面。
 
 **Architecture:** 新增 `packages/web/src/permissions.ts` 作为唯一的角色-入口矩阵与纯函数来源；`DefaultLayout` 用它渲染导航，vue-router 守卫用 `resolveGuard` 判断；新增 `/forbidden` 页面承载无权限说明。

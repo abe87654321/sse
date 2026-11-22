@@ -5,7 +5,8 @@
 
 ## 落地内容
 
-- `packages/web/src/permissions.ts`（新）：`NAV_ITEMS` 导航注册表、`navItemsForRole`、`canAccessRoute`、`resolveGuard`、`roleLabel` 与 `APPROVER_ROLE_NAMES`，作为导航与路由守卫共用的权限真源。
+- `packages/web/src/permissions.ts`（新）：`NAV_ITEMS` 导航注册表、`navItemsForRole`、`canAccessRoute`、`resolveGuard`、`roleLabel`，以及导出的角色组 `ALL_ROLES/APPROVER_ROLES/FINANCE_ROLES/ADMIN_ROLES`，作为导航、路由守卫与页面组件共用的权限真源。
+- `Dashboard.vue`、`VerificationHistory.vue`、`Ontology.vue`：改用 `canAccessRoute(..., APPROVER_ROLES/FINANCE_ROLES/ADMIN_ROLES)`，移除组件内重复的角色判断。
 - `packages/web/src/layouts/DefaultLayout.vue`：侧栏改为渲染 `navItemsForRole(auth.user?.role)`；审批红点仅在 `/approvals` 且数量大于 0 时显示；`onMounted` 的审批数量拉取由 `canAccessRoute(..., APPROVER_ROLE_NAMES)` 控制。
 - `packages/web/src/router/index.ts`：扩展 `RouteMeta`；为审批管理、审批处理、统计分析及全部 `admin/**` 路由补充 `allowedRoles`；守卫对无权限角色重定向到 `/forbidden?from=<fullPath>`，并保留 `requiresAdmin` 作为兼容兜底。
 - `packages/web/src/pages/Forbidden.vue`（新）：展示当前角色与被拒绝页面，提供“返回工作台”（`/dashboard`）与“返回上一页”（基于 `window.history.state.back`，无历史时回退 `/dashboard`）。
@@ -24,9 +25,9 @@
 
 ## 验证
 
-- `pnpm --filter @sse/web test`：**Test Files 13 passed (13)，Tests 81 passed (81)**，耗时 3.10s，退出码 0。
-  - 其中 P1-11 相关：`src/__tests__/permissions.test.ts` 17 项、`src/router/__tests__/routes.test.ts` 2 项、`src/pages/__tests__/Forbidden.test.ts` 4 项、`src/pages/__tests__/Statistics.test.ts` 2 项全部通过。
-- `pnpm --filter @sse/web build`：vite v5.4.21，**206 modules transformed**，`✓ built in 4.73s`，退出码 0，产物写入 `packages/web/dist/`。
+- `pnpm --filter @sse/web test`：**Test Files 13 passed (13)，Tests 83 passed (83)**，退出码 0。
+  - 其中 P1-11 相关：`src/__tests__/permissions.test.ts` 19 项、`src/router/__tests__/routes.test.ts` 2 项、`src/pages/__tests__/Forbidden.test.ts` 4 项、`src/pages/__tests__/Statistics.test.ts` 2 项全部通过。
+- `pnpm --filter @sse/web build`：vite v5.4.21，**206 modules transformed**，`✓ built in 4.76s`，退出码 0，产物写入 `packages/web/dist/`。
 
 ## 关键提交
 
@@ -40,6 +41,8 @@
 | `d5bee03` | test(web): cover guest guard branch and nav route targets |
 | `95e0e4c` | feat(web): filter sidebar navigation by role |
 | `146db3e` | fix(web): align statistics access with scoped API and unify role matrix |
+| `0746a44` | docs: correct P1-11 statistics matrix |
+| `f8729a1` | refactor(web): reuse shared role groups across pages |
 
 ## 复测要点
 
