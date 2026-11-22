@@ -219,3 +219,14 @@ pnpm -r build   -> 11/11 个包完成
 2. Ontology 同步为 best-effort，失败不回滚部门改名；下一次 reconcile 或用户编辑会校正。
 3. `mcp_api_keys.department` 已删除，手工建 key 时不要再写该列。
 4. 集成测试 `test/ontology-outbox.test.ts` 需在配置 `TEST_DATABASE_URL` 的环境复跑。
+
+## 会话收尾（P1-9 第 1 + 2 阶段）
+
+- 分支 `feat/p1-9-departments` 已本地 fast-forward 合并到 `master`，功能分支已删除。
+- 最终 HEAD：`e768e80`；已推送 `origin/master`（`e66c674..e768e80`）。
+- 合并后分支内容：58 个文件、+2368/-152；迁移 `025_departments`、`026_ontology_user_department`。
+- 验证：`pnpm -r test` **855 passed**；`pnpm -r build` **11/11** 包完成。
+- 本机未执行真实 PostgreSQL 迁移；测试机按 `docs/testing/departments.tdd.md` 第 6 节执行
+  （先备份 → 停 API → migrate 025/026 → 启动 → 冒烟）。
+- 未跟踪文件保持原样、未提交：`docs/handover-docs/**`、`docs/2026-11-12-sse-multi-role-analysis.md`。
+- 本会话任务结束；P1 剩余：P1-7、P1-10、P1-12。

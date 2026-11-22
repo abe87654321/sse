@@ -74,8 +74,11 @@ pnpm -r build
 ## 6. 测试机迁移与复测
 
 ```bash
-git checkout feat/p1-9-departments   # 或合并后的 master
+# 最终 HEAD：e768e80（已合并到 master 并推送）
+docker compose exec -T postgres pg_dump -U sse sse > ~/sse-before-p1-9.sql
+git checkout master
 git pull --ff-only
+git rev-parse --short HEAD            # 期望 e768e80
 pnpm install --frozen-lockfile
 pnpm -r build
 # 停 API 后再迁移，避免旧代码访问已删除的 department 列
