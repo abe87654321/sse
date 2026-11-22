@@ -20,7 +20,11 @@ test('creates package, manifest, checksums and archive', async () => {
         schema: { schemaVersion: '024', serverVersion: '16', tables: [] },
         tables: [{ name: 'users', rows: 1, columns: ['id'], sha256: 'a'.repeat(64) }],
       }),
-      exportObjects: async () => [],
+      exportObjects: async (store: any) => {
+        expect(typeof store.listObjects).toBe('function');
+        expect(typeof store.getObject).toBe('function');
+        return [];
+      },
       exportConfigs: async () => [],
       writeJsonFile: async () => undefined,
       connect: async () => ({ client: {}, release: () => undefined }),

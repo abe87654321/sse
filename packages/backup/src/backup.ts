@@ -7,7 +7,7 @@ import { createPool } from './db/pool';
 import { exportDatabase } from './db/export';
 import { ensureDir } from './fs-utils';
 import { writeChecksums, writeManifest } from './manifest';
-import { createMinioClient } from './minio/client';
+import { createMinioClient, minioObjectStore } from './minio/client';
 import { exportObjects } from './minio/export';
 import { MinioBackupStore } from './storage/minio-store';
 import type { BackupConfig, BackupManifest } from './types';
@@ -62,7 +62,7 @@ export async function createBackup(
   }
 
   const objects = await deps.exportObjects(
-    createMinioClient(deps.config.minio) as any,
+    minioObjectStore(createMinioClient(deps.config.minio)),
     deps.config.minio.buckets,
     join(pkg, 'minio')
   );
