@@ -72,7 +72,9 @@ describe('GET /approvals/pending approver identity', () => {
     const [sql, params] = mockQuery.mock.calls[0];
     expect(sql).toContain('ar.approver_id::text = $2');
     expect(sql).toContain('ar.approver_id::text = $3');
-    expect(sql).toContain('u.department = $4');
+    expect(sql).toContain(
+      'u.department_id = (SELECT id FROM departments WHERE name = $4)'
+    );
     expect(params).toEqual(['pending', 'dept-1', 'dept_approver', '技术部']);
   });
 });

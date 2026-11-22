@@ -186,7 +186,7 @@ router.post(
     }
 
     const { rows } = await pool.query(
-      `SELECT key, user_id, role, department, is_active
+      `SELECT key, user_id, role, is_active
        FROM mcp_api_keys
       WHERE key = $1
         AND (expires_at IS NULL OR expires_at > NOW())`,
@@ -218,7 +218,7 @@ router.post(
     const accessToken = signToken({
       userId: user.id,
       role: user.role,
-      department: user.department || keyRow.department || '',
+      department: user.department,
     });
 
     await auditApiKeyLogin(req, 'success', 'ok', user.id);

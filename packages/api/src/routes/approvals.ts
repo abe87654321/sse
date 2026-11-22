@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from 'express';
+﻿import { Router, Request, Response, NextFunction } from 'express';
 import { PgApprovalRecordRepo, PgExpenseRepo, PgApprovalRuleRepo, PgUserRepo, PgReportSnapshotRepo, pool, withTransaction } from '@sse/db';
 import { ApprovalEngine, aggregateVerificationStatus, NoApproverError } from '@sse/core';
 import { ApprovalResult, ReportStatus, UserRole } from '@sse/shared';
@@ -44,20 +44,22 @@ router.get(
 
     if (role === UserRole.ADMIN) {
       query = `
-        SELECT ar.*, er.serial_no, er.title, er.total_amount, er.user_id, u.name as applicant_name, u.department
+        SELECT ar.*, er.serial_no, er.title, er.total_amount, er.user_id, u.name as applicant_name, d.name AS department
         FROM approval_records ar
         JOIN expense_reports er ON er.id = ar.report_id
         JOIN users u ON u.id = er.user_id
+        JOIN departments d ON d.id = u.department_id
         WHERE ar.result = $1
         ORDER BY ar.step_started_at DESC
       `;
       values = [ApprovalResult.PENDING];
     } else if (role === UserRole.FINANCE) {
       query = `
-        SELECT ar.*, er.serial_no, er.title, er.total_amount, er.user_id, u.name as applicant_name, u.department
+        SELECT ar.*, er.serial_no, er.title, er.total_amount, er.user_id, u.name as applicant_name, d.name AS department
         FROM approval_records ar
         JOIN expense_reports er ON er.id = ar.report_id
         JOIN users u ON u.id = er.user_id
+        JOIN departments d ON d.id = u.department_id
         WHERE ar.result = $1
           AND (ar.approver_id::text = $2 OR ar.approver_id::text = $3)
         ORDER BY ar.step_started_at DESC
@@ -65,13 +67,14 @@ router.get(
       values = [ApprovalResult.PENDING, userId, role];
     } else {
       query = `
-        SELECT ar.*, er.serial_no, er.title, er.total_amount, er.user_id, u.name as applicant_name, u.department
+        SELECT ar.*, er.serial_no, er.title, er.total_amount, er.user_id, u.name as applicant_name, d.name AS department
         FROM approval_records ar
         JOIN expense_reports er ON er.id = ar.report_id
         JOIN users u ON u.id = er.user_id
+        JOIN departments d ON d.id = u.department_id
         WHERE ar.result = $1
           AND (ar.approver_id::text = $2 OR ar.approver_id::text = $3)
-          AND u.department = $4
+          AND u.department_id = (SELECT id FROM departments WHERE name = $4)
         ORDER BY ar.step_started_at DESC
       `;
       values = [ApprovalResult.PENDING, userId, role, department];
@@ -114,7 +117,7 @@ router.post(
 
     if (role === UserRole.DEPT_APPROVER) {
       const { rows: ownerRows } = await pool.query(
-        'SELECT department FROM users WHERE id = $1',
+        'SELECT d.name AS department FROM users u JOIN departments d ON d.id = u.department_id WHERE u.id = $1',
         [report.userId]
       );
       if (ownerRows.length === 0 || ownerRows[0].department !== department) {
@@ -291,7 +294,7 @@ router.post(
 
     if (role === UserRole.DEPT_APPROVER) {
       const { rows: ownerRows } = await pool.query(
-        'SELECT department FROM users WHERE id = $1',
+        'SELECT d.name AS department FROM users u JOIN departments d ON d.id = u.department_id WHERE u.id = $1',
         [report.userId]
       );
       if (ownerRows.length === 0 || ownerRows[0].department !== department) {

@@ -62,7 +62,7 @@ async function assertReportWriteAccess(report: { userId: string }, user: { role:
 
 async function assertReportAccess(report: any, user: { role: string; department?: string; userId: string }) {
   const { rows: ownerRows } = await pool.query(
-    'SELECT department FROM users WHERE id = $1',
+    'SELECT d.name AS department FROM users u JOIN departments d ON d.id = u.department_id WHERE u.id = $1',
     [report.userId]
   );
   const ownerDept = ownerRows.length > 0 ? ownerRows[0].department : '';
@@ -127,7 +127,7 @@ router.get(
       result = await expenseRepo.findMany(query);
     } else if (role === UserRole.DEPT_APPROVER) {
       const { rows: deptUsers } = await pool.query(
-        'SELECT id FROM users WHERE department = $1',
+        'SELECT u.id FROM users u JOIN departments d ON d.id = u.department_id WHERE d.name = $1',
         [department]
       );
       const deptUserIds = deptUsers.map((r: any) => r.id);

@@ -119,9 +119,10 @@ export class PgReportSnapshotRepo implements IReportSnapshotRepo {
     db: Queryable = pool
   ): Promise<ReportSnapshot> {
     const reportRes = await db.query(
-      `SELECT er.*, u.name AS applicant_name, u.department AS applicant_department
+      `SELECT er.*, u.name AS applicant_name, d.name AS applicant_department
          FROM expense_reports er
          JOIN users u ON u.id = er.user_id
+         JOIN departments d ON d.id = u.department_id
         WHERE er.id = $1`,
       [input.reportId]
     );
