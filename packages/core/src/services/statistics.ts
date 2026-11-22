@@ -57,7 +57,9 @@ export function buildStatisticsPredicate(
     params.push(filter.userId);
   }
   if (filter.department) {
-    conditions.push(`u.department = $${idx++}`);
+    conditions.push(
+      `u.department_id = (SELECT id FROM departments WHERE name = $${idx++})`
+    );
     params.push(filter.department);
   }
   if (filter.dateFrom) {

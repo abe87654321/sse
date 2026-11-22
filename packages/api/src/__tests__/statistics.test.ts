@@ -1,4 +1,4 @@
-const mockQuery = jest.fn();
+﻿const mockQuery = jest.fn();
 const mockGetStatistics = jest.fn();
 
 jest.mock('@sse/db', () => ({
@@ -145,7 +145,7 @@ describe('statistics data scope', () => {
 
     const [categorySql, categoryParams] = mockQuery.mock.calls[0];
     expect(categorySql).toContain('JOIN users u ON u.id = er.user_id');
-    expect(categorySql).toContain('u.department = $1');
+    expect(categorySql).toContain('u.department_id = (SELECT id FROM departments WHERE name = $1)');
     expect(categorySql).toContain('er.status = ANY($2)');
     expect(categoryParams).toEqual(['技术部', ['approved', 'paid']]);
 
@@ -170,7 +170,7 @@ describe('statistics data scope', () => {
     );
 
     const [categorySql, categoryParams] = mockQuery.mock.calls[0];
-    expect(categorySql).toContain('u.department = $1');
+    expect(categorySql).toContain('u.department_id = (SELECT id FROM departments WHERE name = $1)');
     expect(categorySql).toContain('er.status = ANY($2)');
     expect(categoryParams).toEqual(['市场部', ['approved', 'paid']]);
 
@@ -195,7 +195,7 @@ describe('statistics data scope', () => {
     );
 
     const [categorySql, categoryParams] = mockQuery.mock.calls[0];
-    expect(categorySql).not.toContain('u.department =');
+    expect(categorySql).not.toContain('departments WHERE name =');
     expect(categoryParams).toEqual([['approved', 'paid']]);
   });
 
@@ -225,8 +225,8 @@ describe('statistics data scope', () => {
     ]);
 
     const [deptSql, deptParams] = mockQuery.mock.calls[1];
-    expect(deptSql).toContain("COALESCE(u.department, '未分配')");
-    expect(deptSql).toContain('LEFT JOIN users u ON u.id = er.user_id');
+    expect(deptSql).toContain("COALESCE(d.name, '未分配')");
+    expect(deptSql).toContain('LEFT JOIN departments d ON d.id = u.department_id');
     expect(deptSql).toContain('er.status = ANY($3)');
     expect(deptParams).toEqual([
       '2026-01-01',
@@ -279,7 +279,7 @@ describe('statistics export permissions', () => {
 
     expect(response.status).toBe(200);
     const [sql, params] = mockQuery.mock.calls[0];
-    expect(sql).toContain('u.department = $1');
+    expect(sql).toContain('u.department_id = (SELECT id FROM departments WHERE name = $1)');
     expect(params).toEqual(['市场部']);
   });
 });

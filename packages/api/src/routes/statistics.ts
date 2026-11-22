@@ -69,14 +69,15 @@ router.get(
     );
 
     const { rows: deptStats } = await pool.query(
-      `SELECT COALESCE(u.department, '未分配') as department,
+      `SELECT COALESCE(d.name, '未分配') as department,
               COALESCE(SUM(er.total_amount), 0) as total_amount,
               COUNT(*) as report_count,
               COUNT(*) as approved_count
        FROM expense_reports er
        LEFT JOIN users u ON u.id = er.user_id
+       LEFT JOIN departments d ON d.id = u.department_id
        ${spending.where}
-       GROUP BY COALESCE(u.department, '未分配')
+       GROUP BY COALESCE(d.name, '未分配')
        ORDER BY total_amount DESC`,
       spending.params
     );
@@ -138,10 +139,11 @@ router.get(
     const predicate = buildStatisticsPredicate(filter);
 
     const { rows } = await pool.query(
-      `SELECT er.serial_no, er.title, u.name as applicant, u.department,
+      `SELECT er.serial_no, er.title, u.name as applicant, d.name AS department,
               er.total_amount, er.status, er.created_at, er.submitted_at, er.completed_at
        FROM expense_reports er
        JOIN users u ON u.id = er.user_id
+       JOIN departments d ON d.id = u.department_id
        ${predicate.where}
        ORDER BY er.created_at DESC`,
       predicate.params
