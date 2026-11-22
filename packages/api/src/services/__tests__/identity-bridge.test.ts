@@ -1,7 +1,14 @@
 const mockQuery = jest.fn();
+const mockDeptFindByName = jest.fn();
+const mockDeptCreate = jest.fn();
 
 jest.mock('@sse/db', () => ({
+  UNASSIGNED_DEPARTMENT: '未分配',
   pool: { query: (...args: any[]) => mockQuery(...args) },
+  PgDepartmentRepo: jest.fn().mockImplementation(() => ({
+    findByName: (...args: any[]) => mockDeptFindByName(...args),
+    create: (...args: any[]) => mockDeptCreate(...args),
+  })),
 }));
 
 import { IdentityBridge } from '../identity-bridge';
@@ -11,6 +18,15 @@ beforeEach(() => {
   process.env.AUDIT_EVENTS = '0';
   mockQuery.mockReset();
   mockQuery.mockResolvedValue({ rows: [] });
+  mockDeptFindByName.mockReset();
+  mockDeptFindByName.mockResolvedValue(null);
+  mockDeptCreate.mockReset();
+  mockDeptCreate.mockImplementation(async (name: string) => ({
+    id: `dept-${name}`,
+    name,
+    userCount: 0,
+    isProtected: false,
+  }));
   jest.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -47,6 +63,50 @@ describe('IdentityBridge role enforcement', () => {
       String(sql).startsWith('UPDATE users SET name=')
     );
     expect(updateCall?.[1]?.[4]).toBe('finance');
+  });
+
+  it('auto-creates an unknown department during SCIM provisioning', async () => {
+    mockQuery.mockImplementation(async (sql: string) =>
+      String(sql).startsWith('INSERT INTO users')
+        ? { rows: [{ id: 'user-new' }] }
+        : { rows: [] }
+    );
+
+    await new IdentityBridge().syncFromScim(
+      { userName: 'ext-dept', 'urn:sse:department': '市场部' },
+      'scim'
+    );
+
+    expect(mockDeptCreate).toHaveBeenCalledWith('市场部');
+    const insert = mockQuery.mock.calls.find(([sql]) =>
+      String(sql).startsWith('INSERT INTO users')
+    );
+    expect(insert?.[0]).toContain('department_id');
+  });
+
+  it('reuses an existing department instead of creating a duplicate', async () => {
+    mockQuery.mockImplementation(async (sql: string) =>
+      String(sql).startsWith('INSERT INTO users')
+        ? { rows: [{ id: 'user-new' }] }
+        : { rows: [] }
+    );
+    mockDeptFindByName.mockResolvedValue({
+      id: 'dept-existing',
+      name: '技术部',
+      userCount: 1,
+      isProtected: false,
+    });
+
+    await new IdentityBridge().syncFromScim(
+      { userName: 'ext-existing', 'urn:sse:department': '技术部' },
+      'scim'
+    );
+
+    expect(mockDeptCreate).not.toHaveBeenCalled();
+    const insert = mockQuery.mock.calls.find(([sql]) =>
+      String(sql).startsWith('INSERT INTO users')
+    );
+    expect(insert?.[1]?.[3]).toBe('dept-existing');
   });
 
   it('rejects MDM provisioning without user data', async () => {

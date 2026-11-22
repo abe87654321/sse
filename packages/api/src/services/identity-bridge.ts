@@ -1,7 +1,41 @@
-import { pool } from '@sse/db';
+import { PgDepartmentRepo, UNASSIGNED_DEPARTMENT, pool } from '@sse/db';
 import { AppError } from '../middleware/error';
 import { auditIdentityEvent } from './identity-audit';
 import { resolveProvisionedRole, type IdentitySource } from './identity-role-policy';
+
+const departmentRepo = new PgDepartmentRepo();
+
+async function resolveSyncDepartment(
+  name: string | undefined,
+  source: string,
+  externalId: string,
+  ip?: string
+): Promise<string> {
+  const trimmed = (name || '').trim() || UNASSIGNED_DEPARTMENT;
+  const existing = await departmentRepo.findByName(trimmed);
+  if (existing) return existing.id;
+
+  try {
+    const created = await departmentRepo.create(trimmed);
+    auditIdentityEvent({
+      source,
+      action: 'department.auto_create',
+      outcome: 'success',
+      externalId,
+      reason: trimmed,
+      ip,
+      entityType: 'department',
+      entityId: created.id,
+    });
+    return created.id;
+  } catch (error) {
+    if ((error as any)?.code === '23505') {
+      const again = await departmentRepo.findByName(trimmed);
+      if (again) return again.id;
+    }
+    throw error;
+  }
+}
 
 export interface ScimUser {
   userName: string
@@ -69,7 +103,13 @@ export class IdentityBridge {
       const name = user.name?.familyName || user.name?.givenName || user.userName;
       const phone = user.phoneNumbers?.[0]?.value || user.userName;
       const email = user.emails?.[0]?.value;
-      const department = user['urn:sse:department'] || '未分配';
+      const department = user['urn:sse:department'] || UNASSIGNED_DEPARTMENT;
+      const departmentId = await resolveSyncDepartment(
+        department,
+        sourceName,
+        externalId,
+        context.ip
+      );
       const status = user.active !== false ? 'active' : 'disabled';
 
       let localUserId: string;
@@ -78,8 +118,8 @@ export class IdentityBridge {
       if (existing.length > 0) {
         localUserId = existing[0].local_user_id;
         await pool.query(
-          'UPDATE users SET name=$1, phone=$2, email=$3, department=$4, role=$5, status=$6 WHERE id=$7',
-          [name, phone, email || null, department, role, status, localUserId]
+          'UPDATE users SET name=$1, phone=$2, email=$3, department_id=$4, role=$5, status=$6 WHERE id=$7',
+          [name, phone, email || null, departmentId, role, status, localUserId]
         );
         await pool.query(
           'UPDATE identity_mappings SET last_synced_at=NOW() WHERE local_user_id=$1 AND source=$2',
@@ -88,9 +128,9 @@ export class IdentityBridge {
         created = false;
       } else {
         const { rows: inserted } = await pool.query(
-          `INSERT INTO users (name, phone, email, department, role, status, password_hash)
+          `INSERT INTO users (name, phone, email, department_id, role, status, password_hash)
            VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-          [name, phone, email || null, department, role, status, '!']
+          [name, phone, email || null, departmentId, role, status, '!']
         );
         localUserId = inserted[0].id;
         created = true;
@@ -181,6 +221,13 @@ export class IdentityBridge {
         throw new AppError(400, 'INVALID_PARAMS', 'MDM 用户状态无效');
       }
 
+      const departmentId = await resolveSyncDepartment(
+        d.department,
+        'mdm',
+        externalId,
+        context.ip
+      );
+
       const resolution = resolveProvisionedRole({
         source: 'mdm',
         requestedRole: d.role,
@@ -203,9 +250,9 @@ export class IdentityBridge {
 
       if (rows.length > 0) {
         await pool.query(
-          `UPDATE users SET name=$1, phone=$2, email=$3, department=$4, role=$5, status=$6
+          `UPDATE users SET name=$1, phone=$2, email=$3, department_id=$4, role=$5, status=$6
            WHERE id IN (SELECT local_user_id FROM identity_mappings WHERE external_id = $7 AND source = $8)`,
-          [d.name, d.phone, d.email || null, d.department, role, d.status, externalId, 'mdm']
+          [d.name, d.phone, d.email || null, departmentId, role, d.status, externalId, 'mdm']
         );
         await syncUserToOntology(
           { id: rows[0].local_user_id, name: d.name, phone: d.phone, department: d.department },
@@ -225,9 +272,9 @@ export class IdentityBridge {
       }
 
       const { rows: created } = await pool.query(
-        `INSERT INTO users (name, phone, email, department, role, status, password_hash)
+        `INSERT INTO users (name, phone, email, department_id, role, status, password_hash)
          VALUES ($1,$2,$3,$4,$5,$6,'!') RETURNING id`,
-        [d.name, d.phone, d.email || null, d.department, role, d.status]
+        [d.name, d.phone, d.email || null, departmentId, role, d.status]
       );
       await pool.query(
         'INSERT INTO identity_mappings (local_user_id, external_id, source) VALUES ($1,$2,$3)',

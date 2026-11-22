@@ -11,6 +11,8 @@ export interface IdentityAuditEvent {
   role?: string;
   reason?: string;
   ip?: string;
+  entityType?: string;
+  entityId?: string;
 }
 
 export function auditIdentityEvent(event: IdentityAuditEvent): void {
@@ -26,8 +28,8 @@ export function auditIdentityEvent(event: IdentityAuditEvent): void {
     actorId: event.source,
     source: event.source,
     action: event.action,
-    entityType: 'user',
-    entityId: event.localUserId || event.externalId || null,
+    entityType: event.entityType || 'user',
+    entityId: event.entityId || event.localUserId || event.externalId || null,
     outcome: event.outcome === 'success' ? 'success' : event.outcome === 'rejected' ? 'denied' : 'failure',
     ip: event.ip,
     details: {

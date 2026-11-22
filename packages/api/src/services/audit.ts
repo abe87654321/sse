@@ -148,6 +148,7 @@ function methodVerb(method: string): string {
 }
 
 function entityTypeFor(path: string): string {
+  if (path.includes('/admin/departments')) return 'department';
   if (path.includes('/admin/users')) return 'user';
   if (path.includes('/admin/rules')) return 'approval_rule';
   if (path.includes('/admin/reasoning-rules')) return 'reasoning_rule';
