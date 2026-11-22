@@ -199,10 +199,16 @@
 
             <div class="field">
               <label for="user-department">部门</label>
-              <select id="user-department" v-model="form.department">
+              <select id="user-department" v-model="form.departmentId">
                 <option value="">请选择部门</option>
-                <option v-for="d in departments" :key="d" :value="d">{{ d }}</option>
+                <option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</option>
               </select>
+              <span v-if="formErrors.department" class="error">{{ formErrors.department }}</span>
+              <p class="field-hint">
+                没有需要的部门？请先到
+                <RouterLink to="/admin/departments">部门管理</RouterLink>
+                新增。
+              </p>
             </div>
 
             <div class="field">
@@ -257,7 +263,11 @@ const roleOptions = [
 ]
 const roleWhitelist = roleOptions.map(r => r.value)
 
-const departments = ['技术部', '产品部', '市场部', '销售部', '财务部', '人事部', '行政部']
+interface DepartmentOption {
+  id: string
+  name: string
+}
+const departments = ref<DepartmentOption[]>([])
 
 const roleLabel = (r: string) => {
   const found = roleOptions.find(o => o.value === r)
@@ -283,8 +293,8 @@ const editingId = ref<string | null>(null)
 const submitting = ref(false)
 const nameInputRef = ref<HTMLInputElement | null>(null)
 
-const form = reactive({ name: '', phone: '', email: '', department: '', role: '', password: '' })
-const formErrors = reactive({ name: '', phone: '', role: '', password: '' })
+const form = reactive({ name: '', phone: '', email: '', departmentId: '', role: '', password: '' })
+const formErrors = reactive({ name: '', phone: '', department: '', role: '', password: '' })
 
 const filteredUsers = computed(() => {
   let list = users.value
@@ -301,7 +311,17 @@ const filteredUsers = computed(() => {
 onMounted(() => {
   fetchStats()
   fetchUsers()
+  fetchDepartments()
 })
+
+async function fetchDepartments() {
+  try {
+    const { data } = await api.get('/admin/departments')
+    departments.value = Array.isArray(data) ? data : []
+  } catch {
+    departments.value = []
+  }
+}
 
 async function fetchStats() {
   try {
@@ -340,6 +360,7 @@ function validateForm() {
   let valid = true
   formErrors.name = ''
   formErrors.phone = ''
+  formErrors.department = ''
   formErrors.role = ''
   formErrors.password = ''
 
@@ -353,6 +374,11 @@ function validateForm() {
     valid = false
   } else if (!/^1\d{10}$/.test(form.phone)) {
     formErrors.phone = '手机号格式不正确（11位数字，以1开头）'
+    valid = false
+  }
+
+  if (!form.departmentId) {
+    formErrors.department = '请选择部门'
     valid = false
   }
 
@@ -386,7 +412,7 @@ function openCreateModal() {
   form.name = ''
   form.phone = ''
   form.email = ''
-  form.department = ''
+  form.departmentId = ''
   form.role = ''
   form.password = ''
   formErrors.name = ''
@@ -403,7 +429,10 @@ function openEditModal(u: any) {
   form.name = u.name || ''
   form.phone = u.phone || ''
   form.email = u.email || ''
-  form.department = u.department || ''
+  form.departmentId =
+    u.departmentId ||
+    departments.value.find((d) => d.name === u.department)?.id ||
+    ''
   form.role = u.role || ''
   form.password = ''
   formErrors.name = ''
@@ -429,7 +458,7 @@ async function submitForm() {
       name: form.name,
       phone: form.phone,
       email: form.email,
-      department: form.department,
+      departmentId: form.departmentId,
       role: form.role
     }
     if (form.password) {

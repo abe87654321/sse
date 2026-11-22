@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+﻿import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 const mocks = vi.hoisted(() => ({
@@ -25,6 +25,7 @@ const existingUser = {
   phone: '13800000001',
   email: 'existing@example.com',
   department: '技术部',
+  departmentId: 'd-tech',
   role: 'employee',
   status: 'active',
 }
@@ -37,11 +38,16 @@ function mountPage(users: any[] = []) {
     if (url === '/admin/users') {
       return Promise.resolve({ data: users })
     }
+    if (url === '/admin/departments') {
+      return Promise.resolve({
+        data: [{ id: 'd-tech', name: '技术部', userCount: 1, isProtected: false }],
+      })
+    }
     return Promise.resolve({ data: [] })
   })
 
   return mount(AdminUsers, {
-    global: { stubs: { teleport: true } },
+    global: { stubs: { teleport: true, RouterLink: true } },
   })
 }
 
@@ -61,7 +67,7 @@ describe('AdminUsers password field', () => {
     await wrapper.find('.toolbar .btn-primary').trigger('click')
     await wrapper.find('#user-name').setValue('New User')
     await wrapper.find('#user-phone').setValue('13900000000')
-    await wrapper.find('#user-department').setValue('技术部')
+    await wrapper.find('#user-department').setValue('d-tech')
     await wrapper.find('#user-role').setValue('employee')
     await wrapper.find('#user-password').setValue('secret123')
     await wrapper.find('form').trigger('submit')
@@ -69,8 +75,18 @@ describe('AdminUsers password field', () => {
 
     expect(mocks.post).toHaveBeenCalledWith(
       '/admin/users',
-      expect.objectContaining({ password: 'secret123' })
+      expect.objectContaining({ password: 'secret123', departmentId: 'd-tech' })
     )
+  })
+
+  it('loads department options from the departments API', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('.toolbar .btn-primary').trigger('click')
+    const options = wrapper.findAll('#user-department option')
+    expect(options.map((option) => option.text())).toContain('技术部')
+    expect(options.map((option) => option.attributes('value'))).toContain('d-tech')
   })
 
   it('omits the password when editing without changing it', async () => {
