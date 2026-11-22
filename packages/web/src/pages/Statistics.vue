@@ -8,6 +8,13 @@
 
     <div v-if="loadError" class="card stat-error">{{ loadError }}</div>
 
+    <div v-if="canExport" class="card export-bar">
+      <span class="text-muted">导出：</span>
+      <button data-test="export-xlsx" class="btn-secondary btn-sm" @click="exportAs('xlsx')">Excel</button>
+      <button data-test="export-csv" class="btn-secondary btn-sm" @click="exportAs('csv')">CSV</button>
+      <button data-test="export-json" class="btn-secondary btn-sm" @click="exportAs('json')">JSON</button>
+    </div>
+
     <div class="stats-grid">
       <div class="card stat-summary" v-for="s in summaries" :key="s.label">
         <div class="stat-summary-value" :style="{ color: s.color }">{{ s.value }}</div>
@@ -56,8 +63,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import api from '../api/index'
+import { useAuthStore } from '../stores/auth'
 
 const barColors = [
   'var(--accent-coral)',
@@ -81,6 +89,21 @@ const maxAmount = ref(1)
 const maxCatAmount = ref(1)
 const scopeLabel = ref('')
 const loadError = ref('')
+const auth = useAuthStore()
+const canExport = computed(() => ['finance', 'admin'].includes(auth.user?.role || ''))
+
+async function exportAs(format: 'xlsx' | 'csv' | 'json') {
+  const res = await api.get('/statistics/export', {
+    params: { format },
+    responseType: 'blob',
+  })
+  const url = URL.createObjectURL(res.data)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `expenses.${format === 'xlsx' ? 'xlsx' : format}`
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
 
 function formatK(n: number): string {
   if (n >= 10000) return (n / 10000).toFixed(1) + 'w'
@@ -152,6 +175,14 @@ onMounted(async () => {
   background: var(--accent-coral-bg);
   color: var(--accent-coral);
   font-size: 0.85rem;
+}
+
+.export-bar {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .stats-grid {

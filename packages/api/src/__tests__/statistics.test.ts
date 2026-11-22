@@ -1,5 +1,6 @@
 const mockQuery = jest.fn();
 const mockGetStatistics = jest.fn();
+const mockAudit = jest.fn();
 
 jest.mock('@sse/db', () => ({
   pool: { query: (...args: any[]) => mockQuery(...args) },
@@ -9,7 +10,7 @@ jest.mock('@sse/db', () => ({
 }));
 
 jest.mock('../services/audit', () => ({
-  auditFromRequest: jest.fn(),
+  auditFromRequest: (...args: any[]) => mockAudit(...args),
 }));
 
 import express from 'express';
@@ -272,6 +273,8 @@ describe('statistics export permissions', () => {
 
   it('lets finance export with an optional department filter', async () => {
     const token = signToken({ userId: 'u-fin', role: 'finance', department: '财务部' });
+    mockQuery.mockReset();
+    mockQuery.mockResolvedValue({ rows: [] });
 
     const response = await fetch(`${url}/statistics/export?department=市场部`, {
       headers: { authorization: `Bearer ${token}` },
@@ -281,5 +284,37 @@ describe('statistics export permissions', () => {
     const [sql, params] = mockQuery.mock.calls[0];
     expect(sql).toContain('u.department = $1');
     expect(params).toEqual(['市场部']);
+  });
+
+  it('exports XLSX with full rows and audits the format', async () => {
+    const token = signToken({ userId: 'u-fin', role: 'finance', department: '财务部' });
+    mockQuery.mockReset();
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'r1',
+          serial_no: 'BX001',
+          title: '出差',
+          applicant_name: '张三',
+          department: '技术部',
+          total_amount: '100',
+          status: 'approved',
+        }],
+      })
+      .mockResolvedValue({ rows: [] });
+
+    const response = await fetch(`${url}/statistics/export?format=xlsx`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('spreadsheetml');
+    expect(mockAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: 'statistics.export',
+        details: expect.objectContaining({ format: 'xlsx', reportCount: 1 }),
+      })
+    );
   });
 });

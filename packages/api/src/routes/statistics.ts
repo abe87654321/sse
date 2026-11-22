@@ -1,5 +1,12 @@
+import { createHash } from 'crypto';
 import { Router, Request, Response, NextFunction } from 'express';
 import { auditFromRequest } from '../services/audit';
+import {
+  buildCsv,
+  buildJson,
+  buildXlsx,
+  loadReportExportDataset,
+} from '../services/report-export';
 import { PgExpenseRepo, pool } from '@sse/db';
 import { authMiddleware, resolveDataScope } from '@sse/auth';
 import {
@@ -135,17 +142,28 @@ router.get(
   asyncWrap(async (req, res) => {
     const scope = resolveScope(req);
     const filter = resolveStatisticsFilter(scope, req.query);
-    const predicate = buildStatisticsPredicate(filter);
+    const format =
+      req.query.format === 'csv' || req.query.format === 'xlsx'
+        ? req.query.format
+        : 'json';
+    const dataset = await loadReportExportDataset(pool, filter);
 
-    const { rows } = await pool.query(
-      `SELECT er.serial_no, er.title, u.name as applicant, u.department,
-              er.total_amount, er.status, er.created_at, er.submitted_at, er.completed_at
-       FROM expense_reports er
-       JOIN users u ON u.id = er.user_id
-       ${predicate.where}
-       ORDER BY er.created_at DESC`,
-      predicate.params
-    );
+    let buffer: Buffer;
+    let contentType: string;
+    let filename: string;
+    if (format === 'xlsx') {
+      buffer = await buildXlsx(dataset);
+      contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      filename = `expenses_${filter.dateFrom || 'all'}_${filter.dateTo || 'all'}.xlsx`;
+    } else if (format === 'csv') {
+      buffer = Buffer.from(buildCsv(dataset), 'utf-8');
+      contentType = 'text/csv; charset=utf-8';
+      filename = `expenses_${filter.dateFrom || 'all'}_${filter.dateTo || 'all'}.csv`;
+    } else {
+      buffer = Buffer.from(buildJson(dataset), 'utf-8');
+      contentType = 'application/json; charset=utf-8';
+      filename = `expenses_${filter.dateFrom || 'all'}_${filter.dateTo || 'all'}.json`;
+    }
 
     await auditFromRequest(req, {
       source: 'api',
@@ -153,56 +171,23 @@ router.get(
       entityType: 'statistics',
       outcome: 'success',
       details: {
-        format: req.query.format === 'csv' || req.headers.accept?.includes('text/csv') ? 'csv' : 'json',
+        format,
         scope: scope.kind,
         dateFrom: filter.dateFrom || null,
         dateTo: filter.dateTo || null,
-        rows: rows.length,
+        department: filter.department || null,
+        reportCount: dataset.reports.length,
+        itemCount: dataset.reports.reduce((sum: number, report: any) => sum + report.items.length, 0),
+        invoiceCount: dataset.reports.reduce((sum: number, report: any) => sum + report.invoices.length, 0),
+        approvalCount: dataset.reports.reduce((sum: number, report: any) => sum + report.approvals.length, 0),
+        bytes: buffer.length,
+        sha256: createHash('sha256').update(buffer).digest('hex'),
       },
     });
 
-    if (req.query.format === 'csv' || req.headers.accept?.includes('text/csv')) {
-      const headers = ['编号', '标题', '申请人', '部门', '金额', '状态', '创建时间', '提交时间', '完成时间'];
-      const csvRows = [headers.join(',')];
-
-      for (const row of rows) {
-        csvRows.push(
-          [
-            row.serial_no,
-            `"${(row.title || '').replace(/"/g, '""')}"`,
-            row.applicant,
-            row.department,
-            row.total_amount,
-            row.status,
-            row.created_at,
-            row.submitted_at || '',
-            row.completed_at || '',
-          ].join(',')
-        );
-      }
-
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="expenses_${filter.dateFrom || 'all'}_${filter.dateTo || 'all'}.csv"`
-      );
-      res.send('\uFEFF' + csvRows.join('\n'));
-    } else {
-      res.json({
-        total: rows.length,
-        items: rows.map((r: any) => ({
-          serialNo: r.serial_no,
-          title: r.title,
-          applicant: r.applicant,
-          department: r.department,
-          totalAmount: Number(r.total_amount),
-          status: r.status,
-          createdAt: r.created_at,
-          submittedAt: r.submitted_at,
-          completedAt: r.completed_at,
-        })),
-      });
-    }
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
   })
 );
 

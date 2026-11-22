@@ -9,6 +9,10 @@ vi.mock('../../api/index', () => ({
   default: { get: mocks.get },
 }))
 
+vi.mock('../../stores/auth', () => ({
+  useAuthStore: () => ({ user: { role: 'finance' } }),
+}))
+
 import Statistics from '../Statistics.vue'
 
 beforeEach(() => {
@@ -43,6 +47,32 @@ describe('Statistics page', () => {
     expect(wrapper.text()).toContain('2 笔报销')
     expect(wrapper.text()).toContain('交通')
     expect(wrapper.text()).toContain('11月')
+  })
+
+  it('lets finance export XLSX via the export endpoint', async () => {
+    mocks.get.mockResolvedValue({
+      data: {
+        scope: 'all',
+        scopeLabel: '全公司',
+        overview: {},
+        byCategory: [],
+        monthly: [],
+      },
+    })
+    Object.defineProperty(URL, 'createObjectURL', { value: vi.fn(() => 'blob:x'), configurable: true })
+    Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), configurable: true })
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+
+    const wrapper = mount(Statistics)
+    await flushPromises()
+    expect(wrapper.find('[data-test="export-xlsx"]').exists()).toBe(true)
+
+    await wrapper.find('[data-test="export-xlsx"]').trigger('click')
+    await flushPromises()
+    expect(mocks.get).toHaveBeenCalledWith('/statistics/export', {
+      params: { format: 'xlsx' },
+      responseType: 'blob',
+    })
   })
 
   it('shows the API error instead of silently rendering empty data', async () => {
