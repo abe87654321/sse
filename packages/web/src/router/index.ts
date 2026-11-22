@@ -81,6 +81,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '内容快照', requiresAdmin: true }
       },
       {
+        path: 'admin/backups',
+        name: 'AdminBackups',
+        component: () => import('@/pages/AdminBackups.vue'),
+        meta: { title: '备份与恢复', requiresAdmin: true }
+      },
+      {
         path: 'admin',
         name: 'Admin',
         component: () => import('@/pages/Admin.vue'),

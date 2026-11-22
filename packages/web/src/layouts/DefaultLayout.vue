@@ -132,6 +132,7 @@ const navItems = computed(() => {
       { path: '/admin/messages', label: '消息管理', icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><polyline points="9 10 12 13 17 8"/></svg>' },
       { path: '/admin/reasoning-rules', label: '推理规则', icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1010 10M12 2a10 10 0 0110 10M12 2v10m10 0h-4l-2 4-2-8-2 4H2"/></svg>' },
       { path: '/admin/snapshots', label: '内容快照', icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>' },
+      { path: '/admin/backups', label: '备份与恢复', icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>' },
     )
   }
   return items
