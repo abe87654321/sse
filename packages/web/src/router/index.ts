@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { resolveGuard } from '@/permissions'
+import { ADMIN_ROLES, ALL_ROLES, APPROVER_ROLES, resolveGuard } from '@/permissions'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -10,7 +10,7 @@ declare module 'vue-router' {
     guest?: boolean
     hidden?: boolean
     requiresAdmin?: boolean
-    allowedRoles?: string[]
+    allowedRoles?: readonly string[]
   }
 }
 
@@ -60,19 +60,19 @@ const routes: RouteRecordRaw[] = [
         path: 'approvals',
         name: 'Approvals',
         component: () => import('@/pages/Approvals.vue'),
-        meta: { title: '审批管理', icon: 'Checked', allowedRoles: ['dept_approver', 'finance', 'admin'] }
+        meta: { title: '审批管理', icon: 'Checked', allowedRoles: APPROVER_ROLES }
       },
       {
         path: 'approvals/:reportId',
         name: 'ApprovalHandle',
         component: () => import('@/pages/ApprovalHandle.vue'),
-        meta: { title: '审批处理', hidden: true, allowedRoles: ['dept_approver', 'finance', 'admin'] }
+        meta: { title: '审批处理', hidden: true, allowedRoles: APPROVER_ROLES }
       },
       {
         path: 'statistics',
         name: 'Statistics',
         component: () => import('@/pages/Statistics.vue'),
-        meta: { title: '统计分析', icon: 'DataAnalysis', allowedRoles: ['finance', 'admin'] }
+        meta: { title: '统计分析', icon: 'DataAnalysis', allowedRoles: ALL_ROLES }
       },
       {
         path: 'notifications',
@@ -90,37 +90,37 @@ const routes: RouteRecordRaw[] = [
         path: 'admin/snapshots',
         name: 'AdminSnapshots',
         component: () => import('@/pages/AdminSnapshots.vue'),
-        meta: { title: '内容快照', allowedRoles: ['admin'] }
+        meta: { title: '内容快照', allowedRoles: ADMIN_ROLES }
       },
       {
         path: 'admin',
         name: 'Admin',
         component: () => import('@/pages/Admin.vue'),
-        meta: { title: '系统管理', icon: 'Setting', allowedRoles: ['admin'] }
+        meta: { title: '系统管理', icon: 'Setting', allowedRoles: ADMIN_ROLES }
       },
       {
         path: 'admin/users',
         name: 'AdminUsers',
         component: () => import('@/pages/AdminUsers.vue'),
-        meta: { title: '用户管理', allowedRoles: ['admin'] }
+        meta: { title: '用户管理', allowedRoles: ADMIN_ROLES }
       },
       {
         path: 'admin/departments',
         name: 'AdminDepartments',
         component: () => import('@/pages/AdminDepartments.vue'),
-        meta: { title: '部门管理', allowedRoles: ['admin'] }
+        meta: { title: '部门管理', allowedRoles: ADMIN_ROLES }
       },
       {
         path: 'admin/messages',
         name: 'AdminMessages',
         component: () => import('@/pages/AdminMessages.vue'),
-        meta: { title: '消息管理', allowedRoles: ['admin'] }
+        meta: { title: '消息管理', allowedRoles: ADMIN_ROLES }
       },
       {
         path: 'admin/reasoning-rules',
         name: 'AdminReasoningRules',
         component: () => import('@/pages/AdminReasoningRules.vue'),
-        meta: { title: '推理规则', allowedRoles: ['admin'] }
+        meta: { title: '推理规则', allowedRoles: ADMIN_ROLES }
       },
       {
         path: '/ontology',

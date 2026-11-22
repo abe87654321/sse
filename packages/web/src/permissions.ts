@@ -7,10 +7,10 @@ export interface NavItem {
   roles: readonly Role[]
 }
 
-const ALL_ROLES: readonly Role[] = ['employee', 'dept_approver', 'finance', 'admin']
-const APPROVER_ROLES: readonly Role[] = ['dept_approver', 'finance', 'admin']
-const FINANCE_ROLES: readonly Role[] = ['finance', 'admin']
-const ADMIN_ROLES: readonly Role[] = ['admin']
+export const ALL_ROLES: readonly Role[] = ['employee', 'dept_approver', 'finance', 'admin']
+export const APPROVER_ROLES: readonly Role[] = ['dept_approver', 'finance', 'admin']
+export const FINANCE_ROLES: readonly Role[] = ['finance', 'admin']
+export const ADMIN_ROLES: readonly Role[] = ['admin']
 
 export const APPROVER_ROLE_NAMES: readonly string[] = APPROVER_ROLES
 
@@ -36,7 +36,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   {
     path: '/statistics',
     label: '统计分析',
-    roles: FINANCE_ROLES,
+    roles: ALL_ROLES,
     icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
   },
   {

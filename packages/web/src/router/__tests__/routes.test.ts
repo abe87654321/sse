@@ -8,4 +8,14 @@ describe('navigation routes', () => {
       expect(router.resolve(item.path).matched.length, item.path).toBeGreaterThan(0)
     }
   })
+
+  it('never shows a nav link to a role the route denies', () => {
+    for (const item of NAV_ITEMS) {
+      const { meta } = router.resolve(item.path)
+      if (meta.allowedRoles === undefined) continue
+      for (const role of item.roles) {
+        expect(meta.allowedRoles, `${item.path} -> ${role}`).toContain(role)
+      }
+    }
+  })
 })

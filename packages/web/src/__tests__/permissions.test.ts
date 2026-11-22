@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ADMIN_ROLES,
+  ALL_ROLES,
   canAccessRoute,
   navItemsForRole,
   resolveGuard,
@@ -9,8 +11,13 @@ import {
 const paths = (role?: string) => navItemsForRole(role).map((item) => item.path)
 
 describe('navItemsForRole', () => {
-  it('gives employees only shared entries', () => {
-    expect(paths('employee')).toEqual(['/dashboard', '/expenses', '/ontology'])
+  it('gives employees shared entries including scoped statistics', () => {
+    expect(paths('employee')).toEqual([
+      '/dashboard',
+      '/expenses',
+      '/statistics',
+      '/ontology',
+    ])
   })
 
   it('adds approvals for dept approvers and finance', () => {
@@ -18,6 +25,7 @@ describe('navItemsForRole', () => {
       '/dashboard',
       '/expenses',
       '/approvals',
+      '/statistics',
       '/ontology',
     ])
     expect(paths('finance')).toEqual([
@@ -98,12 +106,32 @@ describe('resolveGuard', () => {
     ).toBe('dashboard')
   })
 
-  it('forbids employees from statistics', () => {
+  it('allows employees into the scoped statistics view', () => {
     expect(
       resolveGuard({
         isLoggedIn: true,
         role: 'employee',
-        meta: { allowedRoles: ['finance', 'admin'] },
+        meta: { allowedRoles: ALL_ROLES },
+      })
+    ).toBe('allow')
+  })
+
+  it('forbids non-admins from admin routes', () => {
+    expect(
+      resolveGuard({
+        isLoggedIn: true,
+        role: 'finance',
+        meta: { allowedRoles: ADMIN_ROLES },
+      })
+    ).toBe('forbidden')
+  })
+
+  it('fail-closes unknown roles on restricted routes', () => {
+    expect(
+      resolveGuard({
+        isLoggedIn: true,
+        role: undefined,
+        meta: { allowedRoles: ['admin'] },
       })
     ).toBe('forbidden')
   })
