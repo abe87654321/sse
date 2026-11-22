@@ -268,17 +268,17 @@ pnpm -r build
 
 ```text
 pnpm -r test
-  web           62 passed
+  web           63 passed
   core          70 passed
   db            60 passed
   auth          30 passed
   ai           100 passed
   notifications 29 passed
-  backup        22 passed
+  backup        24 passed
   ontology     176 passed
   api          211 passed
   mcp           59 passed
-  合计         819 passed
+  合计         822 passed
 
 pnpm -r build
   12/12 个包完成
@@ -289,3 +289,17 @@ pnpm -r build
 - 本机未安装 Docker/真实 PostgreSQL/MinIO，未执行真实备份 → 演练恢复 → 清除的端到端验证；部署前需按运行手册在测试机跑通。
 - 备份包未加密；`--include-secrets` 生成的包属于敏感数据。
 - 未实现增量备份、WAL PITR、浏览器上传备份包。
+
+### 测试机联调修复（2026-11-22）
+
+- `1723f72`：CLI `--help` 被 commander `exitOverride` 当异常，误返回 1；已修成 0。
+- `cf4f3bb`：页面创建备份 500。
+  - 根因：API 进程用户 `szl` 对 `/data/sse-backups` 无写权限，`mkdir jobs` 报 `EACCES`。
+  - 代码侧：备份服务初始化错误改为返回具体 message；`GET /admin/backups` 不再因 MinIO 列表失败整体 500；前端创建成功后刷新列表失败不再覆盖成功提示。
+  - 环境侧：测试机执行 `chown -R szl:szl /data/sse-backups` 后创建备份成功。
+- `05b6342`：点恢复后 API 进程退出。
+  - 根因：恢复失败进入回滚，`DROP DATABASE ... WITH (FORCE)` 终止了目标库连接池里的空闲连接，`pg` 未处理 `error` 事件导致进程崩溃。
+  - 修复：恢复失败时先 `target.end()` 关闭目标连接池再删库；所有 backup `pg` Pool/Client 增加 `error` 监听；任务失败打印 `[backup] restore job failed` 并写入 job.error。
+  - 测试机确认：恢复失败不再导致 API 退出；恢复本身是否成功待下一会话查看 job.error / 完整 E2E。
+
+当前分支：`feat/p1-7-export-backup-restore`，HEAD `05b6342`（已 push）。

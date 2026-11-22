@@ -55,23 +55,23 @@
 | 13 | 管理端备份/恢复/清除页面 | `Failed to resolve import "../AdminBackups.vue"` | 3 tests passed |
 | 14 | 导出数据集与 CSV/JSON/XLSX | `Cannot find module '../services/report-export'` | 4 tests passed |
 | 15 | 导出路由、审计、前端入口 | 旧导出仍返回旧结构 | api 9 + web 3 passed |
-| 16 | 全量验证 | —— | 819 tests / 12 packages build |
+| 16 | 全量验证 | —— | 822 tests / 12 packages build |
 
 ## 4. Full verification
 
 ```text
 pnpm -r test
-  web           62 passed
+  web           63 passed
   core          70 passed
   db            60 passed
   auth          30 passed
   ai           100 passed
   notifications 29 passed
-  backup        22 passed
+  backup        24 passed
   ontology     176 passed
   api          211 passed
   mcp           59 passed
-  合计         819 passed
+  合计         822 passed
 
 pnpm -r build
   12/12 个包完成
@@ -79,7 +79,7 @@ pnpm -r build
 
 ## 5. Known gaps
 
-- 本机未安装 Docker/真实 PostgreSQL/MinIO，**未执行真实备份 → 演练恢复 → 清除的端到端验证**。单元测试覆盖 SQL/文件/对象映射与路由；部署前需在测试机按 runbook 跑一次真实演练。
+- 本机未安装 Docker/真实 PostgreSQL/MinIO，未在本机执行真实备份 → 演练恢复 → 清除的端到端验证。测试机已确认页面创建备份成功；恢复触发的 API 崩溃已修复（`05b6342`），但恢复本身是否成功仍需查看 job.error 并按 runbook 完成一次完整演练。
 - 备份包未加密；`.env` 默认排除。包含敏感配置时 manifest 标记 `containsSecrets`。
 - 月度/时间口径与备份时间无关；备份使用数据库事务快照，MinIO 采用逐对象读取并校验大小/SHA-256。
 - 恢复验证会逐对象下载并计算 SHA-256；生产大包时需评估耗时与带宽。
