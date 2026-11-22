@@ -1,5 +1,7 @@
 export { PgExpenseRepo } from './pg-expense-repo';
 export { PgUserRepo } from './pg-user-repo';
+export { PgDepartmentRepo, UNASSIGNED_DEPARTMENT } from './pg-department-repo';
+export type { Department } from './pg-department-repo';
 export { PgInvoiceRepo } from './pg-invoice-repo';
 export { PgApprovalRuleRepo } from './pg-approval-rule-repo';
 export { PgApprovalRecordRepo } from './pg-approval-record-repo';
