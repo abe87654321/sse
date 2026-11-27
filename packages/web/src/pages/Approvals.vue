@@ -6,6 +6,23 @@
 
     <div v-if="message" class="toast" :class="`toast-${messageType}`">{{ message }}</div>
 
+    <div v-if="ackDialogItem" class="ack-overlay" @click.self="cancelAck">
+      <div class="ack-dialog">
+        <h3>AI 核对提示</h3>
+        <p class="ack-text">{{ ackMessage }}</p>
+        <label class="ack-check">
+          <input type="checkbox" v-model="ackChecked" />
+          我已核对 AI 核对差异并确认继续审批
+        </label>
+        <div class="ack-actions">
+          <button class="btn-secondary btn-sm" @click="cancelAck">取消</button>
+          <button class="btn-primary btn-sm" :disabled="!ackChecked || !!acting" @click="confirmApprove">
+            确认审批通过
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="loading" class="card">
       <div class="empty-state">
         <div class="empty-state-text">加载中...</div>
@@ -101,6 +118,16 @@ const message = ref('')
 const messageType = ref<'success' | 'error' | 'warning'>('success')
 let messageTimer: ReturnType<typeof setTimeout> | null = null
 
+const ackDialogItem = ref<ApprovalItem | null>(null)
+const ackChecked = ref(false)
+const ackMessage = ref('')
+
+function errorMessage(err: any, fallback = '操作失败') {
+  return err?.response?.data?.error?.message
+    || err?.response?.data?.message
+    || fallback
+}
+
 function showMessage(text: string, type: 'success' | 'error' | 'warning' = 'success') {
   message.value = text
   messageType.value = type
@@ -124,16 +151,38 @@ async function fetchApprovals() {
 }
 
 async function handleApprove(item: ApprovalItem) {
+  await submitApprove(item, false)
+}
+
+async function submitApprove(item: ApprovalItem, acknowledgeVerification: boolean) {
   acting.value = item.id
   try {
-    await api.post(`/approvals/${item.reportId}/approve`, {})
+    await api.post(`/approvals/${item.reportId}/approve`, { acknowledgeVerification })
+    ackDialogItem.value = null
+    ackChecked.value = false
     showMessage('审批通过')
     await fetchApprovals()
   } catch (err: any) {
-    showMessage(err.response?.data?.message || '操作失败', 'error')
+    if (err?.response?.status === 409) {
+      ackDialogItem.value = item
+      ackChecked.value = false
+      ackMessage.value = errorMessage(err, '该报销单存在核对差异或尚未核对')
+      return
+    }
+    showMessage(errorMessage(err), 'error')
   } finally {
     acting.value = ''
   }
+}
+
+function confirmApprove() {
+  if (!ackDialogItem.value || !ackChecked.value) return
+  void submitApprove(ackDialogItem.value, true)
+}
+
+function cancelAck() {
+  ackDialogItem.value = null
+  ackChecked.value = false
 }
 
 function handleReject(item: ApprovalItem) {
@@ -158,7 +207,7 @@ async function confirmReject(item: ApprovalItem) {
     showRejectForm.value = ''
     rejectComment.value = ''
   } catch (err: any) {
-    showMessage(err.response?.data?.message || '操作失败', 'error')
+    showMessage(errorMessage(err), 'error')
   } finally {
     acting.value = ''
   }
@@ -232,4 +281,37 @@ onMounted(fetchApprovals)
 .toast-success { background: rgba(76, 175, 80, 0.15); color: #4caf50; border: 1px solid rgba(76, 175, 80, 0.3); }
 .toast-error { background: rgba(244, 67, 54, 0.15); color: #f44336; border: 1px solid rgba(244, 67, 54, 0.3); }
 .toast-warning { background: rgba(255, 152, 0, 0.15); color: #ff9800; border: 1px solid rgba(255, 152, 0, 0.3); }
+
+.ack-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(45, 36, 32, 0.4);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+.ack-dialog {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  width: 400px;
+  max-width: 90vw;
+}
+.ack-dialog h3 { margin-bottom: 12px; font-size: 1.1rem; }
+.ack-text { color: var(--text-secondary); font-size: 0.88rem; margin-bottom: 12px; }
+.ack-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  color: var(--text-primary);
+}
+.ack-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
 </style>
