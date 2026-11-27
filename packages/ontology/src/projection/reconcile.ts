@@ -61,9 +61,16 @@ async function projectTable(
   let lastId = ZERO_UUID;
   const selectSql =
     table === 'users'
-      ? `SELECT u.*, COALESCE(d.name, '未分配') AS department
+      ? `SELECT u.*, COALESCE(d.name, '未分配') AS department,
+                COALESCE(ad.approver_departments, '[]'::json) AS approver_departments
            FROM users u
            LEFT JOIN departments d ON d.id = u.department_id
+           LEFT JOIN LATERAL (
+             SELECT json_agg(d2.name ORDER BY d2.name) AS approver_departments
+               FROM department_approvers da
+               JOIN departments d2 ON d2.id = da.department_id
+              WHERE da.user_id = u.id
+           ) ad ON true
           WHERE u.id > $1 ORDER BY u.id LIMIT $2`
       : `SELECT * FROM ${table} WHERE id > $1 ORDER BY id LIMIT $2`;
   for (;;) {

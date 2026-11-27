@@ -14,7 +14,7 @@ function hasType(uri: string, type: string) {
 }
 
 const MAPPED_PREDICATES = [
-  'belongsTo', 'submittedBy', 'containsItem', 'hasCategory', 'hasInvoice',
+  'belongsTo', 'approverOf', 'submittedBy', 'containsItem', 'hasCategory', 'hasInvoice',
   'hasApproval', 'approvedBy', 'governedBy', 'paidBy', 'hasPaymentReceipt',
   'hasCategoryRule', 'uploadedBy',
   'name', 'department', 'role', 'status', 'amount', 'serialNo', 'title',
@@ -35,7 +35,7 @@ describe('SSE TBox', () => {
   });
 
   it('declares core object properties with domain and range', () => {
-    for (const p of ['submittedBy', 'containsItem', 'hasCategory', 'hasInvoice', 'approvedBy', 'governedBy', 'belongsTo', 'paidBy', 'hasPaymentReceipt']) {
+    for (const p of ['submittedBy', 'containsItem', 'hasCategory', 'hasInvoice', 'approvedBy', 'governedBy', 'belongsTo', 'approverOf', 'paidBy', 'hasPaymentReceipt']) {
       const subject = sse(p);
       expect(quads.some(q => q.subject.value === subject && q.predicate.value.endsWith('#type'))).toBe(true);
       expect(quads.some(q => q.subject.value === subject && q.predicate.value.endsWith('#domain'))).toBe(true);
