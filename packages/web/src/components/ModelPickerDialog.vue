@@ -102,6 +102,7 @@ const props = defineProps<{
   apiKey: string
   catalog: any | null
   activeModel: string
+  engine?: 'fill' | 'vision'
 }>()
 
 const emit = defineEmits<{
@@ -233,6 +234,7 @@ async function refresh() {
     const response = await api.post('/admin/ai-models', {
       endpoint: props.endpoint,
       apiKey: props.apiKey || undefined,
+      engine: props.engine === 'vision' ? 'vision' : 'fill',
     }, { timeout: 30000 })
     const fetchedCatalog = response.data?.catalog
     const fetchedModels = fetchedCatalog?.models || response.data?.models || []

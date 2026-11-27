@@ -73,26 +73,59 @@
       <div class="form-grid">
         <div class="field full">
           <label for="vision-ai-endpoint">API 地址</label>
-          <input id="vision-ai-endpoint" v-model="cfg.visionEngine.endpoint" placeholder="http://host:11434（OpenAI 兼容地址）" />
-        </div>
-        <div class="field full">
-          <label for="vision-ai-model">视觉模型名</label>
-          <input id="vision-ai-model" v-model="cfg.visionEngine.model" placeholder="例如 qwen3-vl:8b" />
+          <input
+            id="vision-ai-endpoint"
+            v-model="cfg.visionEngine.endpoint"
+            placeholder="http://host:11434（OpenAI 兼容地址）"
+            @blur="loadVisionCatalogForEndpoint"
+          />
+          <div class="field-hint">填写到端口或 /v1 即可，系统会自动补全接口路径</div>
         </div>
         <div class="field full">
           <label for="vision-ai-api-key">API 密钥</label>
-          <input
-            id="vision-ai-api-key"
-            v-model="cfg.visionEngine.apiKey"
-            type="password"
-            autocomplete="new-password"
-            :placeholder="cfg.visionEngine.apiKeySet ? '已配置，留空则不修改' : '可选，留空表示无密钥'"
-          />
+          <div class="key-row">
+            <input
+              id="vision-ai-api-key"
+              v-model="cfg.visionEngine.apiKey"
+              type="password"
+              autocomplete="new-password"
+              :placeholder="cfg.visionEngine.apiKeySet ? '已配置，留空则不修改' : '可选，留空表示无密钥'"
+            />
+            <button type="button" class="btn-secondary btn-sm" :disabled="visionConnectionTesting" @click="testVisionConnection">
+              {{ visionConnectionTesting ? '检测中...' : '检测' }}
+            </button>
+          </div>
+          <div
+            v-if="visionConnectionResult"
+            class="inline-result"
+            role="status"
+            aria-live="polite"
+            :class="{ success: visionConnectionResult.success, fail: !visionConnectionResult.success }"
+          >
+            {{ visionConnectionMessage }}
+          </div>
+        </div>
+        <div class="field full">
+          <label for="vision-ai-model">视觉模型</label>
+          <div class="model-select-row">
+            <select id="vision-ai-model" v-model="cfg.visionEngine.model">
+              <option v-for="model in visionSelectedModels" :key="model.id" :value="model.id">{{ model.id }}</option>
+            </select>
+            <button type="button" class="btn-secondary btn-sm" @click="showVisionModelPicker = true">获取模型列表</button>
+          </div>
+          <div class="field-hint">
+            已选 {{ visionSelectedModels.length }} 个模型
+            <span v-if="visionSelectedModels.length === 0">，请先获取模型列表</span>
+          </div>
         </div>
       </div>
       <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         <button type="button" class="btn-primary btn-sm" @click="saveConfig" :disabled="saving">💾 保存</button>
+        <button type="button" class="btn-secondary btn-sm" @click="testVision" :disabled="!!testing">{{ testing==='vision'?'测试中...':'📸 检验视觉模型' }}</button>
         <label class="toggle-label"><input type="checkbox" v-model="cfg.visionEngine.enabled" @change="saveConfig" /><span>启用</span></label>
+      </div>
+      <div v-if="visionTestResult" class="ai-test-result" role="status" aria-live="polite" :class="{success:visionTestResult.success,fail:!visionTestResult.success}">
+        {{ visionTestResult.message }}（{{ visionTestResult.elapsedMs }}ms）
       </div>
     </div>
 
@@ -199,6 +232,16 @@
       :active-model="cfg.fillEngine.model"
       @confirm="onModelPickerConfirm"
     />
+
+    <ModelPickerDialog
+      v-model:open="showVisionModelPicker"
+      engine="vision"
+      :endpoint="cfg.visionEngine.endpoint"
+      :api-key="cfg.visionEngine.apiKey"
+      :catalog="currentVisionCatalog"
+      :active-model="cfg.visionEngine.model"
+      @confirm="onVisionModelPickerConfirm"
+    />
   </div>
 </template>
 
@@ -212,7 +255,7 @@ import { normalizeEndpoint } from '@/utils/endpoint'
 
 const cfg = reactive<any>({
   fillEngine: { endpoint: '', apiKey: '', apiKeySet: false, model: '', enabled: true, catalogs: {} },
-  visionEngine: { endpoint: '', apiKey: '', apiKeySet: false, model: '', enabled: false },
+  visionEngine: { endpoint: '', apiKey: '', apiKeySet: false, model: '', enabled: false, catalogs: {} },
   ocrEngine: {
     provider: 'mineru',
     mineruEndpoint: '',
@@ -251,6 +294,10 @@ const showModelPicker = ref(false)
 const connectionTesting = ref(false)
 const connectionResult = ref<any>(null)
 const fillTestResult = ref<any>(null)
+const showVisionModelPicker = ref(false)
+const visionConnectionTesting = ref(false)
+const visionConnectionResult = ref<any>(null)
+const visionTestResult = ref<any>(null)
 const ocrTestResult = ref<any>(null)
 const ocrHistory = ref<any[]>([])
 const currentCatalog = computed(() => {
@@ -278,6 +325,31 @@ const connectionMessage = computed(() => {
   return `✗ ${label ? `${label}：` : ''}${failed?.message || connectionResult.value.message}`
 })
 
+const currentVisionCatalog = computed(() => {
+  const key = normalizeEndpoint(cfg.visionEngine.endpoint)
+  return key ? (cfg.visionEngine.catalogs?.[key] || null) : null
+})
+const visionSelectedModels = computed(() => {
+  const models = currentVisionCatalog.value?.models || []
+  const selected = models.filter((model: any) => model.selected)
+  if (cfg.visionEngine.model && !selected.some((model: any) => model.id === cfg.visionEngine.model)) {
+    return [{ id: cfg.visionEngine.model, name: cfg.visionEngine.model }, ...selected]
+  }
+  return selected
+})
+const visionConnectionMessage = computed(() => {
+  if (!visionConnectionResult.value) return ''
+  const steps = visionConnectionResult.value.steps || []
+  const models = steps.find((step: any) => step.name === 'models')
+  const chat = steps.find((step: any) => step.name === 'chat')
+  if (visionConnectionResult.value.success) {
+    return `✓ 连接成功 · 模型 ${models?.modelCount ?? 0} 个（${models?.elapsedMs ?? 0}ms）· 对话 ${chat?.elapsedMs ?? 0}ms`
+  }
+  const failed = steps.find((step: any) => !step.ok)
+  const label = failed?.name === 'models' ? '模型列表' : failed?.name === 'chat' ? '对话' : ''
+  return `✗ ${label ? `${label}：` : ''}${failed?.message || visionConnectionResult.value.message}`
+})
+
 watch(
   () => cfg.fillEngine.endpoint,
   (value, oldValue) => {
@@ -289,6 +361,21 @@ watch(
       cfg.fillEngine.apiKeySet = false
       connectionResult.value = null
       fillTestResult.value = null
+    }
+  },
+)
+
+watch(
+  () => cfg.visionEngine.endpoint,
+  (value, oldValue) => {
+    const nextKey = normalizeEndpoint(value)
+    const oldKey = normalizeEndpoint(oldValue)
+    if (oldKey && nextKey !== oldKey) {
+      cfg.visionEngine.model = ''
+      cfg.visionEngine.apiKey = ''
+      cfg.visionEngine.apiKeySet = false
+      visionConnectionResult.value = null
+      visionTestResult.value = null
     }
   },
 )
@@ -307,6 +394,9 @@ onMounted(async () => {
   } catch {}
   if (!currentCatalog.value && cfg.fillEngine.endpoint) {
     refreshCatalogInBackground()
+  }
+  if (!currentVisionCatalog.value && cfg.visionEngine.endpoint) {
+    refreshVisionCatalogInBackground()
   }
   loadOcrHistory()
   try { rules.value = (await api.get('/admin/rules')).data || [] } catch {}
@@ -465,6 +555,98 @@ async function testFill() {
     fillTestResult.value = r.data
   } catch (e: any) {
     fillTestResult.value = { success: false, message: errorMessage(e), elapsedMs: 0 }
+  } finally { testing.value = false }
+}
+
+async function testVisionConnection() {
+  visionConnectionTesting.value = true
+  visionConnectionResult.value = null
+  try {
+    const r = await api.post('/admin/ai-connection-test', {
+      engine: 'vision',
+      endpoint: cfg.visionEngine.endpoint,
+      apiKey: cfg.visionEngine.apiKey || undefined,
+      model: cfg.visionEngine.model || undefined,
+    }, { timeout: 60000 })
+    visionConnectionResult.value = r.data
+  } catch (e: any) {
+    visionConnectionResult.value = { success: false, message: errorMessage(e), steps: [] }
+  } finally { visionConnectionTesting.value = false }
+}
+
+let visionCatalogRequestId = 0
+
+async function loadVisionCatalogForEndpoint() {
+  if (!normalizeEndpoint(cfg.visionEngine.endpoint)) return
+  if (!currentVisionCatalog.value) await refreshVisionCatalogInBackground()
+  if (!cfg.visionEngine.model) {
+    const firstSelected = currentVisionCatalog.value?.models?.find((model: any) => model.selected)
+    if (firstSelected) cfg.visionEngine.model = firstSelected.id
+  }
+}
+
+async function refreshVisionCatalogInBackground() {
+  const endpoint = cfg.visionEngine.endpoint
+  const key = normalizeEndpoint(endpoint)
+  if (!key) return
+  const requestId = ++visionCatalogRequestId
+  try {
+    const r = await api.post('/admin/ai-models', {
+      engine: 'vision',
+      endpoint,
+      apiKey: cfg.visionEngine.apiKey || undefined,
+    }, { timeout: 30000 })
+    if (requestId !== visionCatalogRequestId) return
+    if (normalizeEndpoint(cfg.visionEngine.endpoint) !== key) return
+    const nextCatalog = r.data?.catalog
+    if (!nextCatalog || !Array.isArray(nextCatalog.models) || nextCatalog.models.length === 0) return
+    if (!nextCatalog.models.some((model: any) => model.selected) && nextCatalog.models[0]) {
+      nextCatalog.models[0].selected = true
+    }
+    if (!cfg.visionEngine.model) {
+      const firstSelected = nextCatalog.models.find((model: any) => model.selected)
+      if (firstSelected) cfg.visionEngine.model = firstSelected.id
+    }
+    cfg.visionEngine.catalogs = { ...(cfg.visionEngine.catalogs || {}), [key]: nextCatalog }
+  } catch { /* keep old catalog */ }
+}
+
+async function onVisionModelPickerConfirm(payload: { catalog: any; activeModel: string }) {
+  if (!normalizeEndpoint(cfg.visionEngine.endpoint)) {
+    alert('请先填写 API 地址')
+    return
+  }
+  visionCatalogRequestId++
+  const key = normalizeEndpoint(cfg.visionEngine.endpoint)
+  cfg.visionEngine.catalogs = { ...(cfg.visionEngine.catalogs || {}), [key]: payload.catalog }
+  cfg.visionEngine.model = payload.activeModel
+  try {
+    const r = await api.put('/admin/ai-config', {
+      visionEngine: {
+        endpoint: cfg.visionEngine.endpoint,
+        apiKey: cfg.visionEngine.apiKey,
+        model: payload.activeModel,
+        catalog: payload.catalog,
+      },
+    }, { timeout: 30000 })
+    if (r.data?.visionEngine) Object.assign(cfg.visionEngine, r.data.visionEngine)
+  } catch (e: any) {
+    alert('保存模型列表失败: ' + errorMessage(e))
+  }
+}
+
+async function testVision() {
+  testing.value = 'vision'
+  visionTestResult.value = null
+  try {
+    const r = await api.post('/admin/ai-test/vision', {
+      endpoint: cfg.visionEngine.endpoint,
+      apiKey: cfg.visionEngine.apiKey || undefined,
+      model: cfg.visionEngine.model || undefined,
+    }, { timeout: 180000 })
+    visionTestResult.value = r.data
+  } catch (e: any) {
+    visionTestResult.value = { success: false, message: errorMessage(e), elapsedMs: 0 }
   } finally { testing.value = false }
 }
 

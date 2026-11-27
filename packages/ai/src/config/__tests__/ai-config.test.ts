@@ -411,4 +411,47 @@ describe('vision engine (screenshot recognition)', () => {
     });
     expect(next.visionEngine.apiKey).toBe('NEW');
   });
+
+  it('stores a fetched vision model catalog and exposes it publicly', () => {
+    const config = createDefaultAiConfig({} as any);
+    const next = applyAiConfigPatch(config, {
+      visionEngine: {
+        endpoint: 'http://vision-host:11434',
+        catalog: {
+          fetchedAt: '2026-11-27T00:00:00.000Z',
+          source: 'ollama',
+          models: [
+            { id: 'qwen3-vl:8b', name: 'qwen3-vl:8b', autoTags: ['视觉'], manualTags: [], selected: true, metadata: {} },
+          ],
+        },
+      },
+    });
+    expect(next.visionEngine.catalogs['http://vision-host:11434'].models[0].id).toBe('qwen3-vl:8b');
+    const pub = toPublicAiConfig(next);
+    expect(pub.visionEngine.catalogs['http://vision-host:11434'].models).toHaveLength(1);
+    pub.visionEngine.catalogs['http://vision-host:11434'].models.push({
+      id: 'extra', name: 'extra', autoTags: [], manualTags: [], selected: false, metadata: {},
+    });
+    expect(next.visionEngine.catalogs['http://vision-host:11434'].models).toHaveLength(1);
+  });
+
+  it('resolves the active vision model from the catalog on load', () => {
+    const config = normalizeAiConfig({
+      visionEngine: {
+        endpoint: 'http://vision-host:11434',
+        model: 'missing',
+        enabled: true,
+        catalogs: {
+          'http://vision-host:11434': {
+            fetchedAt: 'now',
+            source: 'ollama',
+            models: [
+              { id: 'qwen3-vl:8b', name: 'qwen3-vl:8b', autoTags: ['视觉'], manualTags: [], selected: true, metadata: {} },
+            ],
+          },
+        },
+      },
+    });
+    expect(config.visionEngine.model).toBe('qwen3-vl:8b');
+  });
 });

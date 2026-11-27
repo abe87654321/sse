@@ -41,6 +41,7 @@ export interface VisionEngineConfig {
   apiKey: string;
   model: string;
   enabled: boolean;
+  catalogs: Record<string, ModelCatalog>;
 }
 
 export interface OcrEngineConfig {
@@ -76,6 +77,7 @@ export interface AiConfigPatch {
     apiKey?: string;
     model?: string;
     enabled?: boolean;
+    catalog?: ModelCatalog;
     clearApiKey?: boolean;
   };
   ocrEngine?: {
@@ -108,6 +110,7 @@ export interface PublicAiConfig {
     apiKeySet: boolean;
     model: string;
     enabled: boolean;
+    catalogs: Record<string, ModelCatalog>;
   };
   ocrEngine: Omit<OcrEngineConfig, 'mineruToken' | 'visionApiKey' | 'mineruTokenCleared'> & {
     mineruToken: '';
@@ -137,6 +140,7 @@ export function createDefaultAiConfig(env: NodeJS.ProcessEnv = process.env): AiC
       apiKey: '',
       model: '',
       enabled: false,
+      catalogs: {},
     },
     ocrEngine: {
       provider: 'mineru',
@@ -209,6 +213,22 @@ function ensureActiveModelSelected(config: AiConfig): void {
   if (entry) entry.selected = true;
 }
 
+function ensureVisionModelSelected(config: AiConfig): void {
+  const key = normalizeServiceBase(config.visionEngine.endpoint);
+  const catalog = config.visionEngine.catalogs[key];
+  if (!catalog || !config.visionEngine.model) return;
+  const entry = (catalog.models || []).find(model => model.id === config.visionEngine.model);
+  if (entry) entry.selected = true;
+}
+
+function resolveVisionModel(config: AiConfig): void {
+  const key = normalizeServiceBase(config.visionEngine.endpoint);
+  const catalog = key ? config.visionEngine.catalogs[key] : undefined;
+  if (catalog) {
+    config.visionEngine.model = resolveActiveModel(catalog, config.visionEngine.model);
+  }
+}
+
 export function normalizeAiConfig(saved: any, env: NodeJS.ProcessEnv = process.env): AiConfig {
   const defaults = createDefaultAiConfig(env);
   const fill = saved?.fillEngine || {};
@@ -238,6 +258,7 @@ export function normalizeAiConfig(saved: any, env: NodeJS.ProcessEnv = process.e
       apiKey: typeof vision.apiKey === 'string' ? vision.apiKey : defaults.visionEngine.apiKey,
       model: typeof vision.model === 'string' ? vision.model : defaults.visionEngine.model,
       enabled: vision.enabled === true,
+      catalogs: normalizeCatalogs(vision.catalogs),
     },
     ocrEngine: {
       provider: isOcrProvider(ocr.provider) ? ocr.provider : 'mineru',
@@ -258,6 +279,8 @@ export function normalizeAiConfig(saved: any, env: NodeJS.ProcessEnv = process.e
   if (catalog) {
     config.fillEngine.model = resolveActiveModel(catalog, config.fillEngine.model);
   }
+  ensureVisionModelSelected(config);
+  resolveVisionModel(config);
   return config;
 }
 
@@ -312,6 +335,12 @@ export function applyAiConfigPatch(
       if (typeof vision.apiKey === 'string' && vision.apiKey.trim()) {
         next.visionEngine.apiKey = vision.apiKey.trim();
       }
+    }
+
+    if (vision.catalog) {
+      const key = normalizeServiceBase(next.visionEngine.endpoint);
+      const catalog = normalizeCatalog(vision.catalog);
+      if (key && catalog) next.visionEngine.catalogs[key] = catalog;
     }
   }
 
@@ -376,6 +405,8 @@ export function applyAiConfigPatch(
   if (catalog) {
     next.fillEngine.model = resolveActiveModel(catalog, next.fillEngine.model);
   }
+  ensureVisionModelSelected(next);
+  resolveVisionModel(next);
   return next;
 }
 
@@ -398,6 +429,7 @@ export function toPublicAiConfig(
       apiKeySet: !!config.visionEngine.apiKey,
       model: config.visionEngine.model,
       enabled: config.visionEngine.enabled,
+      catalogs: JSON.parse(JSON.stringify(config.visionEngine.catalogs)),
     },
     ocrEngine: {
       provider: config.ocrEngine.provider,

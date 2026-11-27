@@ -31,6 +31,7 @@ import {
 import {
   createOCREngine,
   getSmartFillEngine,
+  getSmartFillVisionEngine,
   loadAiConfig,
   saveAiConfig,
 } from '../services/ai-engines';
@@ -68,6 +69,17 @@ const SAMPLE_INVOICE_PATH = join(
   '..',
   'docs',
   'dzfp_25362000000115126055_深圳市数恒纪元信息技术咨询企业（个人独资）_20251106105357.pdf',
+);
+
+// Built-in sample used to verify the screenshot-recognition vision model.
+const SAMPLE_VISION_PATH = join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  '..',
+  'docs',
+  'vision-fill-sample.png',
 );
 
 // ========== 简易内存限流 ==========
@@ -725,18 +737,20 @@ router.post(
   enforceRateLimit,
   asyncWrap(async (req, res) => {
     const saved = loadAiConfig();
+    const engine = req.body?.engine === 'vision' ? 'vision' : 'fill';
+    const savedEngine = engine === 'vision' ? saved.visionEngine : saved.fillEngine;
     const endpoint = String(req.body?.endpoint || '');
     if (!endpoint) throw new AppError(400, 'INVALID_PARAMS', '请填写 API 地址');
     const apiKey = resolveSecretForEndpoint(
       endpoint,
       req.body?.apiKey,
-      saved.fillEngine.endpoint,
-      saved.fillEngine.apiKey,
+      savedEngine.endpoint,
+      savedEngine.apiKey,
     );
     try {
       const result = await fetchModelList({ endpoint, apiKey });
       const key = normalizeServiceBase(endpoint);
-      const catalog = mergeCatalog(saved.fillEngine.catalogs[key], result.models, result.source);
+      const catalog = mergeCatalog(savedEngine.catalogs[key], result.models, result.source);
       res.json({ ...result, catalog });
     } catch (error: any) {
       const info = classifyEngineError(error, { status: error?.status });
@@ -768,13 +782,15 @@ router.post(
   enforceRateLimit,
   asyncWrap(async (req, res) => {
     const saved = loadAiConfig();
+    const engine = req.body?.engine === 'vision' ? 'vision' : 'fill';
+    const savedEngine = engine === 'vision' ? saved.visionEngine : saved.fillEngine;
     const endpoint = String(req.body?.endpoint || '');
     if (!endpoint) throw new AppError(400, 'INVALID_PARAMS', '请填写 API 地址');
     const apiKey = resolveSecretForEndpoint(
       endpoint,
       req.body?.apiKey,
-      saved.fillEngine.endpoint,
-      saved.fillEngine.apiKey,
+      savedEngine.endpoint,
+      savedEngine.apiKey,
     );
     const result = await testConnection({
       endpoint,
@@ -842,6 +858,65 @@ router.post(
       addTestHistory(newHistoryEntry({
         type: 'fill',
         endpoint: config.fillEngine.endpoint,
+        success: false,
+        elapsedMs,
+        error: info,
+      }));
+      res.json({ success: false, message: info.message, elapsedMs, error: info });
+    }
+  }),
+);
+
+router.post(
+  '/ai-test/vision',
+  enforceRateLimit,
+  asyncWrap(async (req, res) => {
+    const saved = loadAiConfig();
+    const endpoint = normalizeServiceBase(String(req.body?.endpoint || saved.visionEngine.endpoint));
+    const apiKey = resolveSecretForEndpoint(
+      endpoint,
+      req.body?.apiKey,
+      saved.visionEngine.endpoint,
+      saved.visionEngine.apiKey,
+    );
+    const config: AiConfig = {
+      ...saved,
+      visionEngine: {
+        ...saved.visionEngine,
+        endpoint,
+        apiKey,
+        model: String(req.body?.model || saved.visionEngine.model),
+      },
+    };
+
+    const start = Date.now();
+    try {
+      if (!existsSync(SAMPLE_VISION_PATH)) {
+        throw new AppError(400, 'SAMPLE_MISSING', '内置截图样例不存在');
+      }
+      const image = readFileSync(SAMPLE_VISION_PATH).toString('base64');
+      const engine = getSmartFillVisionEngine(config);
+      if (!engine) throw new Error('截图识别视觉模型未启用或未配置完整');
+      const items = await engine.parseFromImage(image);
+      const success = items.length > 0;
+      const message = success
+        ? `视觉模型识别成功，解析到 ${items.length} 条费用`
+        : '模型响应但未解析到结构化数据';
+      const elapsedMs = Date.now() - start;
+      addTestHistory(newHistoryEntry({
+        type: 'fill',
+        endpoint,
+        success,
+        elapsedMs,
+        fields: { itemCount: items.length },
+      }));
+      res.json({ success, message, elapsedMs, items });
+    } catch (error: any) {
+      const info = classifyEngineError(error);
+      const elapsedMs = Date.now() - start;
+      addTestHistory(newHistoryEntry({
+        type: 'fill',
+        endpoint,
         success: false,
         elapsedMs,
         error: info,
