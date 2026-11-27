@@ -34,6 +34,7 @@ import {
   getSmartFillVisionEngine,
   loadAiConfig,
   saveAiConfig,
+  visionEngineIssue,
 } from '../services/ai-engines';
 import {
   addTestHistory,
@@ -891,12 +892,22 @@ router.post(
 
     const start = Date.now();
     try {
+      const issue = visionEngineIssue(config);
+      if (issue === 'disabled') {
+        throw new Error('截图识别视觉模型未启用，请勾选「启用」后重试');
+      }
+      if (issue === 'missing_endpoint') {
+        throw new Error('请先填写截图识别视觉模型的 API 地址');
+      }
+      if (issue === 'missing_model') {
+        throw new Error('请先选择截图识别视觉模型');
+      }
       if (!existsSync(SAMPLE_VISION_PATH)) {
         throw new AppError(400, 'SAMPLE_MISSING', '内置截图样例不存在');
       }
       const image = readFileSync(SAMPLE_VISION_PATH).toString('base64');
       const engine = getSmartFillVisionEngine(config);
-      if (!engine) throw new Error('截图识别视觉模型未启用或未配置完整');
+      if (!engine) throw new Error('截图识别视觉模型未配置完整');
       const items = await engine.parseFromImage(image);
       const success = items.length > 0;
       const message = success

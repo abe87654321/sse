@@ -39,6 +39,13 @@ jest.mock('../services/ai-engines', () => ({
   createOCREngine: jest.fn(),
   getSmartFillEngine: jest.fn(),
   getSmartFillVisionEngine: (config: any) => mockGetSmartFillVisionEngine(config),
+  visionEngineIssue: (config: any) => {
+    const vision = config?.visionEngine;
+    if (!vision?.enabled) return 'disabled';
+    if (!vision.endpoint) return 'missing_endpoint';
+    if (!vision.model) return 'missing_model';
+    return null;
+  },
 }));
 
 import express from 'express';
@@ -153,7 +160,53 @@ describe('POST /admin/ai-test/vision', () => {
     expect(mockGetSmartFillVisionEngine.mock.calls[0][0].visionEngine.apiKey).toBe('vision-key');
   });
 
-  it('returns a failure result when the vision engine is not configured', async () => {
+  it('tells the admin to enable the engine when it is disabled', async () => {
+    mockLoadAiConfig.mockReturnValue({
+      ...savedConfig,
+      visionEngine: { ...savedConfig.visionEngine, enabled: false },
+    });
+
+    const response = await post('/admin/ai-test/vision', {});
+
+    expect(response.status).toBe(200);
+    const payload: any = await response.json();
+    expect(payload.success).toBe(false);
+    expect(payload.message).toContain('未启用');
+    expect(payload.message).toContain('启用');
+    expect(mockGetSmartFillVisionEngine).not.toHaveBeenCalled();
+  });
+
+  it('tells the admin to fill in the endpoint when it is missing', async () => {
+    mockLoadAiConfig.mockReturnValue({
+      ...savedConfig,
+      visionEngine: { ...savedConfig.visionEngine, enabled: true, endpoint: '' },
+    });
+
+    const response = await post('/admin/ai-test/vision', {});
+
+    expect(response.status).toBe(200);
+    const payload: any = await response.json();
+    expect(payload.success).toBe(false);
+    expect(payload.message).toContain('API 地址');
+    expect(mockGetSmartFillVisionEngine).not.toHaveBeenCalled();
+  });
+
+  it('tells the admin to choose a model when it is missing', async () => {
+    mockLoadAiConfig.mockReturnValue({
+      ...savedConfig,
+      visionEngine: { ...savedConfig.visionEngine, enabled: true, model: '' },
+    });
+
+    const response = await post('/admin/ai-test/vision', {});
+
+    expect(response.status).toBe(200);
+    const payload: any = await response.json();
+    expect(payload.success).toBe(false);
+    expect(payload.message).toContain('模型');
+    expect(mockGetSmartFillVisionEngine).not.toHaveBeenCalled();
+  });
+
+  it('reports a generic failure if the engine cannot be created', async () => {
     mockGetSmartFillVisionEngine.mockReturnValue(null);
 
     const response = await post('/admin/ai-test/vision', {
@@ -164,7 +217,7 @@ describe('POST /admin/ai-test/vision', () => {
     expect(response.status).toBe(200);
     const payload: any = await response.json();
     expect(payload.success).toBe(false);
-    expect(payload.message).toContain('未启用或未配置');
+    expect(payload.message).toContain('未配置完整');
   });
 });
 

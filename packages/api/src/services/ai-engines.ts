@@ -127,14 +127,28 @@ export function getSmartFillEngine(config: AiConfig = loadAiConfig()): SmartFill
   return provider ? new SmartFillEngine(provider) : null;
 }
 
+export type VisionEngineIssue = 'disabled' | 'missing_endpoint' | 'missing_model';
+
+/**
+ * Reason the screenshot-recognition vision engine cannot be used, or null when
+ * it is ready. Lets callers show an actionable message for each missing field.
+ */
+export function visionEngineIssue(config: AiConfig = loadAiConfig()): VisionEngineIssue | null {
+  const vision = config.visionEngine;
+  if (!vision?.enabled) return 'disabled';
+  if (!vision.endpoint) return 'missing_endpoint';
+  if (!vision.model) return 'missing_model';
+  return null;
+}
+
 /**
  * Provider for screenshot recognition. Uses the vision engine configured in
  * system management; returns null when it is disabled or incomplete so the
  * caller can surface a clear "not configured" error instead of an empty result.
  */
 export function createVisionFillProvider(config: AiConfig = loadAiConfig()): LocalProvider | null {
+  if (visionEngineIssue(config)) return null;
   const vision = config.visionEngine;
-  if (!vision?.enabled || !vision.endpoint || !vision.model) return null;
   return new LocalProvider({
     endpoint: vision.endpoint,
     modelName: vision.model,
