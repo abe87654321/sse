@@ -94,6 +94,16 @@
             </template>
           </button>
 
+          <div v-if="aiError" class="ai-inline-error" role="alert">{{ aiError }}</div>
+          <div
+            v-else-if="aiParsed && aiResult.length === 0 && !aiLoading"
+            class="ai-inline-empty"
+            role="status"
+            aria-live="polite"
+          >
+            未识别到内容，请换一张更清晰的图片或改用手动填写
+          </div>
+
           <div v-if="aiResult.length > 0" class="ai-result">
             <p class="ai-result-title">识别结果（可修改后确认）</p>
             <div v-for="(item, i) in aiResult" :key="i" class="ai-result-item">
@@ -213,7 +223,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, computed, ref, onMounted } from 'vue'
+import { reactive, computed, ref, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../api/index'
 import InvoiceVerificationPanel from '../components/InvoiceVerificationPanel.vue'
@@ -234,7 +244,11 @@ const aiImagePreview = ref('')
 const aiImageBase64 = ref('')
 const aiInvoiceFile = ref<File | null>(null)
 const aiLoading = ref(false)
+const aiError = ref('')
+const aiParsed = ref(false)
 const aiResult = ref<Array<{ categoryName: string; amount: number; expenseDate: string; description: string }>>([])
+
+const AI_REQUEST_TIMEOUT = 120000
 
 const aiTabHints: Record<string, string> = {
   text: '输入报销相关的文字描述，AI 自动解析费用明细',
@@ -344,28 +358,47 @@ function handleInvoiceSelect(e: Event) {
 
 async function handleAIParse() {
   aiLoading.value = true
-  error.value = ''
+  aiError.value = ''
+  aiParsed.value = false
   try {
     if (aiTab.value === 'text') {
-      const res = await api.post('/ai/parse', { text: aiTextInput.value.trim() })
+      const res = await api.post(
+        '/ai/parse',
+        { text: aiTextInput.value.trim() },
+        { timeout: AI_REQUEST_TIMEOUT },
+      )
       aiResult.value = res.data.items || []
     } else if (aiTab.value === 'image') {
-      const res = await api.post('/ai/parse', { image: aiImageBase64.value })
+      const res = await api.post(
+        '/ai/parse',
+        { image: aiImageBase64.value },
+        { timeout: AI_REQUEST_TIMEOUT },
+      )
       aiResult.value = res.data.items || []
     } else if (aiTab.value === 'invoice') {
       const formData = new FormData()
       formData.append('file', aiInvoiceFile.value!)
       const res = await api.post('/ai/parse-invoice', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: AI_REQUEST_TIMEOUT,
       })
       aiResult.value = res.data.items || []
     }
+    aiParsed.value = true
   } catch (e: any) {
-    error.value = e?.response?.data?.error?.message || 'AI 识别失败，请重试'
+    aiError.value = e?.code === 'ECONNABORTED'
+      ? '识别超时，AI 模型响应较慢，请稍后重试'
+      : e?.response?.data?.error?.message || 'AI 识别失败，请重试'
   } finally {
     aiLoading.value = false
   }
 }
+
+watch(aiTab, () => {
+  aiError.value = ''
+  aiParsed.value = false
+  aiResult.value = []
+})
 
 function clearAIResult() {
   aiTextInput.value = ''
@@ -373,6 +406,8 @@ function clearAIResult() {
   aiImageBase64.value = ''
   aiInvoiceFile.value = null
   aiResult.value = []
+  aiError.value = ''
+  aiParsed.value = false
 }
 
 function applyAIResult() {
@@ -905,6 +940,25 @@ async function handleSubmit() {
   animation: spin 0.6s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.ai-inline-error {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  color: #b42318;
+  background: #fef3f2;
+  border: 1px solid #fecdca;
+}
+.ai-inline-empty {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  background: var(--bg-subtle, #f8f9fa);
+  border: 1px solid var(--border);
+}
 
 .ai-result { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
 .ai-result-title { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 10px; }

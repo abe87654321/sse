@@ -11,7 +11,7 @@
           <input
             id="fill-endpoint"
             v-model="cfg.fillEngine.endpoint"
-            placeholder="http://192.168.3.117:11434"
+            placeholder="http://host:11434"
             @blur="loadCatalogForEndpoint"
           />
           <div class="field-hint">填写到端口或 /v1 即可，系统会自动补全接口路径</div>
@@ -64,6 +64,38 @@
       </div>
     </div>
 
+    <!-- 截图识别视觉模型 -->
+    <div class="card" style="margin-bottom:20px">
+      <h3 class="font-heading section-title">📸 截图识别视觉模型</h3>
+      <p class="field-hint" style="margin:0 0 12px">
+        仅用于「AI 智能填单 → 截图识别」。请填写支持图片输入的多模态模型；文字识别仍使用上方智能填单引擎。
+      </p>
+      <div class="form-grid">
+        <div class="field full">
+          <label for="vision-ai-endpoint">API 地址</label>
+          <input id="vision-ai-endpoint" v-model="cfg.visionEngine.endpoint" placeholder="http://host:11434（OpenAI 兼容地址）" />
+        </div>
+        <div class="field full">
+          <label for="vision-ai-model">视觉模型名</label>
+          <input id="vision-ai-model" v-model="cfg.visionEngine.model" placeholder="例如 qwen3-vl:8b" />
+        </div>
+        <div class="field full">
+          <label for="vision-ai-api-key">API 密钥</label>
+          <input
+            id="vision-ai-api-key"
+            v-model="cfg.visionEngine.apiKey"
+            type="password"
+            autocomplete="new-password"
+            :placeholder="cfg.visionEngine.apiKeySet ? '已配置，留空则不修改' : '可选，留空表示无密钥'"
+          />
+        </div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button type="button" class="btn-primary btn-sm" @click="saveConfig" :disabled="saving">💾 保存</button>
+        <label class="toggle-label"><input type="checkbox" v-model="cfg.visionEngine.enabled" @change="saveConfig" /><span>启用</span></label>
+      </div>
+    </div>
+
     <!-- 发票OCR引擎 -->
     <div class="card" style="margin-bottom:20px">
       <h3 class="font-heading section-title">🧾 发票OCR引擎</h3>
@@ -98,7 +130,7 @@
           <div class="field full"><label for="paddle-endpoint">PaddleOCR 端点</label><input id="paddle-endpoint" v-model="cfg.ocrEngine.paddleEndpoint" placeholder="http://localhost:8899" /></div>
         </template>
         <template v-else>
-          <div class="field"><label for="vision-endpoint">视觉模型端点</label><input id="vision-endpoint" v-model="cfg.ocrEngine.visionEndpoint" placeholder="http://192.168.3.117:11434" /></div>
+          <div class="field"><label for="vision-endpoint">视觉模型端点</label><input id="vision-endpoint" v-model="cfg.ocrEngine.visionEndpoint" placeholder="http://host:11434" /></div>
           <div class="field"><label for="vision-model">视觉模型名</label><input id="vision-model" v-model="cfg.ocrEngine.visionModel" /></div>
           <div class="field full">
             <label for="vision-api-key">视觉模型 API 密钥</label>
@@ -180,6 +212,7 @@ import { normalizeEndpoint } from '@/utils/endpoint'
 
 const cfg = reactive<any>({
   fillEngine: { endpoint: '', apiKey: '', apiKeySet: false, model: '', enabled: true, catalogs: {} },
+  visionEngine: { endpoint: '', apiKey: '', apiKeySet: false, model: '', enabled: false },
   ocrEngine: {
     provider: 'mineru',
     mineruEndpoint: '',
@@ -295,6 +328,12 @@ async function saveConfig() {
         model: cfg.fillEngine.model,
         enabled: cfg.fillEngine.enabled,
         ...(catalog ? { catalog } : {}),
+      },
+      visionEngine: {
+        endpoint: cfg.visionEngine.endpoint,
+        apiKey: cfg.visionEngine.apiKey,
+        model: cfg.visionEngine.model,
+        enabled: cfg.visionEngine.enabled,
       },
       ocrEngine: {
         provider: cfg.ocrEngine.provider,

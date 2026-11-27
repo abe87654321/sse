@@ -2,7 +2,13 @@ import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { authMiddleware } from '@sse/auth';
 import { AppError } from '../middleware/error';
-import { createFillProvider, createOCREngine, getSmartFillEngine, loadAiConfig } from '../services/ai-engines';
+import {
+  createFillProvider,
+  createOCREngine,
+  getSmartFillEngine,
+  getSmartFillVisionEngine,
+  loadAiConfig,
+} from '../services/ai-engines';
 
 const router = Router();
 router.use(authMiddleware);
@@ -40,16 +46,23 @@ router.post(
       throw new AppError(400, 'INVALID_PARAMS', '请提供 image(base64) 或 text 参数');
     }
 
-    const engine = getSmartFillEngine();
-    if (!engine) {
-      throw new AppError(503, 'AI_DISABLED', '智能填单引擎未启用');
-    }
-
     let items;
     if (image) {
+      const engine = getSmartFillVisionEngine();
+      if (!engine) {
+        throw new AppError(
+          503,
+          'VISION_AI_DISABLED',
+          '截图识别视觉模型未启用，请在系统管理中配置',
+        );
+      }
       const base64 = image.replace(/^data:image\/\w+;base64,/, '');
       items = await engine.parseFromImage(base64);
     } else {
+      const engine = getSmartFillEngine();
+      if (!engine) {
+        throw new AppError(503, 'AI_DISABLED', '智能填单引擎未启用');
+      }
       items = await engine.parseFromText(text);
     }
 

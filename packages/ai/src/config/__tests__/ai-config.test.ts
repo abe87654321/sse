@@ -336,3 +336,79 @@ describe('persisted ai config', () => {
     expect(reloaded.ocrEngine.mineruTokenSource).toBe('env');
   });
 });
+
+describe('vision engine (screenshot recognition)', () => {
+  it('is disabled and unconfigured by default', () => {
+    const config = createDefaultAiConfig({} as any);
+    expect(config.visionEngine.enabled).toBe(false);
+    expect(config.visionEngine.endpoint).toBe('');
+    expect(config.visionEngine.model).toBe('');
+  });
+
+  it('normalizes a saved vision engine and keeps its secret', () => {
+    const config = normalizeAiConfig({
+      visionEngine: {
+        endpoint: 'http://vision-host:11434/v1',
+        apiKey: 'vision-secret',
+        model: 'qwen3-vl:8b',
+        enabled: true,
+      },
+    });
+    expect(config.visionEngine.endpoint).toBe('http://vision-host:11434');
+    expect(config.visionEngine.apiKey).toBe('vision-secret');
+    expect(config.visionEngine.model).toBe('qwen3-vl:8b');
+    expect(config.visionEngine.enabled).toBe(true);
+  });
+
+  it('masks the vision secret in the public config', () => {
+    const config = createDefaultAiConfig({} as any);
+    config.visionEngine.apiKey = 'secret';
+    const pub = toPublicAiConfig(config);
+    expect(pub.visionEngine.apiKey).toBe('');
+    expect(pub.visionEngine.apiKeySet).toBe(true);
+  });
+
+  it('enables and configures the vision engine through a patch', () => {
+    const config = createDefaultAiConfig({} as any);
+    const next = applyAiConfigPatch(config, {
+      visionEngine: {
+        endpoint: 'http://vision-host:11434',
+        model: 'qwen3-vl:8b',
+        enabled: true,
+      },
+    });
+    expect(next.visionEngine.endpoint).toBe('http://vision-host:11434');
+    expect(next.visionEngine.model).toBe('qwen3-vl:8b');
+    expect(next.visionEngine.enabled).toBe(true);
+  });
+
+  it('keeps a saved vision secret when the endpoint is unchanged', () => {
+    const config = createDefaultAiConfig({} as any);
+    config.visionEngine.endpoint = 'http://vision-host:11434';
+    config.visionEngine.apiKey = 'saved';
+    const next = applyAiConfigPatch(config, {
+      visionEngine: { endpoint: 'http://vision-host:11434', apiKey: '' },
+    });
+    expect(next.visionEngine.apiKey).toBe('saved');
+  });
+
+  it('clears a saved vision secret when the endpoint changes with a blank secret', () => {
+    const config = createDefaultAiConfig({} as any);
+    config.visionEngine.endpoint = 'http://old-vision:11434';
+    config.visionEngine.apiKey = 'SECRET';
+    const next = applyAiConfigPatch(config, {
+      visionEngine: { endpoint: 'http://new-vision:11434', apiKey: '' },
+    });
+    expect(next.visionEngine.apiKey).toBe('');
+  });
+
+  it('keeps a newly provided vision secret when the endpoint changes', () => {
+    const config = createDefaultAiConfig({} as any);
+    config.visionEngine.endpoint = 'http://old-vision:11434';
+    config.visionEngine.apiKey = 'SECRET';
+    const next = applyAiConfigPatch(config, {
+      visionEngine: { endpoint: 'http://new-vision:11434', apiKey: 'NEW' },
+    });
+    expect(next.visionEngine.apiKey).toBe('NEW');
+  });
+});

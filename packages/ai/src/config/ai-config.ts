@@ -31,6 +31,18 @@ export interface FillEngineConfig {
   catalogs: Record<string, ModelCatalog>;
 }
 
+/**
+ * Vision model used only for screenshot recognition (AI 智能填单 → 截图识别).
+ * Kept separate from the text fill engine so a text-only model can never be
+ * silently used for images. Configured in system management.
+ */
+export interface VisionEngineConfig {
+  endpoint: string;
+  apiKey: string;
+  model: string;
+  enabled: boolean;
+}
+
 export interface OcrEngineConfig {
   provider: OcrProvider;
   mineruEndpoint: string;
@@ -46,6 +58,7 @@ export interface OcrEngineConfig {
 
 export interface AiConfig {
   fillEngine: FillEngineConfig;
+  visionEngine: VisionEngineConfig;
   ocrEngine: OcrEngineConfig;
 }
 
@@ -56,6 +69,13 @@ export interface AiConfigPatch {
     model?: string;
     enabled?: boolean;
     catalog?: ModelCatalog;
+    clearApiKey?: boolean;
+  };
+  visionEngine?: {
+    endpoint?: string;
+    apiKey?: string;
+    model?: string;
+    enabled?: boolean;
     clearApiKey?: boolean;
   };
   ocrEngine?: {
@@ -82,6 +102,13 @@ export interface PublicAiConfig {
     enabled: boolean;
     catalogs: Record<string, ModelCatalog>;
   };
+  visionEngine: {
+    endpoint: string;
+    apiKey: '';
+    apiKeySet: boolean;
+    model: string;
+    enabled: boolean;
+  };
   ocrEngine: Omit<OcrEngineConfig, 'mineruToken' | 'visionApiKey' | 'mineruTokenCleared'> & {
     mineruToken: '';
     mineruTokenSet: boolean;
@@ -104,6 +131,12 @@ export function createDefaultAiConfig(env: NodeJS.ProcessEnv = process.env): AiC
       model: env.AI_MODEL || 'llama3.1:8b',
       enabled: true,
       catalogs: {},
+    },
+    visionEngine: {
+      endpoint: '',
+      apiKey: '',
+      model: '',
+      enabled: false,
     },
     ocrEngine: {
       provider: 'mineru',
@@ -179,6 +212,7 @@ function ensureActiveModelSelected(config: AiConfig): void {
 export function normalizeAiConfig(saved: any, env: NodeJS.ProcessEnv = process.env): AiConfig {
   const defaults = createDefaultAiConfig(env);
   const fill = saved?.fillEngine || {};
+  const vision = saved?.visionEngine || {};
   const ocr = saved?.ocrEngine || {};
   const savedMineruToken = typeof ocr.mineruToken === 'string' ? ocr.mineruToken.trim() : '';
   const envMineruToken = defaults.ocrEngine.mineruToken.trim();
@@ -198,6 +232,12 @@ export function normalizeAiConfig(saved: any, env: NodeJS.ProcessEnv = process.e
       model: typeof fill.model === 'string' ? fill.model : defaults.fillEngine.model,
       enabled: fill.enabled !== false,
       catalogs: normalizeCatalogs(fill.catalogs),
+    },
+    visionEngine: {
+      endpoint: normalizeServiceBase(vision.endpoint || defaults.visionEngine.endpoint),
+      apiKey: typeof vision.apiKey === 'string' ? vision.apiKey : defaults.visionEngine.apiKey,
+      model: typeof vision.model === 'string' ? vision.model : defaults.visionEngine.model,
+      enabled: vision.enabled === true,
     },
     ocrEngine: {
       provider: isOcrProvider(ocr.provider) ? ocr.provider : 'mineru',
@@ -251,6 +291,27 @@ export function applyAiConfigPatch(
       const key = normalizeServiceBase(next.fillEngine.endpoint);
       const catalog = normalizeCatalog(fill.catalog);
       if (key && catalog) next.fillEngine.catalogs[key] = catalog;
+    }
+  }
+
+  const vision = patch.visionEngine;
+  if (vision) {
+    const previousVisionEndpoint = normalizeServiceBase(next.visionEngine.endpoint);
+    if (typeof vision.endpoint === 'string') {
+      next.visionEngine.endpoint = normalizeServiceBase(vision.endpoint);
+    }
+    if (typeof vision.model === 'string') next.visionEngine.model = vision.model;
+    if (typeof vision.enabled === 'boolean') next.visionEngine.enabled = vision.enabled;
+
+    const endpointChanged =
+      normalizeServiceBase(next.visionEngine.endpoint) !== previousVisionEndpoint;
+    if (vision.clearApiKey) {
+      next.visionEngine.apiKey = '';
+    } else {
+      if (endpointChanged) next.visionEngine.apiKey = '';
+      if (typeof vision.apiKey === 'string' && vision.apiKey.trim()) {
+        next.visionEngine.apiKey = vision.apiKey.trim();
+      }
     }
   }
 
@@ -330,6 +391,13 @@ export function toPublicAiConfig(
       model: config.fillEngine.model,
       enabled: config.fillEngine.enabled,
       catalogs: JSON.parse(JSON.stringify(config.fillEngine.catalogs)),
+    },
+    visionEngine: {
+      endpoint: config.visionEngine.endpoint,
+      apiKey: '',
+      apiKeySet: !!config.visionEngine.apiKey,
+      model: config.visionEngine.model,
+      enabled: config.visionEngine.enabled,
     },
     ocrEngine: {
       provider: config.ocrEngine.provider,

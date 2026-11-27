@@ -126,3 +126,24 @@ export function getSmartFillEngine(config: AiConfig = loadAiConfig()): SmartFill
   const provider = createFillProvider(config);
   return provider ? new SmartFillEngine(provider) : null;
 }
+
+/**
+ * Provider for screenshot recognition. Uses the vision engine configured in
+ * system management; returns null when it is disabled or incomplete so the
+ * caller can surface a clear "not configured" error instead of an empty result.
+ */
+export function createVisionFillProvider(config: AiConfig = loadAiConfig()): LocalProvider | null {
+  const vision = config.visionEngine;
+  if (!vision?.enabled || !vision.endpoint || !vision.model) return null;
+  return new LocalProvider({
+    endpoint: vision.endpoint,
+    modelName: vision.model,
+    apiKey: vision.apiKey,
+    timeoutMs: 120000,
+  });
+}
+
+export function getSmartFillVisionEngine(config: AiConfig = loadAiConfig()): SmartFillEngine | null {
+  const provider = createVisionFillProvider(config);
+  return provider ? new SmartFillEngine(provider) : null;
+}
