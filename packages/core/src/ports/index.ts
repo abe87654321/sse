@@ -2,6 +2,7 @@ export type { IExpenseRepo, ExpenseQuery } from './iexpense-repo';
 export type { IUserRepo } from './iuser-repo';
 export type { IInvoiceRepo } from './iinvoice-repo';
 export type { IApprovalRuleRepo } from './iapproval-rule-repo';
+export type { IApproverAssignmentRepo } from './iapprover-assignment-repo';
 export type { IApprovalRecordRepo } from './iapproval-record-repo';
 export type { INotificationLogRepo } from './inotification-log-repo';
 export type { INotificationRepo } from './inotification-repo';

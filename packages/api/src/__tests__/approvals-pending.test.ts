@@ -6,6 +6,11 @@ jest.mock('@sse/db', () => ({
   PgApprovalRecordRepo: jest.fn().mockImplementation(() => ({})),
   PgExpenseRepo: jest.fn().mockImplementation(() => ({})),
   PgApprovalRuleRepo: jest.fn().mockImplementation(() => ({})),
+  PgApproverAssignmentRepo: jest.fn().mockImplementation(() => ({
+    findApproverIdForDepartmentName: jest.fn(async () => null),
+    findFallbackAdminId: jest.fn(async () => null),
+    findDepartmentsForUser: jest.fn(async () => []),
+  })),
   PgUserRepo: jest.fn().mockImplementation(() => ({})),
   PgReportSnapshotRepo: jest.fn().mockImplementation(() => ({})),
 }));
@@ -62,7 +67,7 @@ describe('GET /approvals/pending approver identity', () => {
     expect(params).toEqual(['pending', 'fin-1', 'finance']);
   });
 
-  it('filters dept_approver records by user id and applicant department', async () => {
+  it('filters dept_approver records by user id only (multi-department)', async () => {
     const token = signToken({ userId: 'dept-1', role: 'dept_approver', department: '技术部' });
     const response = await fetch(`${url}/approvals/pending`, {
       headers: { authorization: `Bearer ${token}` },
@@ -72,9 +77,7 @@ describe('GET /approvals/pending approver identity', () => {
     const [sql, params] = mockQuery.mock.calls[0];
     expect(sql).toContain('ar.approver_id::text = $2');
     expect(sql).toContain('ar.approver_id::text = $3');
-    expect(sql).toContain(
-      'u.department_id = (SELECT id FROM departments WHERE name = $4)'
-    );
-    expect(params).toEqual(['pending', 'dept-1', 'dept_approver', '技术部']);
+    expect(sql).not.toContain('u.department_id = (SELECT id FROM departments');
+    expect(params).toEqual(['pending', 'dept-1', 'dept_approver']);
   });
 });

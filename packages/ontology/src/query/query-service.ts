@@ -42,6 +42,7 @@ export class InvalidQueryError extends Error {
 export type Scope =
   | { kind: 'all' }
   | { kind: 'department'; department: string }
+  | { kind: 'departments'; departments: string[] }
   | { kind: 'self'; userId: string }
   | { kind: 'deny' };
 
@@ -216,6 +217,21 @@ function scopePatterns(scope: Scope, entity: string): string[] {
         `?scopeReport <${sse('submittedBy')}> ?scopePerson . ?scopePerson <${sse('belongsTo')}> ?scopeDept . ?scopeDept <${sse('name')}> ${name}`;
       return [`{
         ${departmentPattern(entity, scope.department)}
+        UNION
+        ${childScopePatterns(entity, reportOwner).join('\n        UNION\n        ')}
+      }`];
+    }
+    case 'departments': {
+      const names = (scope.departments || []).filter(Boolean);
+      if (names.length === 0) return ['FILTER(false)'];
+      const list = names.map((name) => sparqlString(name)).join(', ');
+      const reportOwner =
+        `?scopeReport <${sse('submittedBy')}> ?scopePerson . ?scopePerson <${sse('belongsTo')}> ?scopeDept . ?scopeDept <${sse('name')}> ?scopeDeptName . FILTER(?scopeDeptName IN (${list}))`;
+      const direct = names
+        .map((name) => departmentPattern(entity, name))
+        .join('\n        UNION\n        ');
+      return [`{
+        ${direct}
         UNION
         ${childScopePatterns(entity, reportOwner).join('\n        UNION\n        ')}
       }`];
@@ -795,6 +811,22 @@ ORDER BY ?property`);
         { ${subject} a <${sse('Department')}> . ${person} <${sse('belongsTo')}> ${subject} }
         UNION
         { ${subject} <${sse('submittedBy')}> ${person} }
+        UNION
+        ${childScopePatterns(subject, reportOwner).join('\n        UNION\n        ')}
+      }`;
+    } else if (scope.kind === 'departments') {
+      const names = (scope.departments || []).filter(Boolean);
+      if (names.length === 0) return false;
+      const list = names.map((name) => sparqlString(name)).join(', ');
+      const deptFilter = `?scopeDept <${sse('name')}> ?scopeDeptName . FILTER(?scopeDeptName IN (${list}))`;
+      const personInDept = `?scopePerson <${sse('belongsTo')}> ?scopeDept . ${deptFilter}`;
+      const reportOwner = `?scopeReport <${sse('submittedBy')}> ?scopePerson . ${personInDept}`;
+      body = `{
+        { ${subject} <${sse('submittedBy')}> ?scopePerson . ${personInDept} }
+        UNION
+        { ${subject} <${sse('belongsTo')}> ?scopeDept . ${deptFilter} }
+        UNION
+        { ${subject} a <${sse('Department')}> . ${subject} <${sse('name')}> ?scopeDeptName . FILTER(?scopeDeptName IN (${list})) }
         UNION
         ${childScopePatterns(subject, reportOwner).join('\n        UNION\n        ')}
       }`;

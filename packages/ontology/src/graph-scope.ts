@@ -5,6 +5,7 @@ export interface GraphScope {
   role: string;
   userId: string;
   department?: string;
+  departments?: string[];
 }
 
 const FULL_ACCESS_ROLES = new Set<string>([UserRole.ADMIN, UserRole.FINANCE]);
@@ -52,9 +53,11 @@ export function scopeGraphForUser(graph: OntologyGraph, scope: GraphScope): Onto
   const keep = new Set<string>();
 
   if (scope.role === UserRole.DEPT_APPROVER) {
-    if (!normalize(scope.department)) return { nodes: [], edges: [] };
+    const departments = scope.departments ?? (scope.department ? [scope.department] : []);
+    const valid = departments.filter((name) => normalize(name));
+    if (valid.length === 0) return { nodes: [], edges: [] };
     for (const node of graph.nodes) {
-      if (belongsToDepartment(node, scope.department!)) keep.add(node.id);
+      if (valid.some((name) => belongsToDepartment(node, name))) keep.add(node.id);
     }
     expandHops(graph, keep, 1);
   } else if (scope.role === UserRole.EMPLOYEE) {

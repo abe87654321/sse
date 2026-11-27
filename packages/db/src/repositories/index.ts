@@ -5,6 +5,10 @@ export type { Department } from './pg-department-repo';
 export { PgInvoiceRepo } from './pg-invoice-repo';
 export { PgApprovalRuleRepo } from './pg-approval-rule-repo';
 export { PgApprovalRecordRepo } from './pg-approval-record-repo';
+export {
+  PgApproverAssignmentRepo,
+  ApproverConflictError,
+} from './pg-approver-assignment-repo';
 export { PgNotificationLogRepo } from './pg-notification-log-repo';
 export { PgReasoningRuleRepo } from './pg-reasoning-rule-repo';
 export { PgPaymentReceiptRepo } from './pg-payment-receipt-repo';

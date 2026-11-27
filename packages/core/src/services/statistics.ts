@@ -3,6 +3,7 @@ export const SPENDING_STATUSES = ['approved', 'paid'] as const;
 export type StatisticsScope =
   | { kind: 'all' }
   | { kind: 'department'; department: string }
+  | { kind: 'departments'; departments: string[] }
   | { kind: 'self'; userId: string };
 
 export interface StatisticsQuery {
@@ -15,6 +16,7 @@ export interface StatisticsFilter {
   dateFrom?: string;
   dateTo?: string;
   department?: string;
+  departments?: string[];
   userId?: string;
 }
 
@@ -41,6 +43,9 @@ export function resolveStatisticsFilter(
   if (scope.kind === 'department') {
     return { department: scope.department, dateFrom, dateTo };
   }
+  if (scope.kind === 'departments') {
+    return { departments: scope.departments, dateFrom, dateTo };
+  }
   return { department: readString(query.department), dateFrom, dateTo };
 }
 
@@ -62,6 +67,12 @@ export function buildStatisticsPredicate(
     );
     params.push(filter.department);
   }
+  if (filter.departments && filter.departments.length > 0) {
+    conditions.push(
+      `u.department_id IN (SELECT id FROM departments WHERE name = ANY($${idx++}))`
+    );
+    params.push(filter.departments);
+  }
   if (filter.dateFrom) {
     conditions.push(`er.created_at >= $${idx++}::date`);
     params.push(filter.dateFrom);
@@ -78,12 +89,13 @@ export function buildStatisticsPredicate(
   return {
     where: conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '',
     params,
-    needsUserJoin: Boolean(filter.department),
+    needsUserJoin: Boolean(filter.department || (filter.departments && filter.departments.length > 0)),
   };
 }
 
 export function statisticsScopeLabel(scope: StatisticsScope): string {
   if (scope.kind === 'self') return '本人';
   if (scope.kind === 'department') return scope.department;
+  if (scope.kind === 'departments') return scope.departments.join('、');
   return '全公司';
 }

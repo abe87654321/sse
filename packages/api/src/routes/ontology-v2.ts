@@ -52,6 +52,7 @@ function toScope(req: Request) {
     role: req.user!.role,
     userId: req.user!.userId,
     department: req.user!.department,
+    approverDepartments: req.user!.approverDepartments,
   });
 }
 

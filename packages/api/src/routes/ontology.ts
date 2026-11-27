@@ -22,6 +22,7 @@ function scopedGraph(req: Request) {
     role: req.user!.role,
     userId: req.user!.userId,
     department: req.user!.department,
+    departments: req.user!.approverDepartments,
   });
 }
 
@@ -35,6 +36,7 @@ function v2Scope(req: Request) {
     role: req.user!.role,
     userId: req.user!.userId,
     department: req.user!.department,
+    approverDepartments: req.user!.approverDepartments,
   });
 }
 

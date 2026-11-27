@@ -4,6 +4,7 @@ import {
   PgInvoiceRepo,
   PgApprovalRuleRepo,
   PgApprovalRecordRepo,
+  PgApproverAssignmentRepo,
   PgUserRepo,
   PgPaymentReceiptRepo,
   PgPaymentAuditRepo,
@@ -18,7 +19,7 @@ import { paymentPaidMessage } from '@sse/notifications';
 import { sendNotificationSafe } from '../services/notifications';
 import type { ExpenseQuery, VerificationSourceInvoice } from '@sse/core';
 import type { PaymentReceipt } from '@sse/shared';
-import { authMiddleware, canWriteReport } from '@sse/auth';
+import { authMiddleware, canViewReport, canWriteReport } from '@sse/auth';
 import { uploadInvoice, uploadPaymentReceipt, validateUploadSignature } from '../middleware/upload';
 import { AppError } from '../middleware/error';
 import { MinioStorage } from '../storage/minio-storage';
@@ -44,7 +45,8 @@ function getHistoryRepo(): PgVerificationHistoryRepo {
   if (!historyRepo) historyRepo = new PgVerificationHistoryRepo();
   return historyRepo;
 }
-const approvalEngine = new ApprovalEngine(ruleRepo, recordRepo);
+const approverRepo = new PgApproverAssignmentRepo();
+const approvalEngine = new ApprovalEngine(ruleRepo, recordRepo, approverRepo);
 const reportService = new ReportService(expenseRepo, ruleRepo, recordRepo);
 const minio = new MinioStorage();
 
@@ -60,16 +62,25 @@ async function assertReportWriteAccess(report: { userId: string }, user: { role:
   }
 }
 
-async function assertReportAccess(report: any, user: { role: string; department?: string; userId: string }) {
+async function assertReportAccess(
+  report: any,
+  user: { role: string; department?: string; userId: string; approverDepartments?: string[] }
+) {
   const { rows: ownerRows } = await pool.query(
     'SELECT d.name AS department FROM users u JOIN departments d ON d.id = u.department_id WHERE u.id = $1',
     [report.userId]
   );
   const ownerDept = ownerRows.length > 0 ? ownerRows[0].department : '';
 
-  if (user.role === UserRole.ADMIN || user.role === UserRole.FINANCE) return;
-  if (user.role === UserRole.DEPT_APPROVER && ownerDept === user.department) return;
-  if (report.userId !== user.userId) {
+  const allowed = canViewReport(
+    user.role as UserRole,
+    user.department || '',
+    ownerDept,
+    report.userId,
+    user.userId,
+    user.approverDepartments
+  );
+  if (!allowed) {
     throw new AppError(403, 'UNAUTHORIZED', '无权查看此报销单');
   }
 }
@@ -126,11 +137,16 @@ router.get(
     if (role === UserRole.ADMIN || role === UserRole.FINANCE) {
       result = await expenseRepo.findMany(query);
     } else if (role === UserRole.DEPT_APPROVER) {
-      const { rows: deptUsers } = await pool.query(
-        'SELECT u.id FROM users u JOIN departments d ON d.id = u.department_id WHERE d.name = $1',
-        [department]
-      );
-      const deptUserIds = deptUsers.map((r: any) => r.id);
+      const scopeDepartments =
+        req.user!.approverDepartments ?? (department ? [department] : []);
+      const deptUsersResult =
+        scopeDepartments.length > 0
+          ? await pool.query(
+              'SELECT u.id FROM users u JOIN departments d ON d.id = u.department_id WHERE d.name = ANY($1)',
+              [scopeDepartments]
+            )
+          : { rows: [] as any[] };
+      const deptUserIds = deptUsersResult.rows.map((r: any) => r.id);
 
       const conditions: string[] = [];
       const values: any[] = [];
@@ -230,7 +246,7 @@ router.get(
     let ruleName = '';
     try {
       const ApprovalEngine = (await import('@sse/core')).ApprovalEngine;
-      const engine = new ApprovalEngine(ruleRepo, recordRepo);
+      const engine = new ApprovalEngine(ruleRepo, recordRepo, approverRepo);
       const matchedRule = await engine.matchRule(report.totalAmount, categoryIds);
       ruleName = matchedRule?.name || '';
     } catch { /* rule matching optional */ }

@@ -23,6 +23,8 @@ import { webhookRoutes } from './routes/webhook';
 import { serviceTokenAuth } from './middleware/service-auth';
 import { captureRawBody, serviceSignatureAuth } from './middleware/service-signature';
 import { attachRequestId, auditMutations } from './services/audit';
+import { setPrincipalLoader } from '@sse/auth';
+import { PgApproverAssignmentRepo } from '@sse/db';
 import { errorHandler } from './middleware/error';
 import { buildOpenApiDocument } from './openapi';
 import { processPendingPaymentReceipts } from './services/payment-receipt-verifier';
@@ -35,6 +37,14 @@ import {
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+
+// Enrich every authenticated request with the approver's current departments so
+// assignment changes take effect immediately (no stale JWT scope).
+const approverAssignmentRepo = new PgApproverAssignmentRepo();
+setPrincipalLoader(async (userId) => {
+  const departments = await approverAssignmentRepo.findDepartmentsForUser(userId);
+  return { approverDepartments: departments.map((d) => d.name) };
+});
 
 // Only trust forwarding headers when the deployment actually sits behind a
 // known number of proxies. Otherwise req.ip would be spoofable via

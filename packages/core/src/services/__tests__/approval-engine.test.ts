@@ -243,3 +243,96 @@ describe('ApprovalEngine transaction client forwarding', () => {
     expect(updateResult).toHaveBeenCalledWith('ar-1', 'approved', '同意', db);
   });
 });
+
+describe('ApprovalEngine department assignments', () => {
+  const rule: ApprovalRule = {
+    id: 'r1',
+    name: 'Two step',
+    minAmount: 0,
+    maxAmount: 10000,
+    categoryIds: [],
+    approvalChain: [
+      { step: 1, role: 'dept_approver', label: '部门审批' },
+      { step: 2, role: 'finance', label: '财务审批' },
+    ],
+    priority: 1,
+    isActive: true,
+  };
+
+  const ruleRepo = {
+    findActive: async () => [rule],
+    findById: async () => rule,
+    findAll: async () => [rule],
+    create: async () => ({}) as any,
+    update: async () => {},
+    delete: async () => {},
+  };
+
+  function buildEngine(approverRepo: any) {
+    const recordRepo = {
+      findByReportId: async () => [],
+      findPendingOverdue: async () => [],
+      create: async (r: any) => ({ ...r, id: 'ar-1' }),
+      updateResult: async () => {},
+      markReminderSent: async () => {},
+      markEscalated: async () => {},
+    };
+    return new ApprovalEngine(ruleRepo, recordRepo, approverRepo);
+  }
+
+  const emptyUserRepo = {
+    findById: async () => null,
+    findByRole: async () => [],
+  };
+
+  it('uses the approver assigned to the applicant department', async () => {
+    const calls: string[] = [];
+    const approverRepo = {
+      findApproverIdForDepartmentName: async (name: string) => {
+        calls.push(name);
+        return 'dept-a';
+      },
+      findFallbackAdminId: async () => 'admin-1',
+      findDepartmentsForUser: async () => [],
+    };
+
+    const record = await buildEngine(approverRepo).startApproval(
+      'report-1',
+      rule,
+      emptyUserRepo as any,
+      '技术部'
+    );
+
+    expect(record.approverId).toBe('dept-a');
+    expect(calls).toEqual(['技术部']);
+  });
+
+  it('falls back to the earliest active admin when the department has no approver', async () => {
+    const approverRepo = {
+      findApproverIdForDepartmentName: async () => null,
+      findFallbackAdminId: async () => 'admin-1',
+      findDepartmentsForUser: async () => [],
+    };
+
+    const record = await buildEngine(approverRepo).startApproval(
+      'report-1',
+      rule,
+      emptyUserRepo as any,
+      '技术部'
+    );
+
+    expect(record.approverId).toBe('admin-1');
+  });
+
+  it('fails when neither an approver nor an admin exists', async () => {
+    const approverRepo = {
+      findApproverIdForDepartmentName: async () => null,
+      findFallbackAdminId: async () => null,
+      findDepartmentsForUser: async () => [],
+    };
+
+    await expect(
+      buildEngine(approverRepo).startApproval('report-1', rule, emptyUserRepo as any, '技术部')
+    ).rejects.toBeInstanceOf(NoApproverError);
+  });
+});

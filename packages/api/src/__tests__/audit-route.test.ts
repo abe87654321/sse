@@ -7,6 +7,19 @@ jest.mock('@sse/db', () => ({
   PgApprovalRuleRepo: jest.fn().mockImplementation(() => ({})),
   PgAuditRepo: jest.fn().mockImplementation(() => ({ query: mockAuditQuery })),
   PgDepartmentRepo: jest.fn().mockImplementation(() => ({})),
+  PgApproverAssignmentRepo: jest.fn().mockImplementation(() => ({
+    findDepartmentsForUser: jest.fn(async () => []),
+    findApproverIdForDepartmentName: jest.fn(async () => null),
+    findFallbackAdminId: jest.fn(async () => null),
+    listAssignments: jest.fn(async () => []),
+    replaceForUser: jest.fn(async () => {}),
+  })),
+  ApproverConflictError: class ApproverConflictError extends Error {
+    constructor(public readonly departmentIds: string[]) {
+      super('conflict');
+      this.name = 'ApproverConflictError';
+    }
+  },
 }));
 
 import express from 'express';

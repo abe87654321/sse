@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { PgUserRepo } from '@sse/db';
+import { PgUserRepo, PgApproverAssignmentRepo } from '@sse/db';
 import {
   signToken,
   signRefreshToken,
@@ -22,6 +22,21 @@ import { getRequestId, recordAuditEvent } from '../services/audit';
 
 const router = Router();
 const userRepo = new PgUserRepo();
+const approverRepo = new PgApproverAssignmentRepo();
+
+function buildCapabilities(role: string, approverDepartments: string[]) {
+  const isAdmin = role === 'admin';
+  const isFinance = role === 'finance';
+  return {
+    canSubmit: true,
+    canApproveDepartment: isAdmin || approverDepartments.length > 0,
+    canApproveFinanceStep: isFinance || isAdmin,
+    canFinalize: isFinance || isAdmin,
+    canExport: isFinance || isAdmin,
+    canManageUsers: isAdmin,
+    canManageRules: isAdmin,
+  };
+}
 
 // Login throttling: 10 attempts per (ip, phone) per 15 minutes.
 const LOGIN_RATE_LIMIT_MAX = 10;
@@ -159,6 +174,7 @@ router.post(
     const refreshToken = signRefreshToken(user.id);
 
     await auditLogin(req, 'success', 'ok', user.id);
+    const approverDepartments = await approverRepo.findDepartmentsForUser(user.id);
 
     res.json({
       accessToken,
@@ -171,6 +187,11 @@ router.post(
         department: user.department,
         role: user.role,
         avatarUrl: user.avatarUrl,
+        approverDepartments,
+        capabilities: buildCapabilities(
+          user.role,
+          approverDepartments.map((d) => d.name)
+        ),
       },
     });
   })
@@ -222,6 +243,7 @@ router.post(
     });
 
     await auditApiKeyLogin(req, 'success', 'ok', user.id);
+    const approverDepartments = await approverRepo.findDepartmentsForUser(user.id);
 
     res.json({
       accessToken,
@@ -233,6 +255,11 @@ router.post(
         department: user.department,
         role: user.role,
         avatarUrl: user.avatarUrl,
+        approverDepartments,
+        capabilities: buildCapabilities(
+          user.role,
+          approverDepartments.map((d) => d.name)
+        ),
       },
     });
   })
@@ -297,9 +324,15 @@ router.get(
   asyncWrap(async (req, res) => {
     const user = await userRepo.findById(req.user!.userId);
     if (!user) throw new AppError(404, 'NOT_FOUND', '用户不存在');
+    const approverDepartments = await approverRepo.findDepartmentsForUser(user.id);
     res.json({
       id: user.id, name: user.name, phone: user.phone, email: user.email,
       department: user.department, role: user.role, avatarUrl: user.avatarUrl,
+      approverDepartments,
+      capabilities: buildCapabilities(
+        user.role,
+        approverDepartments.map((d) => d.name)
+      ),
     });
   })
 );

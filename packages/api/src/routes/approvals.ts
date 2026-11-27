@@ -1,5 +1,5 @@
 ﻿import { Router, Request, Response, NextFunction } from 'express';
-import { PgApprovalRecordRepo, PgExpenseRepo, PgApprovalRuleRepo, PgUserRepo, PgReportSnapshotRepo, pool, withTransaction } from '@sse/db';
+import { PgApprovalRecordRepo, PgExpenseRepo, PgApprovalRuleRepo, PgApproverAssignmentRepo, PgUserRepo, PgReportSnapshotRepo, pool, withTransaction } from '@sse/db';
 import { ApprovalEngine, aggregateVerificationStatus, NoApproverError } from '@sse/core';
 import { ApprovalResult, ReportStatus, UserRole } from '@sse/shared';
 import { expenseApprovedMessage, expenseRejectedMessage } from '@sse/notifications';
@@ -12,7 +12,8 @@ const router = Router();
 const recordRepo = new PgApprovalRecordRepo();
 const ruleRepo = new PgApprovalRuleRepo();
 const expenseRepo = new PgExpenseRepo();
-const engine = new ApprovalEngine(ruleRepo, recordRepo);
+const approverRepo = new PgApproverAssignmentRepo();
+const engine = new ApprovalEngine(ruleRepo, recordRepo, approverRepo);
 const snapshotRepo = new PgReportSnapshotRepo();
 
 function notifyApproved(report: { userId: string; serialNo: string; title: string }) {
@@ -33,7 +34,7 @@ router.use(authMiddleware);
 router.get(
   '/pending',
   asyncWrap(async (req, res) => {
-    const { role, department, userId } = req.user!;
+    const { role, userId } = req.user!;
 
     if (role !== UserRole.DEPT_APPROVER && role !== UserRole.FINANCE && role !== UserRole.ADMIN) {
       throw new AppError(403, 'UNAUTHORIZED', '无权查看审批列表');
@@ -66,6 +67,8 @@ router.get(
       `;
       values = [ApprovalResult.PENDING, userId, role];
     } else {
+      // Records are assigned to a concrete user id; a multi-department approver
+      // simply receives pending records for every department they approve.
       query = `
         SELECT ar.*, er.serial_no, er.title, er.total_amount, er.user_id, u.name as applicant_name, d.name AS department
         FROM approval_records ar
@@ -74,10 +77,9 @@ router.get(
         JOIN departments d ON d.id = u.department_id
         WHERE ar.result = $1
           AND (ar.approver_id::text = $2 OR ar.approver_id::text = $3)
-          AND u.department_id = (SELECT id FROM departments WHERE name = $4)
         ORDER BY ar.step_started_at DESC
       `;
-      values = [ApprovalResult.PENDING, userId, role, department];
+      values = [ApprovalResult.PENDING, userId, role];
     }
 
     const { rows } = await pool.query(query, values);
@@ -108,21 +110,11 @@ router.post(
   asyncWrap(async (req, res) => {
     const { reportId } = req.params;
     const { comment, acknowledgeVerification } = req.body;
-    const { role, department, userId } = req.user!;
+    const { role, userId } = req.user!;
 
     const report = await expenseRepo.findById(reportId);
     if (!report) {
       throw new AppError(404, 'NOT_FOUND', '报销单不存在');
-    }
-
-    if (role === UserRole.DEPT_APPROVER) {
-      const { rows: ownerRows } = await pool.query(
-        'SELECT d.name AS department FROM users u JOIN departments d ON d.id = u.department_id WHERE u.id = $1',
-        [report.userId]
-      );
-      if (ownerRows.length === 0 || ownerRows[0].department !== department) {
-        throw new AppError(403, 'UNAUTHORIZED', '无权审批该部门的报销单');
-      }
     }
 
     const records = await recordRepo.findByReportId(reportId);
@@ -281,7 +273,7 @@ router.post(
   asyncWrap(async (req, res) => {
     const { reportId } = req.params;
     const { comment } = req.body;
-    const { role, department, userId } = req.user!;
+    const { role, userId } = req.user!;
 
     if (typeof comment !== 'string' || !comment.trim()) {
       throw new AppError(400, 'INVALID_PARAMS', '驳回时必须填写意见');
@@ -290,16 +282,6 @@ router.post(
     const report = await expenseRepo.findById(reportId);
     if (!report) {
       throw new AppError(404, 'NOT_FOUND', '报销单不存在');
-    }
-
-    if (role === UserRole.DEPT_APPROVER) {
-      const { rows: ownerRows } = await pool.query(
-        'SELECT d.name AS department FROM users u JOIN departments d ON d.id = u.department_id WHERE u.id = $1',
-        [report.userId]
-      );
-      if (ownerRows.length === 0 || ownerRows[0].department !== department) {
-        throw new AppError(403, 'UNAUTHORIZED', '无权审批该部门的报销单');
-      }
     }
 
     const records = await recordRepo.findByReportId(reportId);

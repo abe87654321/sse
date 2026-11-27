@@ -17,6 +17,19 @@ jest.mock('@sse/db', () => {
       findById: mocks.findById,
     })),
     PgApprovalRuleRepo: jest.fn().mockImplementation(() => ({})),
+    PgApproverAssignmentRepo: jest.fn().mockImplementation(() => ({
+      findDepartmentsForUser: jest.fn(async () => []),
+      findApproverIdForDepartmentName: jest.fn(async () => null),
+      findFallbackAdminId: jest.fn(async () => null),
+      listAssignments: jest.fn(async () => []),
+      replaceForUser: jest.fn(async () => {}),
+    })),
+    ApproverConflictError: class ApproverConflictError extends Error {
+      constructor(public readonly departmentIds: string[]) {
+        super('conflict');
+        this.name = 'ApproverConflictError';
+      }
+    },
     PgDepartmentRepo: jest.fn().mockImplementation(() => ({
       findById: jest.fn(async (id: string) => ({
         id,

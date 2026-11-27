@@ -73,6 +73,7 @@
             <th>邮箱</th>
             <th>部门</th>
             <th>角色</th>
+            <th>审批部门</th>
             <th>状态</th>
             <th>操作</th>
           </tr>
@@ -92,6 +93,9 @@
               >
                 <option v-for="r in roleOptions" :key="r.value" :value="r.value">{{ r.label }}</option>
               </select>
+            </td>
+            <td class="text-secondary">
+              {{ (u.approverDepartments || []).map(d => d.name).join('、') || '-' }}
             </td>
             <td>
               <template v-if="u.status === 'deleted'">
@@ -125,7 +129,7 @@
               </td>
           </tr>
           <tr v-if="filteredUsers.length === 0">
-            <td colspan="7">
+            <td colspan="8">
               <div class="empty-state">
                 <div class="empty-state-icon">👥</div>
                 <div class="empty-state-text">{{ users.length === 0 ? '暂无用户数据' : '无匹配结果' }}</div>
@@ -221,6 +225,30 @@
             </div>
 
             <div class="field">
+              <label>兼任审批部门</label>
+              <p v-if="!isAssignableApproverRole(form.role)" class="field-hint">
+                仅“部门审批人”或“管理员”可兼任审批部门。
+              </p>
+              <div v-else class="cat-list approver-dept-list">
+                <label v-for="d in departments" :key="d.id" class="cat-item">
+                  <input
+                    type="checkbox"
+                    :value="d.id"
+                    v-model="form.approverDepartmentIds"
+                    :disabled="!!approverOwnerByDepartment[d.id] && approverOwnerByDepartment[d.id].id !== editingId"
+                  />
+                  <span>
+                    {{ d.name }}
+                    <em v-if="approverOwnerByDepartment[d.id] && approverOwnerByDepartment[d.id].id !== editingId">
+                      （已由 {{ approverOwnerByDepartment[d.id].name }} 审批）
+                    </em>
+                  </span>
+                </label>
+              </div>
+              <p class="field-hint">同一部门只能有一名审批人；被指派部门会同时获得该部门的数据查看范围。</p>
+            </div>
+
+            <div class="field">
               <label for="user-password">
                 密码 <span v-if="!isEditing" class="required">*</span>
               </label>
@@ -274,6 +302,10 @@ const roleLabel = (r: string) => {
   return found ? found.label : r
 }
 
+function isAssignableApproverRole(role: string) {
+  return role === 'dept_approver' || role === 'admin'
+}
+
 const users = ref<any[]>([])
 const roleStats = ref<{ role: string; count: number }[]>([])
 const searchQuery = ref('')
@@ -287,13 +319,31 @@ const disabledCount = ref(0)
 const deletedCount = ref(0)
 const allUsers = ref<any[]>([])
 
+const approverOwnerByDepartment = computed<Record<string, { id: string; name: string }>>(() => {
+  const map: Record<string, { id: string; name: string }> = {}
+  for (const u of allUsers.value) {
+    for (const d of u.approverDepartments || []) {
+      map[d.id] = { id: u.id, name: u.name }
+    }
+  }
+  return map
+})
+
 const showModal = ref(false)
 const isEditing = ref(false)
 const editingId = ref<string | null>(null)
 const submitting = ref(false)
 const nameInputRef = ref<HTMLInputElement | null>(null)
 
-const form = reactive({ name: '', phone: '', email: '', departmentId: '', role: '', password: '' })
+const form = reactive({
+  name: '',
+  phone: '',
+  email: '',
+  departmentId: '',
+  role: '',
+  password: '',
+  approverDepartmentIds: [] as string[],
+})
 const formErrors = reactive({ name: '', phone: '', department: '', role: '', password: '' })
 
 const filteredUsers = computed(() => {
@@ -415,6 +465,7 @@ function openCreateModal() {
   form.departmentId = ''
   form.role = ''
   form.password = ''
+  form.approverDepartmentIds = []
   formErrors.name = ''
   formErrors.phone = ''
   formErrors.role = ''
@@ -435,6 +486,7 @@ function openEditModal(u: any) {
     ''
   form.role = u.role || ''
   form.password = ''
+  form.approverDepartmentIds = (u.approverDepartments || []).map((d: any) => d.id)
   formErrors.name = ''
   formErrors.phone = ''
   formErrors.role = ''
@@ -454,12 +506,15 @@ async function submitForm() {
 
   submitting.value = true
   try {
-    const payload: Record<string, string> = {
+    const payload: Record<string, any> = {
       name: form.name,
       phone: form.phone,
       email: form.email,
       departmentId: form.departmentId,
-      role: form.role
+      role: form.role,
+      approverDepartmentIds: isAssignableApproverRole(form.role)
+        ? form.approverDepartmentIds
+        : [],
     }
     if (form.password) {
       payload.password = form.password
@@ -858,5 +913,21 @@ function formatDate(d?: string) {
   background: var(--bg-hover);
   color: var(--text-muted);
   font-size: 0.8rem;
+}
+.approver-dept-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+.approver-dept-list .cat-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+.approver-dept-list em {
+  color: var(--text-muted);
+  font-style: normal;
 }
 </style>

@@ -5,6 +5,7 @@ export interface AuthContext {
   userId: string;
   role: string;
   department: string;
+  approverDepartments?: string[];
 }
 
 // Identity sources are kept separate so DB-backed keys can be refreshed
@@ -54,7 +55,13 @@ export async function refreshApiKeys(): Promise<void> {
   try {
     const { pool } = await import("@sse/db");
     const select = (expiryFilter: string) => pool.query(
-      `SELECT k.key, k.user_id, u.role, d.name AS department
+      `SELECT k.key, k.user_id, u.role, d.name AS department,
+              COALESCE((
+                SELECT json_agg(d2.name ORDER BY d2.name)
+                  FROM department_approvers da
+                  JOIN departments d2 ON d2.id = da.department_id
+                 WHERE da.user_id = u.id
+              ), '[]'::json) AS approver_departments
          FROM mcp_api_keys k
          JOIN users u ON u.id = k.user_id
          JOIN departments d ON d.id = u.department_id
@@ -75,6 +82,9 @@ export async function refreshApiKeys(): Promise<void> {
         userId: row.user_id,
         role: row.role,
         department: row.department || "",
+        approverDepartments: Array.isArray(row.approver_departments)
+          ? row.approver_departments
+          : [],
       });
     }
     dbKeys.clear();
@@ -111,6 +121,9 @@ export function enforceReadAccess(
   if (scope.kind === "all") return true;
   if (scope.kind === "department") {
     return !!targetDepartment && scope.department === targetDepartment;
+  }
+  if (scope.kind === "departments") {
+    return !!targetDepartment && scope.departments.includes(targetDepartment);
   }
   if (scope.kind === "self") return scope.userId === targetUserId;
   return false;

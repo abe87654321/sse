@@ -224,13 +224,15 @@ export class PgExpenseRepo implements IExpenseRepo {
     dateFrom?: string,
     dateTo?: string,
     department?: string,
-    userId?: string
+    userId?: string,
+    departments?: string[]
   ): Promise<any> {
     const predicate = buildStatisticsPredicate({
       dateFrom,
       dateTo,
       department,
       userId,
+      departments,
     });
     const userJoin = predicate.needsUserJoin
       ? 'LEFT JOIN users u ON u.id = er.user_id'

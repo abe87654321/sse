@@ -34,6 +34,11 @@ jest.mock('@sse/db', () => ({
   })),
   PgApprovalRecordRepo: jest.fn().mockImplementation(() => ({})),
   PgUserRepo: jest.fn().mockImplementation(() => ({ findById: mockUserFindById })),
+  PgApproverAssignmentRepo: jest.fn().mockImplementation(() => ({
+    findApproverIdForDepartmentName: jest.fn(async () => null),
+    findFallbackAdminId: jest.fn(async () => null),
+    findDepartmentsForUser: jest.fn(async () => []),
+  })),
   PgPaymentReceiptRepo: jest.fn().mockImplementation(() => ({})),
   PgPaymentAuditRepo: jest.fn().mockImplementation(() => ({})),
 }));
