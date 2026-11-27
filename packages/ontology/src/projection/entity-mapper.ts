@@ -136,7 +136,7 @@ const BASE_PROVENANCE = [sse('sourceTable'), sse('sourceId'), sse('recordVersion
 const owned = (...predicates: string[]): string[] => [RDF_TYPE, ...BASE_PROVENANCE, ...predicates.map(sse)];
 
 const OWNED: Record<MappedTable, string[]> = {
-  users: owned('name', 'department', 'role', 'status', 'belongsTo', 'deletedAt'),
+  users: owned('name', 'department', 'role', 'status', 'belongsTo', 'approverOf', 'deletedAt'),
   expense_categories: owned('name', 'isActive', 'sortOrder'),
   expense_reports: owned(
     'serialNo', 'title', 'amount', 'status', 'currentStep', 'submittedAt', 'completedAt',
@@ -155,7 +155,7 @@ const DEPARTMENT_OWNED = [RDF_TYPE, sse('name')];
 
 export const PREDICATES: string[] = [
   'belongsTo', 'submittedBy', 'paidBy', 'containsItem', 'hasCategory', 'hasInvoice',
-  'hasApproval', 'hasPaymentReceipt', 'approvedBy', 'hasCategoryRule',
+  'hasApproval', 'hasPaymentReceipt', 'approvedBy', 'hasCategoryRule', 'approverOf',
   'name', 'department', 'role', 'status', 'deletedAt',
   'serialNo', 'title', 'amount', 'currentStep', 'submittedAt', 'completedAt', 'paidAt', 'paymentRef',
   'expenseDate', 'description', 'invoiceNo', 'verificationStatus', 'fileName', 'checksum', 'uploadedAt',
@@ -205,6 +205,14 @@ export function projectRow(
         addLiteral(quads, subject, 'deletedAt', isoDateTime(row.deleted_at), `${XSD}dateTime`);
       } else {
         addIri(quads, subject, 'belongsTo', uri.department(String(department)));
+        const approverDepartments = Array.isArray(row.approver_departments)
+          ? row.approver_departments
+          : [];
+        for (const name of approverDepartments) {
+          if (typeof name === 'string' && name) {
+            addIri(quads, subject, 'approverOf', uri.department(name));
+          }
+        }
       }
 
       const departmentSubject = uri.department(String(department));

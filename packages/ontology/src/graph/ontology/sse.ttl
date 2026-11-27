@@ -24,6 +24,8 @@ sse:MissingInvoiceFlag a owl:Class .
 
 sse:belongsTo a owl:ObjectProperty ;
   rdfs:domain sse:Person ; rdfs:range sse:Department .
+sse:approverOf a owl:ObjectProperty ;
+  rdfs:domain sse:Person ; rdfs:range sse:Department .
 sse:submittedBy a owl:ObjectProperty ;
   rdfs:domain sse:ExpenseReport ; rdfs:range sse:Person .
 sse:containsItem a owl:ObjectProperty ;

@@ -4,6 +4,8 @@ import {
   PgApprovalRuleRepo,
   PgAuditRepo,
   PgDepartmentRepo,
+  PgApproverAssignmentRepo,
+  ApproverConflictError,
   pool,
 } from '@sse/db';
 import { authMiddleware, hashPassword, validatePassword } from '@sse/auth';
@@ -46,9 +48,16 @@ const router = Router();
 const userRepo = new PgUserRepo();
 const ruleRepo = new PgApprovalRuleRepo();
 const departmentRepo = new PgDepartmentRepo();
+const approverRepo = new PgApproverAssignmentRepo();
 
 const USER_COLUMNS = `u.id, u.name, u.phone, u.email, u.department_id, u.role, u.parent_id,
-  u.status, u.deleted_at, u.created_at, u.updated_at, d.name AS department`;
+  u.status, u.deleted_at, u.created_at, u.updated_at, d.name AS department,
+  COALESCE((
+    SELECT json_agg(json_build_object('id', d2.id, 'name', d2.name) ORDER BY d2.name)
+      FROM department_approvers da
+      JOIN departments d2 ON d2.id = da.department_id
+     WHERE da.user_id = u.id
+  ), '[]'::json) AS approver_departments`;
 const USER_FROM = 'FROM users u LEFT JOIN departments d ON d.id = u.department_id';
 
 const SAMPLE_INVOICE_PATH = join(
@@ -124,6 +133,43 @@ async function resolveDepartment(
     return { id: dept.id, name: dept.name };
   }
   throw new AppError(400, 'INVALID_PARAMS', '部门不能为空');
+}
+
+const ASSIGNABLE_APPROVER_ROLES = new Set<string>([UserRole.DEPT_APPROVER, UserRole.ADMIN]);
+
+function readApproverDepartmentIds(body: any): string[] | undefined {
+  const raw = body?.approverDepartmentIds;
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) {
+    throw new AppError(400, 'INVALID_PARAMS', '审批部门格式无效');
+  }
+  return [
+    ...new Set(
+      raw
+        .filter((id: unknown) => typeof id === 'string' && id.trim())
+        .map((id: string) => id.trim())
+    ),
+  ];
+}
+
+function assertAssignableApproverRole(role: string): void {
+  if (!ASSIGNABLE_APPROVER_ROLES.has(role)) {
+    throw new AppError(
+      400,
+      'ROLE_NOT_ASSIGNABLE',
+      '只有部门审批人或管理员可以担任部门审批人'
+    );
+  }
+}
+
+function mapApproverConflict(error: unknown): void {
+  if (error instanceof ApproverConflictError) {
+    throw new AppError(
+      409,
+      'APPROVER_ALREADY_ASSIGNED',
+      `部门已被其他审批人占用：${error.departmentIds.join(', ')}`
+    );
+  }
 }
 
 let auditRepo: PgAuditRepo | null = null;
@@ -211,6 +257,10 @@ router.post(
     }
 
     const passwordHash = await hashPassword(password);
+    const approverDepartmentIds = readApproverDepartmentIds(req.body);
+    if (approverDepartmentIds && approverDepartmentIds.length > 0) {
+      assertAssignableApproverRole(role);
+    }
 
     const { rows } = await pool.query(
       `INSERT INTO users (name, phone, email, department_id, role, password_hash, status)
@@ -221,8 +271,24 @@ router.post(
     );
 
     const created = mapUserRow({ ...rows[0], department: department.name });
+
+    if (approverDepartmentIds && approverDepartmentIds.length > 0) {
+      try {
+        await approverRepo.replaceForUser(
+          created.id,
+          approverDepartmentIds,
+          req.user!.userId
+        );
+      } catch (error) {
+        await pool.query('DELETE FROM users WHERE id = $1', [created.id]).catch(() => {});
+        mapApproverConflict(error);
+        throw error;
+      }
+    }
+
+    const approverDepartments = await approverRepo.findDepartmentsForUser(created.id);
     void sendNotificationSafe(created.id, welcomeMessage({ name: created.name }));
-    res.status(201).json(created);
+    res.status(201).json({ ...created, approverDepartments });
   })
 );
 
@@ -256,7 +322,8 @@ router.get(
     if (!user) {
       throw new AppError(404, 'NOT_FOUND', '用户不存在');
     }
-    res.json(user);
+    const approverDepartments = await approverRepo.findDepartmentsForUser(req.params.id);
+    res.json({ ...user, approverDepartments });
   })
 );
 
@@ -302,24 +369,43 @@ router.put(
       values.push(passwordHash);
     }
 
-    if (fields.length === 0) {
-      res.json(user);
-      return;
+    const approverDepartmentIds = readApproverDepartmentIds(req.body);
+    const effectiveRole = (role ?? user.role) as string;
+
+    let updated = user;
+    if (fields.length > 0) {
+      fields.push('updated_at = NOW()');
+      values.push(id);
+
+      const { rows } = await pool.query(
+        `UPDATE users SET ${fields.join(', ')} WHERE id = $${idx} RETURNING id`,
+        values
+      );
+
+      const reloaded = await userRepo.findById(rows[0].id);
+      if (!reloaded) {
+        throw new AppError(404, 'NOT_FOUND', '用户不存在');
+      }
+      updated = reloaded;
     }
 
-    fields.push('updated_at = NOW()');
-    values.push(id);
-
-    const { rows } = await pool.query(
-      `UPDATE users SET ${fields.join(', ')} WHERE id = $${idx} RETURNING id`,
-      values
-    );
-
-    const updated = await userRepo.findById(rows[0].id);
-    if (!updated) {
-      throw new AppError(404, 'NOT_FOUND', '用户不存在');
+    if (approverDepartmentIds !== undefined) {
+      if (approverDepartmentIds.length > 0) {
+        assertAssignableApproverRole(effectiveRole);
+      }
+      try {
+        await approverRepo.replaceForUser(id, approverDepartmentIds, req.user!.userId);
+      } catch (error) {
+        mapApproverConflict(error);
+        throw error;
+      }
+    } else if (role !== undefined && !ASSIGNABLE_APPROVER_ROLES.has(role)) {
+      // A user who is no longer an approver/admin must not keep assignments.
+      await approverRepo.replaceForUser(id, [], req.user!.userId);
     }
-    res.json(updated);
+
+    const approverDepartments = await approverRepo.findDepartmentsForUser(id);
+    res.json({ ...updated, approverDepartments });
 
     // async: sync name/department change to ontology
     if (name !== undefined || departmentChanged) {
@@ -519,6 +605,13 @@ router.get(
   '/departments',
   asyncWrap(async (_req, res) => {
     res.json(await departmentRepo.list());
+  })
+);
+
+router.get(
+  '/departments/approvers',
+  asyncWrap(async (_req, res) => {
+    res.json(await approverRepo.listAssignments());
   })
 );
 
@@ -977,6 +1070,7 @@ function mapUserRow(row: any) {
     email: row.email ?? undefined,
     department: row.department,
     departmentId: row.department_id ?? undefined,
+    approverDepartments: row.approver_departments ?? [],
     role: row.role,
     parentId: row.parent_id ?? undefined,
     status: row.status,

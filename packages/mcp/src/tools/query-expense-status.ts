@@ -42,6 +42,9 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
     } else if (scope.kind === "department") {
       sql += ` AND u.department_id = (SELECT id FROM departments WHERE name = $${idx++})`;
       values.push(scope.department);
+    } else if (scope.kind === "departments") {
+      sql += ` AND u.department_id IN (SELECT id FROM departments WHERE name = ANY($${idx++}))`;
+      values.push(scope.departments);
     }
     if (filters.name) { sql += ` AND u.name ILIKE $${idx++}`; values.push(`%${filters.name}%`); }
     if (filters.status) { sql += ` AND er.status = $${idx++}`; values.push(filters.status); }

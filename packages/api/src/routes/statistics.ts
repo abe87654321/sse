@@ -26,6 +26,7 @@ function resolveScope(req: Request) {
     role: req.user!.role,
     userId: req.user!.userId,
     department: req.user!.department,
+    approverDepartments: req.user!.approverDepartments,
   });
   if (scope.kind === 'deny') {
     throw new AppError(403, 'UNAUTHORIZED', '当前角色无权查看统计');
@@ -47,12 +48,20 @@ router.get(
       ? 'JOIN users u ON u.id = er.user_id'
       : '';
 
-    const stats = await expenseRepo.getStatistics(
-      filter.dateFrom,
-      filter.dateTo,
-      filter.department,
-      filter.userId
-    );
+    const stats = filter.departments
+      ? await expenseRepo.getStatistics(
+          filter.dateFrom,
+          filter.dateTo,
+          filter.department,
+          filter.userId,
+          filter.departments
+        )
+      : await expenseRepo.getStatistics(
+          filter.dateFrom,
+          filter.dateTo,
+          filter.department,
+          filter.userId
+        );
 
     const { rows: categoryStats } = await pool.query(
       `SELECT COALESCE(ec.name, '未分类') as category,

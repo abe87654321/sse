@@ -47,6 +47,19 @@ describe('resolveStatisticsFilter', () => {
       dateTo: undefined,
     });
   });
+
+  it('scopes a multi-department approver to the union of their departments', () => {
+    const filter = resolveStatisticsFilter(
+      { kind: 'departments', departments: ['技术部', '运营部'] },
+      { department: '市场部' }
+    );
+
+    expect(filter).toEqual({
+      departments: ['技术部', '运营部'],
+      dateFrom: undefined,
+      dateTo: undefined,
+    });
+  });
 });
 
 describe('buildStatisticsPredicate', () => {
@@ -78,6 +91,20 @@ describe('buildStatisticsPredicate', () => {
     expect(buildStatisticsPredicate({ department: '技术部' }).needsUserJoin).toBe(
       true
     );
+    expect(
+      buildStatisticsPredicate({ departments: ['技术部', '运营部'] }).needsUserJoin
+    ).toBe(true);
+  });
+
+  it('builds an IN predicate for multi-department scopes', () => {
+    const { where, params } = buildStatisticsPredicate({
+      departments: ['技术部', '运营部'],
+    });
+
+    expect(where).toContain(
+      'u.department_id IN (SELECT id FROM departments WHERE name = ANY($1))'
+    );
+    expect(params).toEqual([['技术部', '运营部']]);
   });
 });
 
@@ -87,6 +114,9 @@ describe('statisticsScopeLabel', () => {
     expect(statisticsScopeLabel({ kind: 'department', department: '技术部' })).toBe(
       '技术部'
     );
+    expect(
+      statisticsScopeLabel({ kind: 'departments', departments: ['技术部', '运营部'] })
+    ).toBe('技术部、运营部');
     expect(statisticsScopeLabel({ kind: 'all' })).toBe('全公司');
   });
 });

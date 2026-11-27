@@ -3,6 +3,21 @@ import { ref, computed } from 'vue'
 import router from '@/router'
 import { clearGraphViewState } from '@/components/ontology/graph-view-state'
 
+export interface ApproverDepartment {
+  id: string
+  name: string
+}
+
+export interface UserCapabilities {
+  canSubmit: boolean
+  canApproveDepartment: boolean
+  canApproveFinanceStep: boolean
+  canFinalize: boolean
+  canExport: boolean
+  canManageUsers: boolean
+  canManageRules: boolean
+}
+
 export interface UserInfo {
   id: string
   name: string
@@ -11,6 +26,8 @@ export interface UserInfo {
   department?: string
   role: string
   avatarUrl?: string
+  approverDepartments?: ApproverDepartment[]
+  capabilities?: UserCapabilities
 }
 
 export const useAuthStore = defineStore('auth', () => {

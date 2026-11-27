@@ -89,6 +89,10 @@ export async function handler(args: Record<string, unknown>): Promise<ToolResult
       conditions.push(`u.department_id = (SELECT id FROM departments WHERE name = $${idx++})`);
       values.push(scope.department);
     }
+    if (scope.kind === "departments") {
+      conditions.push(`u.department_id IN (SELECT id FROM departments WHERE name = ANY($${idx++}))`);
+      values.push(scope.departments);
+    }
 
     const dateFrom = parseISO8601Date(args.date_from);
     const dateTo = parseISO8601Date(args.date_to);

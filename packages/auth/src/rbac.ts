@@ -53,9 +53,15 @@ export function canViewReport(
   viewerDept: string,
   ownerDept: string,
   ownerId: string,
-  viewerId: string
+  viewerId: string,
+  viewerDepartments?: string[]
 ): boolean {
   if (viewerRole === UserRole.ADMIN || viewerRole === UserRole.FINANCE) return true;
+  // When approver assignments are supplied they replace the single home
+  // department: the approver sees the union of the departments they approve.
+  if (viewerDepartments !== undefined) {
+    return !!ownerDept && viewerDepartments.includes(ownerDept);
+  }
   // An approver without a department must not match owners that also lack one.
   if (viewerRole === UserRole.DEPT_APPROVER) return !!viewerDept && viewerDept === ownerDept;
   return !!ownerId && ownerId === viewerId;
@@ -68,6 +74,7 @@ export function canViewReport(
 export type DataScope =
   | { kind: 'all' }
   | { kind: 'department'; department: string }
+  | { kind: 'departments'; departments: string[] }
   | { kind: 'self'; userId: string }
   | { kind: 'deny' };
 
@@ -75,12 +82,18 @@ export function resolveDataScope(viewer: {
   role: string;
   userId: string;
   department?: string;
+  approverDepartments?: string[];
 }): DataScope {
   switch (viewer.role) {
     case UserRole.ADMIN:
     case UserRole.FINANCE:
       return { kind: 'all' };
     case UserRole.DEPT_APPROVER:
+      if (viewer.approverDepartments !== undefined) {
+        return viewer.approverDepartments.length > 0
+          ? { kind: 'departments', departments: viewer.approverDepartments }
+          : { kind: 'deny' };
+      }
       return viewer.department
         ? { kind: 'department', department: viewer.department }
         : { kind: 'deny' };

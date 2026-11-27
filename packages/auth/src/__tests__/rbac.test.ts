@@ -29,6 +29,15 @@ describe('RBAC', () => {
     expect(canViewReport(UserRole.DEPT_APPROVER, '', '', 'u1', 'u2')).toBe(false);
   });
 
+  it('multi-department approver sees the union of assigned departments', () => {
+    expect(
+      canViewReport(UserRole.DEPT_APPROVER, 'tech', 'sales', 'u1', 'u2', ['sales', 'ops'])
+    ).toBe(true);
+    expect(
+      canViewReport(UserRole.DEPT_APPROVER, 'tech', 'tech', 'u1', 'u2', ['sales'])
+    ).toBe(false);
+  });
+
   it('employee cannot view a report with an empty owner id', () => {
     expect(canViewReport(UserRole.EMPLOYEE, 'tech', 'tech', '', '')).toBe(false);
   });
@@ -47,6 +56,28 @@ describe('RBAC', () => {
     it('fails closed for a department approver without a department', () => {
       expect(resolveDataScope({ role: UserRole.DEPT_APPROVER, userId: 'u1', department: '' }))
         .toEqual({ kind: 'deny' });
+    });
+
+    it('scopes a multi-department approver to their assigned departments', () => {
+      expect(
+        resolveDataScope({
+          role: UserRole.DEPT_APPROVER,
+          userId: 'u1',
+          department: 'tech',
+          approverDepartments: ['sales', 'ops'],
+        })
+      ).toEqual({ kind: 'departments', departments: ['sales', 'ops'] });
+    });
+
+    it('fails closed when assignments are supplied but empty', () => {
+      expect(
+        resolveDataScope({
+          role: UserRole.DEPT_APPROVER,
+          userId: 'u1',
+          department: 'tech',
+          approverDepartments: [],
+        })
+      ).toEqual({ kind: 'deny' });
     });
 
     it('scopes an employee to themselves', () => {

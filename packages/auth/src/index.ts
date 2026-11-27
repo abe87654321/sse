@@ -19,7 +19,8 @@ export type { Permission, DataScope } from './rbac';
 export { checkRateLimit, pruneRateLimitStore } from './rate-limit';
 export type { RateLimitOptions, RateLimitResult, RateLimitWindow } from './rate-limit';
 
-export { authMiddleware } from './middleware';
+export { authMiddleware, setPrincipalLoader } from './middleware';
+export type { PrincipalExtra } from './middleware';
 
 export {
   BCRYPT_ROUNDS,

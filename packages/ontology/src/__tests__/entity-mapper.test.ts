@@ -139,6 +139,32 @@ describe('projectRow', () => {
     expect(findQuad(person.quads, sse('recordVersion'))!.datatype).toBeUndefined();
   });
 
+  it('projects approver-of edges for every assigned department', () => {
+    const p = projectRow('users', 'UPDATE', {
+      id: 'p1', name: '张三', department: '研发', role: 'dept_approver', status: 'active',
+      approver_departments: ['技术部', '运营部'], updated_at: '2026-11-10T00:00:00Z',
+    });
+    const person = p.writes[0];
+    const approverEdges = person.quads
+      .filter((q) => q.predicate === sse('approverOf'))
+      .map((q) => q.object)
+      .sort();
+    expect(approverEdges).toEqual([
+      'https://sse.local/dept/%E6%8A%80%E6%9C%AF%E9%83%A8',
+      'https://sse.local/dept/%E8%BF%90%E8%90%A5%E9%83%A8',
+    ]);
+    expect(person.ownedPredicates).toContain(sse('approverOf'));
+  });
+
+  it('drops approver-of edges for a soft-deleted user', () => {
+    const p = projectRow('users', 'UPDATE', {
+      id: 'p1', name: '张三', department: '研发', role: 'dept_approver', status: 'active',
+      approver_departments: ['技术部'], updated_at: '2026-11-10T00:00:00Z',
+      deleted_at: '2026-11-10T00:00:00Z',
+    });
+    expect(p.writes[0].quads.some((q) => q.predicate === sse('approverOf'))).toBe(false);
+  });
+
   it('emits recordVersion as an untyped string', () => {
     const p = projectRow('expense_reports', 'UPDATE', {
       id: 'r1', serial_no: 'RE-1', user_id: 'p1', title: 't', total_amount: '10',

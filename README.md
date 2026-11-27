@@ -394,6 +394,7 @@ troubleshooting: [Ontology v2 runbook](docs/2026-11-10-ontology-v2-runbook.md).
 | [UserPicker 设计](docs/2026-07-26-userpicker-design.md) | Reusable user search/select component |
 | [审批流设计器](docs/2026-07-07-workflow-organisation-design.md) | Visual drag-drop approval flow designer |
 | [实体关系与权限矩阵](docs/2026-07-07-er-permission-matrix.md) | ER diagram, RBAC data scope, permission matrix |
+| [开发过程记录 (2026-11-27)](docs/2026-11-27-sse-process.md) | Quick-approve verification ack; multi-department approvers (design + implementation); ontology `approverOf` projection |
 | [开发过程记录 (2026-11-11)](docs/2026-11-11-sse-process.md) | Ontology workbench UI, graph state persistence, readable labels, drag spring-back, shadow gate |
 | [开发过程记录 (2026-11-10)](docs/2026-11-10-sse-process.md) | MCP agent integration: Streamable HTTP, approval/OCR tools, per-request auth, OpenAPI |
 | [开发过程记录 (2026-11-02)](docs/2026-11-02-sse-process.md) | Payment receipt verification, migration runner, next steps |
@@ -409,6 +410,12 @@ troubleshooting: [Ontology v2 runbook](docs/2026-11-10-ontology-v2-runbook.md).
 
 ## 🆕 Recent Updates / 最近更新
 
+- **2026-11-27** — Multi-department approvers:
+  - One user can be the approver for several departments (still one approver per department); unassigned departments fall back to the earliest active admin.
+  - Being assigned grants that department's data scope (expense list / statistics / ontology); changes take effect immediately via a per-request principal (no re-login).
+  - Admin user management accepts `approverDepartmentIds`; login/profile return `approverDepartments` and `capabilities`.
+  - Ontology v2 projects `Person --approverOf--> Department` (migration `028`); existing assignments are backfilled by `POST /ontology/reconcile`.
+  - Approval-list quick approve now handles the AI verification acknowledgement (`409`) and shows the real API error instead of a generic failure.
 - **2026-11-11** — Ontology workbench UI polish:
   - Horizontal type/status/department/depth filters sized to their content
   - Session-scoped graph view state (filters, depth, zoom/pan, selected node and detail) survives tab switches, reload and re-entry; cleared on logout

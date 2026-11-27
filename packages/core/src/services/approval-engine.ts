@@ -2,6 +2,7 @@ import type { ApprovalRule, ApprovalRecord } from '@sse/shared';
 import { ApprovalResult } from '@sse/shared';
 import type { IApprovalRuleRepo } from '../ports/iapproval-rule-repo';
 import type { IApprovalRecordRepo } from '../ports/iapproval-record-repo';
+import type { IApproverAssignmentRepo } from '../ports/iapprover-assignment-repo';
 import type { IUserRepo } from '../ports/iuser-repo';
 import type { SqlExecutor } from '../ports/sql-executor';
 
@@ -19,6 +20,7 @@ export class ApprovalEngine {
   constructor(
     private readonly ruleRepo: IApprovalRuleRepo,
     private readonly recordRepo: IApprovalRecordRepo,
+    private readonly approverRepo?: IApproverAssignmentRepo,
   ) {}
 
   async matchRule(totalAmount: number, categoryIds: string[]): Promise<ApprovalRule | null> {
@@ -41,6 +43,34 @@ export class ApprovalEngine {
     return role === 'dept_approver' ? ownerDepartment : undefined;
   }
 
+  private async resolveStepCandidates(
+    step: ApprovalRule['approvalChain'][number],
+    userRepo: IUserRepo,
+    ownerDepartment: string,
+  ): Promise<string[]> {
+    if (step.assigneeId) {
+      const user = await userRepo.findById(step.assigneeId);
+      return user ? [user.id] : [];
+    }
+    if (!step.role) return [];
+
+    // Department approvers come from explicit assignments. When a department
+    // has no approver, fall back to the earliest active administrator so a
+    // report is never stranded on submit.
+    if (step.role === 'dept_approver' && this.approverRepo) {
+      const assigned = await this.approverRepo.findApproverIdForDepartmentName(ownerDepartment);
+      if (assigned) return [assigned];
+      const admin = await this.approverRepo.findFallbackAdminId();
+      return admin ? [admin] : [];
+    }
+
+    const users = await userRepo.findByRole(
+      step.role,
+      this.departmentForRole(step.role, ownerDepartment)
+    );
+    return users.map((u) => u.id);
+  }
+
   async resolveApprovers(
     rule: ApprovalRule,
     userRepo: IUserRepo,
@@ -48,18 +78,10 @@ export class ApprovalEngine {
   ): Promise<Map<number, string[]>> {
     const stepApprovers = new Map<number, string[]>();
     for (const step of rule.approvalChain) {
-      if (step.assigneeId) {
-        const user = await userRepo.findById(step.assigneeId);
-        stepApprovers.set(step.step, user ? [user.id] : []);
-      } else if (step.role) {
-        const users = await userRepo.findByRole(
-          step.role,
-          this.departmentForRole(step.role, department)
-        );
-        stepApprovers.set(step.step, users.map((u) => u.id));
-      } else {
-        stepApprovers.set(step.step, []);
-      }
+      stepApprovers.set(
+        step.step,
+        await this.resolveStepCandidates(step, userRepo, department)
+      );
     }
     return stepApprovers;
   }
@@ -69,18 +91,8 @@ export class ApprovalEngine {
     userRepo: IUserRepo,
     ownerDepartment: string,
   ): Promise<string | null> {
-    if (step.assigneeId) {
-      const user = await userRepo.findById(step.assigneeId);
-      return user?.id ?? null;
-    }
-    if (step.role) {
-      const users = await userRepo.findByRole(
-        step.role,
-        this.departmentForRole(step.role, ownerDepartment)
-      );
-      return users[0]?.id ?? null;
-    }
-    return null;
+    const candidates = await this.resolveStepCandidates(step, userRepo, ownerDepartment);
+    return candidates[0] ?? null;
   }
 
   async dedupeApprovalChain(

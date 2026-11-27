@@ -31,7 +31,8 @@ export interface IExpenseRepo {
     dateFrom?: string,
     dateTo?: string,
     department?: string,
-    userId?: string
+    userId?: string,
+    departments?: string[]
   ): Promise<any>;
   getUserSummary(userId: string, dateFrom?: string, dateTo?: string): Promise<any>;
 }

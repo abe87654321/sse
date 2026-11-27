@@ -215,6 +215,13 @@ const RELATIONS: RelationSpec[] = [
     table: 'payment_receipts',
     countSql: 'SELECT COUNT(*)::int AS count FROM payment_receipts WHERE report_id IS NOT NULL',
   },
+  {
+    predicate: 'approverOf',
+    table: 'users',
+    // Soft-deleted users are not projected with approverOf edges.
+    countSql:
+      'SELECT COUNT(*)::int AS count FROM department_approvers da JOIN users u ON u.id = da.user_id WHERE u.deleted_at IS NULL',
+  },
 ];
 
 function asNumber(value: unknown): number {
