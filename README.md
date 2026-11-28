@@ -42,12 +42,15 @@
 |---------|-------------|
 | 📝 **Smart Reimbursement** | Natural-language expense submission ("张三出差住宿600元") |
 | 🖼️ **Invoice OCR** | Upload PDF/OFD invoices, auto-extract data via AI vision models |
+| 📂 **Batch Invoice Recognition** | In the text tab, pick multiple PDF/OFD invoices or a whole folder (≤20 files, ≤20 MB each); processed sequentially, results merged and appended to the expense items |
+| 📸 **Configurable Vision Model** | Screenshot recognition uses a dedicated vision model configured in system management (detect / fetch model list / test), never the text model |
+| 💾 **Unsaved Draft Recovery** | New-expense drafts autosave fields (localStorage) and invoice files (IndexedDB), then restore after reload / HMR; a 401 shows a re-login banner instead of wiping the form |
 | 🧾 **AI Invoice Verification** | Manual AI check of invoice number / amount / date; duplicate invoice detection; approver acknowledgement required on mismatch |
 | 🔀 **Configurable Approval** | Multi-step approval chains based on amount & category |
 | 💳 **Payment Receipt Verification** | Payment reference or receipt required; async OCR suspicion checks; correction / revert with audit trail; paid reports cannot be deleted |
 | 🤖 **Ontology / Knowledge Graph** | Semantic reasoning engine — multi-system data fusion, configurable inference rules, SPARQL cross-domain queries |
 | 🧠 **AI Semantic Engine** | LLM-powered entity extraction, category matching, and NL explanation |
-| ⚙️ **Admin Engine Setup** | Root URL + API key, model catalog picker, connectivity test, observable OCR test panel with history |
+| ⚙️ **Admin Engine Setup** | Text fill engine + separate screenshot vision engine: root URL, API key, model catalog picker, connectivity test, text/vision/OCR test panels |
 | 📊 **Statistics & Export** | Charts, monthly trends, Excel export |
 | 🔔 **Notifications** | In-app + SMS + Email for approval / payment / broadcast events, per-user preferences, delivery tracking and bounce alerts |
 | 📡 **MCP Protocol** | 22 tools for AI Agent integration (stdio + Streamable HTTP) |
@@ -139,7 +142,7 @@ Hexagonal Architecture (Ports & Adapters) — core business logic has zero frame
 > ```
 >
 > **PostgreSQL image:** `postgres:16-alpine` is still pulled from Docker Hub. On air-gapped
-> hosts, preload it as described in the [deployment guide §1.4](docs/2026-11-09-sse-deployment.md).
+> hosts, preload it as described in the [deployment guide](docs/DEPLOYMENT.md).
 
 ### Setup / 一键启动
 
@@ -164,7 +167,7 @@ pnpm dev
 > with the command above before running `docker compose up -d`.
 > **Windows PowerShell:** run `tar -xzf images\minio\sse-minio-local.tar.gz` then
 > `docker load -i images\minio\sse-minio-local.tar`. Full steps and checksum verification:
-> [部署文档 §2.3.1](docs/2026-11-09-sse-deployment.md).
+> [部署文档](docs/DEPLOYMENT.md).
 
 | Service | URL | Port |
 |---------|-----|------|
@@ -385,7 +388,8 @@ troubleshooting: [Ontology v2 runbook](docs/2026-11-10-ontology-v2-runbook.md).
 | Doc | Content |
 |-----|---------|
 | [系统需求设计 (v2)](docs/2026-07-06-sse-design.md) | Full feature spec, data model, API, MCP schema |
-| [部署文档](docs/2026-11-09-sse-deployment.md) | Beginner-first install, offline MinIO, AI/OCR, notifications, MCP stdio + Streamable HTTP, OpenAPI, systemd, production & troubleshooting |
+| [部署文档 (DEPLOYMENT.md)](docs/DEPLOYMENT.md) | Current install/upgrade guide: offline MinIO, AI fill + screenshot vision engine, multi-invoice recognition, drafts, notifications, MCP, systemd, troubleshooting |
+| [详细部署手册 (2026-11-09)](docs/2026-11-09-sse-deployment.md) | In-depth reference: environment variables, production reverse proxy, backup/restore, appendices |
 | [MinIO 本地镜像](images/minio/sse-minio-local.meta.txt) | Bundled image version, SHA-256, offline load & verification |
 | [本体层设计](docs/2026-07-26-ontology-design.md) | OWL ontology + semantic orchestration engine |
 | [本体 v2 运行手册](docs/2026-11-10-ontology-v2-runbook.md) | Shadow comparison, 24h gate, cutover, rollback, troubleshooting, decommission |
@@ -394,6 +398,7 @@ troubleshooting: [Ontology v2 runbook](docs/2026-11-10-ontology-v2-runbook.md).
 | [UserPicker 设计](docs/2026-07-26-userpicker-design.md) | Reusable user search/select component |
 | [审批流设计器](docs/2026-07-07-workflow-organisation-design.md) | Visual drag-drop approval flow designer |
 | [实体关系与权限矩阵](docs/2026-07-07-er-permission-matrix.md) | ER diagram, RBAC data scope, permission matrix |
+| [开发过程记录 (2026-11-28)](docs/2026-11-28-sse-process.md) | AI recognition feedback + configurable vision model; batch invoice/folder recognition; source files attached; draft autosave + session-expiry banner |
 | [开发过程记录 (2026-11-27)](docs/2026-11-27-sse-process.md) | Quick-approve verification ack; multi-department approvers (design + implementation); ontology `approverOf` projection |
 | [开发过程记录 (2026-11-11)](docs/2026-11-11-sse-process.md) | Ontology workbench UI, graph state persistence, readable labels, drag spring-back, shadow gate |
 | [开发过程记录 (2026-11-10)](docs/2026-11-10-sse-process.md) | MCP agent integration: Streamable HTTP, approval/OCR tools, per-request auth, OpenAPI |
@@ -410,6 +415,13 @@ troubleshooting: [Ontology v2 runbook](docs/2026-11-10-ontology-v2-runbook.md).
 
 ## 🆕 Recent Updates / 最近更新
 
+- **2026-11-28** — AI recognition reliability + draft safety:
+  - AI recognize / invoice upload now use a **120s timeout** and show errors and empty results **inline in the AI card** instead of the page footer.
+  - Screenshot recognition uses a dedicated **vision engine** configured in System Management (启用 / 检测 / 获取模型列表 / 检验视觉模型); missing or disabled config returns an actionable message.
+  - The text tab can attach **multiple PDF/OFD invoices or a whole folder** (≤20 files, ≤20 MB each, processed sequentially); results are merged and **appended** to 费用明细 instead of replacing them.
+  - Each recognized invoice item keeps its **source file** (`pendingInvoiceFile`) and uploads it on save.
+  - New-expense **draft autosave/restore**: fields in `localStorage`, invoice files in `IndexedDB`; restores after reload/HMR, clears after save/submit, plus a `beforeunload` guard.
+  - **401 no longer force-logs out**: mark the session expired and show a re-login banner (login endpoints excluded), so an in-progress form is not wiped.
 - **2026-11-27** — Multi-department approvers:
   - One user can be the approver for several departments (still one approver per department); unassigned departments fall back to the earliest active admin.
   - Being assigned grants that department's data scope (expense list / statistics / ontology); changes take effect immediately via a per-request principal (no re-login).

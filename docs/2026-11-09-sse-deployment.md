@@ -3,6 +3,8 @@
 > 日期：2026-11-09 | 适用：`master` | 读者：第一次部署的新手
 > 更新：2026-11-10 — 增加 MCP Streamable HTTP、OpenAPI、systemd 运维与相关环境变量
 > 更新：2026-11-20 — 增加审计事件、SCIM/MDM 请求签名、迁移 021/022 与后台启动方式
+> 更新：2026-11-28 — 增加截图识别视觉模型、批量发票识别、草稿恢复与会话过期处理
+> **当前维护版本见 [DEPLOYMENT.md](./DEPLOYMENT.md)**；本文保留为更细的环境变量 / 反向代理 / 备份附录手册。
 > 配套文件：[README](../README.md) · [.env.example](../.env.example) · [docker-compose.yml](../docker-compose.yml) · [MinIO 镜像元信息](../images/minio/sse-minio-local.meta.txt)
 
 本指南只回答一件事：**怎样把 SSE 从零跑起来**。
@@ -466,6 +468,19 @@ AI_MODEL=llama3.2-vision
 密钥会写入 `ai-config.json`，不需要改 `.env`。
 
 > 没有 GPU 也可以运行 Ollama，但纯 CPU 速度较慢（每条识别约 5–30 秒），建议至少 8 GB 内存。
+
+#### 3.1.5 截图识别视觉模型（独立配置）
+
+截图识别使用**独立的视觉模型**，不会复用上面的文字模型。进入 **系统管理 → 📸 截图识别视觉模型**：
+
+1. 勾选 **启用**（未启用时检验会提示“未启用，请勾选启用”）
+2. 填 **API 地址**（OpenAI 兼容，如 `http://<vision-host>:11434`）
+3. 点 **获取模型列表** 选择多模态模型（如 `qwen3-vl:8b`、`llama3.2-vision`）
+4. 点 **检测** 验证连通性
+5. 点 **检验视觉模型**（使用内置样例 `docs/vision-fill-sample.png`）
+
+接口：`POST /admin/ai-models`、`POST /admin/ai-connection-test` 需带 `{ "engine": "vision" }`；
+`POST /admin/ai-test/vision` 执行样例识别。错误提示会区分「未启用 / 缺地址 / 缺模型 / 未配置完整」。
 
 ### 3.2 发票 OCR 引擎（三选一）
 
@@ -1046,6 +1061,11 @@ docker compose exec -T postgres psql -U sse -d sse \
 ### 5.3 可选功能
 
 - [ ] AI 模型“检验文字识别”成功
+- [ ] 截图识别视觉模型“检测 / 检验视觉模型”成功
+- [ ] 文字识别可添加多个发票 / 文件夹并合并追加
+- [ ] 识别出的明细带来源发票文件，保存后可下载
+- [ ] 新建报销刷新 / HMR 后草稿与发票文件自动恢复
+- [ ] Token 失效只出现重新登录提示，表单内容不丢
 - [ ] OCR 引擎“检验图像 OCR”成功
 - [ ] 邮件/短信实际收到（或日志显示发送成功）
 - [ ] MCP 工具能返回数据
@@ -1270,6 +1290,17 @@ curl http://localhost:11434/v1/models
 **Q: 没有 GPU 能跑吗？**
 
 可以。Ollama 支持纯 CPU，但速度较慢（每条 5–30 秒），建议至少 8 GB 内存。
+
+**Q: 点「检验视觉模型」立刻报“截图识别视觉模型未启用…”？**
+
+这是配置阶段的问题，按提示逐项检查：勾选「启用」→ 填 API 地址 → 选择视觉模型。
+返回耗时 0ms 说明请求还没发出去。详见 [DEPLOYMENT.md §4.2](./DEPLOYMENT.md)。
+
+**Q: 新建报销填写中页面“一闪”后内容清空？**
+
+旧版本中这是开发服务器 HMR 重载组件（例如测试机 `git pull` 后）。
+当前版本会把新建报销草稿存到 `localStorage` / `IndexedDB`，重载后自动恢复；
+正式测试建议使用 `pnpm build` 的静态产物。
 
 **Q: OCR 一直 `unverified`？**
 
