@@ -10,6 +10,11 @@
     </div>
 
     <div class="form-body">
+      <div v-if="draftRestored" class="draft-notice" role="status">
+        <span>已恢复上次未保存的草稿。</span>
+        <button type="button" class="btn-secondary btn-sm" @click="discardDraft">放弃草稿</button>
+      </div>
+
       <div class="card ai-card">
         <div class="ai-card-header" @click="showAI = !showAI">
           <div class="ai-label">
@@ -190,7 +195,7 @@
         <div class="form-grid">
           <div class="field full">
             <label>标题 <span class="required">*</span></label>
-            <input v-model="form.title" type="text" placeholder="例如：6月出差报销" />
+            <input v-model="form.title" data-test="expense-title" type="text" placeholder="例如：6月出差报销" />
           </div>
           <div class="field full">
             <label>说明</label>
@@ -285,11 +290,21 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, computed, ref, watch, onMounted } from 'vue'
+import { reactive, computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../api/index'
 import InvoiceVerificationPanel from '../components/InvoiceVerificationPanel.vue'
 import { apiErrorMessage, downloadFile } from '../utils/download'
+import {
+  clearDraftFields,
+  clearDraftFiles,
+  hasDraftContent,
+  loadDraftFields,
+  loadDraftFiles,
+  saveDraftFields,
+  saveDraftFiles,
+  type DraftFields,
+} from '../utils/expense-draft'
 
 const router = useRouter()
 const route = useRoute()
@@ -298,6 +313,9 @@ const error = ref('')
 const expenseId = ref<string | null>(null)
 const verification = ref<any>(null)
 const verifying = ref(false)
+const draftRestored = ref(false)
+let draftTimer: ReturnType<typeof setTimeout> | null = null
+let draftReady = false
 
 const showAI = ref(false)
 const aiTab = ref<'text' | 'image' | 'invoice'>('text')
@@ -618,7 +636,89 @@ function applyAIResult() {
   showAI.value = false
 }
 
+const DRAFT_SAVE_DELAY_MS = 400
+
+function currentDraftFields(): DraftFields {
+  return {
+    version: 1,
+    title: form.title,
+    description: form.description,
+    aiTab: aiTab.value,
+    items: form.items.map(item => ({
+      categoryId: item.categoryId,
+      amount: item.amount,
+      expenseDate: item.expenseDate,
+      description: item.description || '',
+    })),
+    updatedAt: Date.now(),
+  }
+}
+
+function isDraftEnabled(): boolean {
+  return !route.params.id && !expenseId.value
+}
+
+function scheduleDraftSave() {
+  if (!draftReady || !isDraftEnabled()) return
+  if (draftTimer) clearTimeout(draftTimer)
+  draftTimer = setTimeout(() => { void persistDraft() }, DRAFT_SAVE_DELAY_MS)
+}
+
+async function persistDraft() {
+  if (!isDraftEnabled()) return
+  draftTimer = null
+  const fields = currentDraftFields()
+  if (!hasDraftContent(fields)) {
+    clearDraftFields()
+    await clearDraftFiles()
+    return
+  }
+  saveDraftFields(fields)
+  await saveDraftFiles(form.items.map(item => item.pendingInvoiceFile || null))
+}
+
+function clearDraftAfterSave() {
+  if (draftTimer) {
+    clearTimeout(draftTimer)
+    draftTimer = null
+  }
+  draftRestored.value = false
+  clearDraftFields()
+  void clearDraftFiles()
+}
+
+function discardDraft() {
+  if (!isDraftEnabled()) return
+  draftRestored.value = false
+  clearDraftFields()
+  void clearDraftFiles()
+  form.title = ''
+  form.description = ''
+  form.items = [{ categoryId: '', amount: 0, expenseDate: new Date().toISOString().slice(0, 10), description: '' }]
+  aiTab.value = 'text'
+  clearAIResult()
+}
+
+function handleBeforeUnload(event: BeforeUnloadEvent) {
+  if (!isDraftEnabled()) return
+  if (!hasDraftContent(currentDraftFields())) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+watch(form, scheduleDraftSave, { deep: true })
+watch(aiTab, scheduleDraftSave)
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  if (draftTimer) {
+    clearTimeout(draftTimer)
+    draftTimer = null
+  }
+})
+
 onMounted(async () => {
+  window.addEventListener('beforeunload', handleBeforeUnload)
   try {
     const res = await api.get('/categories')
     categories.value = res.data || []
@@ -635,6 +735,31 @@ onMounted(async () => {
       { id: 'c0000000-0000-0000-0000-000000000008', name: '其他' },
     ]
   }
+
+  if (isDraftEnabled()) {
+    const draft = loadDraftFields()
+    if (draft && hasDraftContent(draft)) {
+      form.title = draft.title
+      form.description = draft.description
+      if (draft.aiTab === 'text' || draft.aiTab === 'image' || draft.aiTab === 'invoice') {
+        aiTab.value = draft.aiTab
+      }
+      form.items = draft.items.length > 0
+        ? draft.items.map(item => ({
+            categoryId: item.categoryId,
+            amount: item.amount,
+            expenseDate: item.expenseDate,
+            description: item.description,
+          }))
+        : [{ categoryId: '', amount: 0, expenseDate: new Date().toISOString().slice(0, 10), description: '' }]
+      draftRestored.value = true
+      const files = await loadDraftFiles()
+      files.forEach((file, index) => {
+        if (file && form.items[index]) form.items[index].pendingInvoiceFile = file
+      })
+    }
+  }
+  draftReady = true
 
   if (route.params.id) {
     try {
@@ -832,6 +957,7 @@ async function handleSave() {
     }
     resetLocalVerification()
     await uploadPendingInvoices()
+    clearDraftAfterSave()
   } catch (e: any) {
     error.value = e?.response?.data?.error?.message || e?.message || '保存失败'
   } finally {
@@ -887,6 +1013,7 @@ async function handleSubmit() {
       if (!uploaded) return
       await api.post(`/expenses/${reportId}/submit`)
     }
+    clearDraftAfterSave()
     router.push('/expenses')
   } catch (e: any) {
     error.value = e?.response?.data?.error?.message || e?.message || '提交失败'
@@ -898,6 +1025,19 @@ async function handleSubmit() {
 
 <style scoped>
 .form-body { max-width: 800px; display: flex; flex-direction: column; gap: 20px; }
+
+.draft-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--accent-orange);
+  background: var(--accent-orange-bg);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
 
 .form-section-title {
   font-size: 1.05rem;

@@ -35,19 +35,26 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<UserInfo | null>(
     localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!) : null
   )
+  const sessionExpired = ref(false)
 
   const isLoggedIn = computed(() => !!token.value)
 
   function setAuth(t: string, u: UserInfo) {
     token.value = t
     user.value = u
+    sessionExpired.value = false
     localStorage.setItem('token', t)
     localStorage.setItem('user', JSON.stringify(u))
+  }
+
+  function markSessionExpired() {
+    sessionExpired.value = true
   }
 
   async function logout() {
     token.value = ''
     user.value = null
+    sessionExpired.value = false
     localStorage.removeItem('token')
     localStorage.removeItem('user')
     try {
@@ -57,5 +64,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { token, user, isLoggedIn, setAuth, logout }
+  return { token, user, isLoggedIn, sessionExpired, setAuth, markSessionExpired, logout }
 })

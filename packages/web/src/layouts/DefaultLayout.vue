@@ -87,6 +87,10 @@
       </header>
 
       <main class="content">
+        <div v-if="auth.sessionExpired" class="session-expired" role="alert">
+          <span>登录已过期，请重新登录后继续操作（未保存的表单会自动恢复为草稿）。</span>
+          <button type="button" class="btn-primary btn-sm" @click="handleLogout">重新登录</button>
+        </div>
         <router-view v-slot="{ Component }">
           <transition name="page" mode="out-in">
             <component :is="Component" />
@@ -373,6 +377,20 @@ onMounted(async () => {
   flex: 1;
   padding: 28px;
   overflow-y: auto;
+}
+
+.session-expired {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid #fecdca;
+  background: #fef3f2;
+  color: #b42318;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
 }
 
 @media (max-width: 768px) {

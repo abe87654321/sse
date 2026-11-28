@@ -22,6 +22,26 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ name: 'ExpenseCreate', params: {} }),
 }))
 
+const draftMocks = vi.hoisted(() => ({
+  loadDraftFields: vi.fn(),
+  saveDraftFields: vi.fn(),
+  clearDraftFields: vi.fn(),
+  loadDraftFiles: vi.fn(),
+  saveDraftFiles: vi.fn(),
+  clearDraftFiles: vi.fn(),
+  hasDraftContent: vi.fn(),
+}))
+
+vi.mock('../../utils/expense-draft', () => ({
+  loadDraftFields: draftMocks.loadDraftFields,
+  saveDraftFields: draftMocks.saveDraftFields,
+  clearDraftFields: draftMocks.clearDraftFields,
+  loadDraftFiles: draftMocks.loadDraftFiles,
+  saveDraftFiles: draftMocks.saveDraftFiles,
+  clearDraftFiles: draftMocks.clearDraftFiles,
+  hasDraftContent: draftMocks.hasDraftContent,
+}))
+
 import ExpenseForm from '../ExpenseForm.vue'
 
 function mountPage() {
@@ -62,6 +82,26 @@ beforeEach(() => {
   mocks.post.mockReset()
   mocks.put.mockReset()
   mocks.delete.mockReset()
+
+  draftMocks.loadDraftFields.mockReset()
+  draftMocks.saveDraftFields.mockReset()
+  draftMocks.clearDraftFields.mockReset()
+  draftMocks.loadDraftFiles.mockReset()
+  draftMocks.saveDraftFiles.mockReset()
+  draftMocks.clearDraftFiles.mockReset()
+  draftMocks.hasDraftContent.mockReset()
+
+  draftMocks.loadDraftFields.mockReturnValue(null)
+  draftMocks.loadDraftFiles.mockResolvedValue([])
+  draftMocks.saveDraftFields.mockImplementation(() => {})
+  draftMocks.saveDraftFiles.mockResolvedValue(undefined)
+  draftMocks.clearDraftFiles.mockResolvedValue(undefined)
+  draftMocks.hasDraftContent.mockImplementation((fields: any) => !!fields && (
+    !!(fields.title || '').trim()
+    || !!(fields.description || '').trim()
+    || (fields.items || []).some((item: any) =>
+      item.categoryId || Number(item.amount) > 0 || (item.description || '').trim())
+  ))
 })
 
 describe('ExpenseForm AI recognition feedback', () => {
@@ -301,5 +341,71 @@ describe('ExpenseForm AI recognition feedback', () => {
 
     await selectFiles(wrapper, '.ai-text-invoice-input', [pdfFile('a.pdf')])
     expect(wrapper.find('.btn-ai').attributes('disabled')).toBeUndefined()
+  })
+
+  it('restores an unsaved draft (fields and invoice files) on mount', async () => {
+    draftMocks.loadDraftFields.mockReturnValue({
+      version: 1,
+      title: '恢复的草稿',
+      description: '备注',
+      aiTab: 'text',
+      items: [{
+        categoryId: 'c0000000-0000-0000-0000-000000000001',
+        amount: 12,
+        expenseDate: '2026-11-27',
+        description: '打车',
+      }],
+      updatedAt: 1,
+    })
+    draftMocks.loadDraftFiles.mockResolvedValue([pdfFile('draft.pdf')])
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect((wrapper.find('[data-test="expense-title"]').element as HTMLInputElement).value).toBe('恢复的草稿')
+    expect((wrapper.find('.items-table input[type="number"]').element as HTMLInputElement).value).toBe('12')
+    expect(wrapper.findAll('.invoice-row').map(row => row.text()).join(' ')).toContain('draft.pdf')
+    expect(wrapper.find('.draft-notice').exists()).toBe(true)
+  })
+
+  it('auto-saves the form to the draft store while editing', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('[data-test="expense-title"]').setValue('自动保存标题')
+    await new Promise(resolve => setTimeout(resolve, 600))
+
+    const saved = draftMocks.saveDraftFields.mock.calls.some((call: any[]) => call[0]?.title === '自动保存标题')
+    expect(saved).toBe(true)
+  })
+
+  it('clears the draft after a successful save', async () => {
+    mocks.post.mockResolvedValue({
+      data: {
+        id: 'expense-1',
+        items: [{
+          id: 'item-1',
+          categoryId: 'c0000000-0000-0000-0000-000000000001',
+          amount: 12,
+          expenseDate: '2026-11-27',
+          description: '打车',
+        }],
+      },
+    })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('[data-test="expense-title"]').setValue('已保存')
+    await wrapper.find('.items-table select').setValue('c0000000-0000-0000-0000-000000000001')
+    await wrapper.find('.items-table input[type="number"]').setValue(12)
+
+    const saveButton = wrapper.findAll('button').find(button => button.text().includes('保存草稿'))
+    expect(saveButton).toBeTruthy()
+    await saveButton!.trigger('click')
+    await flushPromises()
+    await flushPromises()
+
+    expect(draftMocks.clearDraftFields).toHaveBeenCalled()
+    expect(draftMocks.clearDraftFiles).toHaveBeenCalled()
   })
 })
