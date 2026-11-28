@@ -42,6 +42,21 @@ async function submitText(wrapper: ReturnType<typeof mountPage>, text = '打车5
   await flushPromises()
 }
 
+function pdfFile(name: string, content = 'x') {
+  return new File([content], name, { type: 'application/pdf' })
+}
+
+async function selectFiles(
+  wrapper: ReturnType<typeof mountPage>,
+  selector: string,
+  files: File[],
+) {
+  const input = wrapper.find(selector)
+  Object.defineProperty(input.element, 'files', { value: files, configurable: true })
+  await input.trigger('change')
+  await flushPromises()
+}
+
 beforeEach(() => {
   mocks.get.mockReset()
   mocks.post.mockReset()
@@ -137,5 +152,112 @@ describe('ExpenseForm AI recognition feedback', () => {
     expect(alert.exists()).toBe(true)
     expect(alert.text()).toContain('截图识别视觉模型未启用')
     expect(wrapper.find('.error-msg').exists()).toBe(false)
+  })
+
+  it('opens an invoice picker menu with file and folder options', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await openAI(wrapper)
+
+    await wrapper.find('.ai-invoice-picker-btn').trigger('click')
+    const menu = wrapper.find('.ai-invoice-menu')
+    expect(menu.exists()).toBe(true)
+    expect(menu.text()).toContain('选择发票文件')
+    expect(menu.text()).toContain('选择发票文件夹')
+  })
+
+  it('adds multiple PDF/OFD files and ignores other extensions', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await openAI(wrapper)
+
+    await selectFiles(wrapper, '.ai-text-invoice-input', [
+      pdfFile('a.pdf'),
+      pdfFile('b.ofd', 'yy'),
+      new File(['x'], 'c.txt', { type: 'text/plain' }),
+    ])
+
+    expect(wrapper.findAll('.ai-file-chip')).toHaveLength(2)
+    expect(wrapper.find('.ai-file-notice').text()).toContain('忽略')
+  })
+
+  it('caps folder selection at 20 invoice files', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await openAI(wrapper)
+
+    const files = Array.from({ length: 22 }, (_, index) => pdfFile(`f${index}.pdf`))
+    await selectFiles(wrapper, '.ai-text-invoice-dir', files)
+
+    expect(wrapper.findAll('.ai-file-chip')).toHaveLength(20)
+    expect(wrapper.find('.ai-file-notice').text()).toContain('忽略')
+  })
+
+  it('parses the text and every selected invoice, merging the results', async () => {
+    mocks.post.mockImplementation((url: string) => {
+      if (url === '/ai/parse') {
+        return Promise.resolve({
+          data: { items: [{ categoryName: '交通', amount: 50, expenseDate: '2026-11-27', description: '打车' }] },
+        })
+      }
+      if (url === '/ai/parse-invoice') {
+        return Promise.resolve({
+          data: { items: [{ categoryName: '餐饮', amount: 88, expenseDate: '2026-11-27', description: '午饭' }] },
+        })
+      }
+      return Promise.reject(new Error(`unexpected ${url}`))
+    })
+    const wrapper = mountPage()
+    await flushPromises()
+    await openAI(wrapper)
+
+    await selectFiles(wrapper, '.ai-text-invoice-input', [pdfFile('a.pdf'), pdfFile('b.pdf')])
+    await wrapper.find('.ai-input-row textarea').setValue('打车50元')
+    await wrapper.find('.btn-ai').trigger('click')
+    await flushPromises()
+
+    expect(mocks.post.mock.calls.filter(call => call[0] === '/ai/parse')).toHaveLength(1)
+    const invoiceCalls = mocks.post.mock.calls.filter(call => call[0] === '/ai/parse-invoice')
+    expect(invoiceCalls).toHaveLength(2)
+    expect(invoiceCalls[0][2]).toMatchObject({ timeout: 120000 })
+    expect(wrapper.findAll('.ai-result-item')).toHaveLength(3)
+  })
+
+  it('keeps successful invoices and lists the failed ones', async () => {
+    let invoiceCall = 0
+    mocks.post.mockImplementation((url: string) => {
+      if (url === '/ai/parse-invoice') {
+        invoiceCall += 1
+        if (invoiceCall === 1) {
+          return Promise.reject({ response: { data: { error: { message: 'MinerU 解析失败' } } } })
+        }
+        return Promise.resolve({
+          data: { items: [{ categoryName: '餐饮', amount: 88, expenseDate: '2026-11-27', description: '午饭' }] },
+        })
+      }
+      return Promise.resolve({ data: { items: [] } })
+    })
+    const wrapper = mountPage()
+    await flushPromises()
+    await openAI(wrapper)
+
+    await selectFiles(wrapper, '.ai-text-invoice-input', [pdfFile('bad.pdf'), pdfFile('good.pdf')])
+    await wrapper.find('.btn-ai').trigger('click')
+    await flushPromises()
+
+    expect(mocks.post.mock.calls.filter(call => call[0] === '/ai/parse-invoice')).toHaveLength(2)
+    expect(wrapper.find('.ai-file-errors').text()).toContain('bad.pdf')
+    expect(wrapper.findAll('.ai-result-item')).toHaveLength(1)
+  })
+
+  it('keeps the recognize button disabled until text or invoice files are provided', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await openAI(wrapper)
+
+    expect(wrapper.find('.btn-ai').attributes('disabled')).toBeDefined()
+
+    await selectFiles(wrapper, '.ai-text-invoice-input', [pdfFile('a.pdf')])
+    expect(wrapper.find('.btn-ai').attributes('disabled')).toBeUndefined()
   })
 })

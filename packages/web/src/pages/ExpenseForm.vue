@@ -43,12 +43,74 @@
           <p class="ai-hint">{{ aiTabHints[aiTab] }}</p>
 
           <!-- 文字模式 -->
-          <div v-show="aiTab === 'text'" class="ai-input-row">
+          <div v-show="aiTab === 'text'" class="ai-input-row ai-text-row">
             <textarea
               v-model="aiTextInput"
               placeholder="例如：打车去机场85元，酒店两晚600元"
               rows="3"
             ></textarea>
+            <div class="ai-invoice-picker">
+              <button
+                type="button"
+                class="btn-secondary btn-sm ai-invoice-picker-btn"
+                aria-haspopup="menu"
+                :aria-expanded="invoicePickerOpen"
+                @click="invoicePickerOpen = !invoicePickerOpen"
+              >
+                📁 发票文件
+              </button>
+              <div v-if="invoicePickerOpen" class="ai-invoice-menu" role="menu">
+                <button type="button" role="menuitem" @click="pickTextInvoiceFiles">选择发票文件…</button>
+                <button type="button" role="menuitem" @click="pickTextInvoiceFolder">选择发票文件夹…</button>
+              </div>
+            </div>
+            <input
+              ref="textInvoiceFileInput"
+              class="ai-text-invoice-input"
+              type="file"
+              accept=".pdf,.ofd"
+              multiple
+              style="display:none"
+              @change="handleTextInvoiceSelect"
+            />
+            <input
+              ref="textInvoiceDirInput"
+              class="ai-text-invoice-dir"
+              type="file"
+              webkitdirectory
+              style="display:none"
+              @change="handleTextInvoiceSelect"
+            />
+          </div>
+          <div v-show="aiTab === 'text'" class="ai-text-files">
+            <div v-if="textInvoiceFiles.length" class="ai-file-chips">
+              <span
+                v-for="(file, index) in textInvoiceFiles"
+                :key="invoiceFileKey(file)"
+                class="ai-file-chip"
+                :title="file.name"
+              >
+                {{ file.name }}
+                <button
+                  type="button"
+                  class="ai-file-remove"
+                  :aria-label="`移除 ${file.name}`"
+                  @click="removeTextInvoiceFile(index)"
+                >×</button>
+              </span>
+            </div>
+            <div v-if="aiFileNotice" class="ai-file-notice" role="status">{{ aiFileNotice }}</div>
+            <div
+              v-if="aiLoading && aiFileProgress.total > 0"
+              class="ai-file-progress"
+              role="status"
+              aria-live="polite"
+            >
+              发票识别中… {{ aiFileProgress.done }}/{{ aiFileProgress.total }}
+            </div>
+            <ul v-if="aiFileErrors.length" class="ai-file-errors" role="alert">
+              <li v-for="(message, index) in aiFileErrors" :key="index">{{ message }}</li>
+            </ul>
           </div>
 
           <!-- 截图模式 -->
@@ -96,7 +158,7 @@
 
           <div v-if="aiError" class="ai-inline-error" role="alert">{{ aiError }}</div>
           <div
-            v-else-if="aiParsed && aiResult.length === 0 && !aiLoading"
+            v-else-if="aiParsed && aiResult.length === 0 && aiFileErrors.length === 0 && !aiLoading"
             class="ai-inline-empty"
             role="status"
             aria-live="polite"
@@ -247,17 +309,29 @@ const aiLoading = ref(false)
 const aiError = ref('')
 const aiParsed = ref(false)
 const aiResult = ref<Array<{ categoryName: string; amount: number; expenseDate: string; description: string }>>([])
+const textInvoiceFiles = ref<File[]>([])
+const textInvoiceFileInput = ref<HTMLInputElement | null>(null)
+const textInvoiceDirInput = ref<HTMLInputElement | null>(null)
+const invoicePickerOpen = ref(false)
+const aiFileProgress = ref<{ done: number; total: number }>({ done: 0, total: 0 })
+const aiFileNotice = ref('')
+const aiFileErrors = ref<string[]>([])
 
 const AI_REQUEST_TIMEOUT = 120000
+const MAX_TEXT_INVOICE_FILES = 20
+const MAX_TEXT_INVOICE_FILE_BYTES = 20 * 1024 * 1024
+const INVOICE_EXTENSIONS = ['.pdf', '.ofd']
 
 const aiTabHints: Record<string, string> = {
-  text: '输入报销相关的文字描述，AI 自动解析费用明细',
+  text: '输入文字描述，或点击右侧「发票文件」选择多个发票 / 整个文件夹，AI 自动解析费用明细',
   image: '上传报销截图或微信/支付宝付款截图，AI 识别费用信息',
-  invoice: '上传 PDF 或 OFD 格式的电子发票，AI 提取发票内容',
+  invoice: '上传 PDF / OFD 格式的电子发票，AI 提取发票内容',
 }
 
 const canAIParse = computed(() => {
-  if (aiTab.value === 'text') return aiTextInput.value.trim().length > 0
+  if (aiTab.value === 'text') {
+    return aiTextInput.value.trim().length > 0 || textInvoiceFiles.value.length > 0
+  }
   if (aiTab.value === 'image') return !!aiImageBase64.value
   if (aiTab.value === 'invoice') return !!aiInvoiceFile.value
   return false
@@ -356,18 +430,113 @@ function handleInvoiceSelect(e: Event) {
   aiInvoiceFile.value = file
 }
 
+function isInvoiceFile(file: File): boolean {
+  const name = file.name.toLowerCase()
+  return INVOICE_EXTENSIONS.some(ext => name.endsWith(ext))
+}
+
+function invoiceFileKey(file: File): string {
+  return `${file.name}:${file.size}:${file.lastModified}`
+}
+
+function addTextInvoiceFiles(selected: File[]) {
+  let ignored = 0
+  const seen = new Set(textInvoiceFiles.value.map(invoiceFileKey))
+  const next = [...textInvoiceFiles.value]
+  for (const file of selected) {
+    if (!isInvoiceFile(file) || file.size > MAX_TEXT_INVOICE_FILE_BYTES) {
+      ignored++
+      continue
+    }
+    const key = invoiceFileKey(file)
+    if (seen.has(key)) {
+      ignored++
+      continue
+    }
+    if (next.length >= MAX_TEXT_INVOICE_FILES) {
+      ignored++
+      continue
+    }
+    seen.add(key)
+    next.push(file)
+  }
+  textInvoiceFiles.value = next
+  aiFileNotice.value = ignored > 0
+    ? `已忽略 ${ignored} 个文件（仅支持 PDF/OFD、单个不超过 20MB、最多 ${MAX_TEXT_INVOICE_FILES} 个）`
+    : ''
+}
+
+function handleTextInvoiceSelect(e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  if (files.length) addTextInvoiceFiles(files)
+  input.value = ''
+  invoicePickerOpen.value = false
+}
+
+function pickTextInvoiceFiles() {
+  invoicePickerOpen.value = false
+  textInvoiceFileInput.value?.click()
+}
+
+function pickTextInvoiceFolder() {
+  invoicePickerOpen.value = false
+  textInvoiceDirInput.value?.click()
+}
+
+function removeTextInvoiceFile(index: number) {
+  textInvoiceFiles.value.splice(index, 1)
+  aiFileNotice.value = ''
+}
+
+function aiErrorMessage(error: any, fallback: string): string {
+  if (error?.code === 'ECONNABORTED') return '识别超时，AI 模型响应较慢，请稍后重试'
+  return error?.response?.data?.error?.message || error?.message || fallback
+}
+
 async function handleAIParse() {
   aiLoading.value = true
   aiError.value = ''
   aiParsed.value = false
+  aiFileErrors.value = []
+  aiFileProgress.value = { done: 0, total: 0 }
   try {
     if (aiTab.value === 'text') {
-      const res = await api.post(
-        '/ai/parse',
-        { text: aiTextInput.value.trim() },
-        { timeout: AI_REQUEST_TIMEOUT },
-      )
-      aiResult.value = res.data.items || []
+      const items: typeof aiResult.value = []
+      const errors: string[] = []
+      const text = aiTextInput.value.trim()
+      if (text) {
+        try {
+          const res = await api.post(
+            '/ai/parse',
+            { text },
+            { timeout: AI_REQUEST_TIMEOUT },
+          )
+          items.push(...(res.data.items || []))
+        } catch (e: any) {
+          errors.push(`文字识别：${aiErrorMessage(e, '识别失败')}`)
+        }
+      }
+      const files = textInvoiceFiles.value
+      aiFileProgress.value = { done: 0, total: files.length }
+      for (let index = 0; index < files.length; index++) {
+        const file = files[index]
+        const formData = new FormData()
+        formData.append('file', file)
+        try {
+          const res = await api.post('/ai/parse-invoice', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: AI_REQUEST_TIMEOUT,
+          })
+          items.push(...(res.data.items || []))
+        } catch (e: any) {
+          errors.push(`${file.name}：${aiErrorMessage(e, '识别失败')}`)
+        } finally {
+          aiFileProgress.value = { done: index + 1, total: files.length }
+        }
+      }
+      aiResult.value = items
+      aiFileErrors.value = errors
     } else if (aiTab.value === 'image') {
       const res = await api.post(
         '/ai/parse',
@@ -386,9 +555,7 @@ async function handleAIParse() {
     }
     aiParsed.value = true
   } catch (e: any) {
-    aiError.value = e?.code === 'ECONNABORTED'
-      ? '识别超时，AI 模型响应较慢，请稍后重试'
-      : e?.response?.data?.error?.message || 'AI 识别失败，请重试'
+    aiError.value = aiErrorMessage(e, 'AI 识别失败，请重试')
   } finally {
     aiLoading.value = false
   }
@@ -398,6 +565,8 @@ watch(aiTab, () => {
   aiError.value = ''
   aiParsed.value = false
   aiResult.value = []
+  aiFileErrors.value = []
+  aiFileProgress.value = { done: 0, total: 0 }
 })
 
 function clearAIResult() {
@@ -408,6 +577,11 @@ function clearAIResult() {
   aiResult.value = []
   aiError.value = ''
   aiParsed.value = false
+  textInvoiceFiles.value = []
+  aiFileNotice.value = ''
+  aiFileErrors.value = []
+  aiFileProgress.value = { done: 0, total: 0 }
+  invoicePickerOpen.value = false
 }
 
 function isBlankItem(item: FormItem): boolean {
@@ -845,6 +1019,82 @@ async function handleSubmit() {
   font-family: var(--font-body);
   font-size: 0.9rem;
   resize: vertical;
+}
+
+.ai-text-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.ai-text-row textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+.ai-invoice-picker { position: relative; flex: 0 0 auto; }
+.ai-invoice-picker-btn { white-space: nowrap; }
+.ai-invoice-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  min-width: 176px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ai-invoice-menu button {
+  text-align: left;
+  padding: 9px 12px;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.ai-invoice-menu button:hover { background: var(--accent-orange-bg); }
+.ai-text-files {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ai-file-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ai-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 260px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-file-remove {
+  background: none;
+  border: none;
+  color: var(--accent-coral);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0;
+}
+.ai-file-notice { font-size: 0.78rem; color: var(--text-muted); }
+.ai-file-progress { font-size: 0.78rem; color: var(--accent-orange); }
+.ai-file-errors {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.78rem;
+  color: #b42318;
 }
 
 .ai-image-area {
