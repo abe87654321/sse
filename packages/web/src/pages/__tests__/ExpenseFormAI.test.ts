@@ -77,6 +77,53 @@ describe('ExpenseForm AI recognition feedback', () => {
     expect(wrapper.text()).toContain('未识别到内容')
   })
 
+  it('appends recognized items to the existing expense details instead of clearing them', async () => {
+    mocks.post.mockResolvedValue({
+      data: { items: [{ categoryName: '餐饮', amount: 88, expenseDate: '2026-11-27', description: '午饭' }] },
+    })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('.items-table input[type="number"]').setValue(100)
+    await wrapper.find('.items-table input[type="text"]').setValue('原有费用')
+
+    await openAI(wrapper)
+    await submitText(wrapper)
+
+    const applyButton = wrapper.findAll('button').find(button => button.text().includes('填入表单'))
+    expect(applyButton).toBeTruthy()
+    await applyButton!.trigger('click')
+    await flushPromises()
+
+    const amounts = wrapper
+      .findAll('.items-table input[type="number"]')
+      .map(input => (input.element as HTMLInputElement).value)
+    expect(amounts).toEqual(['100', '88'])
+
+    const descriptions = wrapper
+      .findAll('.items-table input[type="text"]')
+      .map(input => (input.element as HTMLInputElement).value)
+    expect(descriptions[0]).toBe('原有费用')
+  })
+
+  it('drops the blank placeholder row when the form had no real items yet', async () => {
+    mocks.post.mockResolvedValue({
+      data: { items: [{ categoryName: '交通', amount: 50, expenseDate: '2026-11-27', description: '打车' }] },
+    })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await openAI(wrapper)
+    await submitText(wrapper)
+    await wrapper.findAll('button').find(button => button.text().includes('填入表单'))!.trigger('click')
+    await flushPromises()
+
+    const amounts = wrapper
+      .findAll('.items-table input[type="number"]')
+      .map(input => (input.element as HTMLInputElement).value)
+    expect(amounts).toEqual(['50'])
+  })
+
   it('shows the AI error next to the AI card instead of only at the page footer', async () => {
     mocks.post.mockRejectedValue({
       response: { data: { error: { message: '截图识别视觉模型未启用，请在系统管理中配置' } } },

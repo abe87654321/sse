@@ -410,8 +410,15 @@ function clearAIResult() {
   aiParsed.value = false
 }
 
+function isBlankItem(item: FormItem): boolean {
+  return !item.id
+    && !item.amount
+    && !(item.description || '').trim()
+    && !item.categoryId
+}
+
 function applyAIResult() {
-  form.items = aiResult.value.map(item => {
+  const recognized = aiResult.value.map(item => {
     const cat = categories.value.find(c => c.name === item.categoryName)
     return {
       categoryId: cat?.id || 'c0000000-0000-0000-0000-000000000008',
@@ -420,6 +427,8 @@ function applyAIResult() {
       description: item.description
     }
   })
+  const existing = form.items.filter(item => !isBlankItem(item))
+  form.items = [...existing, ...recognized]
   clearAIResult()
   showAI.value = false
 }
