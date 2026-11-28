@@ -61,7 +61,7 @@ router.post('/', asyncWrap(async (req, res) => {
 
   if (send_now) {
     const targetUsers = await resolveTargetUsers(roles, userIds);
-    const { createNotificationEngine } = await import('@sse/notifications');
+    const { createNotificationEngine, broadcastSmsMessage } = await import('@sse/notifications');
     const engine = createNotificationEngine();
     const finalBody = body_ai || body;
     await engine.sendBatch(
@@ -71,7 +71,7 @@ router.post('/', asyncWrap(async (req, res) => {
       finalBody,
       (delivery_channels || []).filter((c: string) => c === 'sms' || c === 'email') as ('sms' | 'email')[],
       msg.id,
-      { templateKey: 'broadcast' },
+      broadcastSmsMessage(title, finalBody),
     );
     res.status(201).json({ ...msg, sent_to: targetUsers.length });
     return;
@@ -94,7 +94,7 @@ router.post('/:id/send', asyncWrap(async (req, res) => {
   if (msg.status === 'sent') throw new AppError(400, 'INVALID_PARAMS', '消息已发送');
 
   const targetUsers = await resolveTargetUsers(msg.target_roles || [], msg.target_user_ids || []);
-  const { createNotificationEngine } = await import('@sse/notifications');
+  const { createNotificationEngine, broadcastSmsMessage } = await import('@sse/notifications');
   const engine = createNotificationEngine();
   const finalBody = msg.body_ai || msg.body;
 
@@ -108,7 +108,7 @@ router.post('/:id/send', asyncWrap(async (req, res) => {
       finalBody,
       (msg.delivery_channels || []).filter((c: string) => c === 'sms' || c === 'email') as ('sms' | 'email')[],
       claimed.id,
-      { templateKey: 'broadcast' },
+      broadcastSmsMessage(msg.title, finalBody),
     );
   } catch (err) {
     await repo.updateSystemMessage(claimed.id, { status: 'draft' });

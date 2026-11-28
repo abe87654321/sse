@@ -8,4 +8,11 @@ export { NotificationEngine } from './notification-engine';
 export { reminderMessage } from './templates/reminder';
 export { escalationMessage } from './templates/escalation';
 export { createNotificationEngine } from './factory';
+export {
+  BROADCAST_SMS_TITLE_MAX,
+  BROADCAST_SMS_BODY_MAX,
+  buildBroadcastSmsParams,
+  broadcastSmsMessage,
+} from './channels/sms-template';
+export type { SmsMessage, SmsTemplateKey } from './channels/sms-template';
 export * from './events';
