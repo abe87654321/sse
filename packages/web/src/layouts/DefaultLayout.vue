@@ -1,6 +1,6 @@
 <template>
   <div class="layout">
-    <aside class="sidebar" :class="{ collapsed }">
+    <aside id="app-sidebar" class="sidebar" :class="{ collapsed, 'mobile-open': mobileNavOpen }">
       <div class="sidebar-brand" @click="$router.push('/dashboard')">
         <div class="brand-icon">
           <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
@@ -30,6 +30,7 @@
           :to="item.path"
           class="nav-item"
           :class="{ active: $route.path === item.path || $route.path.startsWith(item.path + '/') }"
+          @click="mobileNavOpen = false"
         >
           <span class="nav-icon" v-html="item.icon"></span>
           <span v-show="!collapsed" class="nav-label">{{ item.label }}</span>
@@ -56,9 +57,25 @@
       </div>
     </aside>
 
+    <div v-if="mobileNavOpen" class="nav-overlay" aria-hidden="true" @click="mobileNavOpen = false"></div>
+
     <div class="main-area">
       <header class="topbar">
         <div class="topbar-left">
+          <button
+            type="button"
+            class="topbar-btn mobile-menu-btn"
+            :aria-expanded="mobileNavOpen"
+            aria-controls="app-sidebar"
+            aria-label="打开导航菜单"
+            @click="mobileNavOpen = !mobileNavOpen"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <line x1="3" y1="6" x2="21" y2="6"/>
+              <line x1="3" y1="12" x2="21" y2="12"/>
+              <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </button>
           <h2 class="page-title font-heading">{{ $route.meta.title || '' }}</h2>
         </div>
         <div class="topbar-right">
@@ -102,16 +119,34 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import api from '../api/index'
 import { APPROVER_ROLE_NAMES, canAccessRoute, navItemsForRole } from '@/permissions'
 
 const auth = useAuthStore()
+const route = useRoute()
 const collapsed = ref(false)
+const mobileNavOpen = ref(false)
 const showUserMenu = ref(false)
 const pendingApprovalCount = ref(0)
 const unreadCount = ref(0)
+const mobileQuery = typeof window !== 'undefined' && 'matchMedia' in window
+  ? window.matchMedia('(max-width: 768px)')
+  : null
+let unreadTimer: ReturnType<typeof setInterval> | null = null
+
+watch(() => route.path, () => { mobileNavOpen.value = false })
+
+function handleViewportChange(event: MediaQueryListEvent) {
+  if (event.matches) collapsed.value = false
+  else mobileNavOpen.value = false
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') mobileNavOpen.value = false
+}
 
 function handleLogout() {
   showUserMenu.value = false
@@ -123,6 +158,9 @@ const userInitial = computed(() => auth.user?.name?.charAt(0)?.toUpperCase() || 
 const navItems = computed(() => navItemsForRole(auth.user?.role))
 
 onMounted(async () => {
+  window.addEventListener('keydown', handleKeydown)
+  mobileQuery?.addEventListener('change', handleViewportChange)
+
   if (canAccessRoute(auth.user?.role, APPROVER_ROLE_NAMES)) {
     try {
       const res = await api.get('/approvals/pending')
@@ -133,12 +171,18 @@ onMounted(async () => {
     const res = await api.get('/notifications/unread-count')
     unreadCount.value = res.data.count || 0
   } catch {}
-  setInterval(async () => {
+  unreadTimer = setInterval(async () => {
     try {
       const res = await api.get('/notifications/unread-count')
       unreadCount.value = res.data.count || 0
     } catch {}
   }, 60000)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
+  mobileQuery?.removeEventListener('change', handleViewportChange)
+  if (unreadTimer) clearInterval(unreadTimer)
 })
 </script>
 
@@ -285,13 +329,24 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 0 28px;
   position: sticky;
   top: 0;
   z-index: 50;
   box-shadow: var(--shadow-sm);
 }
-.page-title { font-size: 1.2rem; color: var(--text-primary); letter-spacing: 0.03em; }
+.topbar-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mobile-menu-btn { display: none; flex-shrink: 0; }
+.page-title {
+  font-size: 1.2rem;
+  color: var(--text-primary);
+  letter-spacing: 0.03em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .topbar-right {
   display: flex;
   align-items: center;
@@ -373,6 +428,13 @@ onMounted(async () => {
   color: var(--text-primary);
 }
 
+.nav-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(40, 28, 22, 0.4);
+  z-index: 90;
+}
+
 .content {
   flex: 1;
   padding: 28px;
@@ -394,9 +456,20 @@ onMounted(async () => {
 }
 
 @media (max-width: 768px) {
-  .sidebar { transform: translateX(-100%); }
-  .sidebar.collapsed { transform: translateX(0); width: var(--sidebar-width); }
+  .mobile-menu-btn { display: flex; }
+  .topbar { padding: 0 12px; }
+  .topbar-right { gap: 4px; }
+  .topbar-btn { width: 44px; height: 44px; }
+  .page-title { font-size: 1.05rem; }
+  .sidebar,
+  .sidebar.collapsed {
+    width: 264px;
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .sidebar.mobile-open { transform: translateX(0); }
+  .sidebar .collapse-btn { display: none; }
   .main-area { margin-left: 0 !important; }
-  .content { padding: 16px; }
+  .content { padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px)); }
 }
 </style>

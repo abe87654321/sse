@@ -327,7 +327,9 @@ textarea { resize: vertical; min-height: 80px; }
   background: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: var(--radius);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
   box-shadow: var(--shadow-sm);
 }
 .data-table {
@@ -400,4 +402,11 @@ textarea { resize: vertical; min-height: 80px; }
 @media (max-width: 768px) {
   :root { --sidebar-width: 0px; }
   .desktop-only { display: none !important; }
+  .toolbar .search-input { width: 100%; }
+  .btn-icon { width: 44px; height: 44px; }
+  .fab {
+    right: 20px;
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  }
+  input, select, textarea { font-size: 16px; }
 }

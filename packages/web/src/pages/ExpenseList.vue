@@ -35,12 +35,12 @@
         </thead>
         <tbody>
           <tr v-for="item in expenses" :key="item.id" @click="$router.push(`/expenses/${item.id}`)">
-            <td class="text-muted" style="font-size:0.8rem;">{{ item.serialNo }}</td>
-            <td class="text-secondary">{{ item.applicantName || '-' }}</td>
-            <td class="title-cell">{{ item.title }}</td>
-            <td class="text-right">&yen;{{ (item.totalAmount || 0).toLocaleString() }}</td>
-            <td><span class="badge" :class="`badge-${item.status}`">{{ statusLabels[item.status] }}</span></td>
-            <td>
+            <td class="text-muted" data-label="编号" style="font-size:0.8rem;">{{ item.serialNo }}</td>
+            <td class="text-secondary" data-label="报销人">{{ item.applicantName || '-' }}</td>
+            <td class="title-cell" data-label="标题">{{ item.title }}</td>
+            <td class="text-right" data-label="金额">&yen;{{ (item.totalAmount || 0).toLocaleString() }}</td>
+            <td data-label="状态"><span class="badge" :class="`badge-${item.status}`">{{ statusLabels[item.status] }}</span></td>
+            <td data-label="类别">
               <div
                 v-if="item.categoryNames && item.categoryNames.length"
                 class="category-tags"
@@ -51,7 +51,7 @@
               </div>
               <span v-else class="text-secondary">-</span>
             </td>
-            <td class="text-right text-muted" style="font-size:0.82rem;">{{ (item.submittedAt || item.createdAt || '').slice(0, 10) }}</td>
+            <td class="text-right text-muted" data-label="日期" style="font-size:0.82rem;">{{ (item.submittedAt || item.createdAt || '').slice(0, 10) }}</td>
             <td class="col-action">
               <span v-if="item.status === 'draft' || item.status === 'rejected'" class="table-link" @click.stop="$router.push(`/expenses/${item.id}/edit`)">编辑</span>
               <span v-else class="table-link" @click.stop="$router.push(`/expenses/${item.id}`)">查看</span>
@@ -185,4 +185,76 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 .category-more { font-size: 0.72rem; color: var(--text-muted); }
+
+@media (max-width: 640px) {
+  .toolbar { gap: 8px; }
+  .filter-select { flex: 1 1 100%; min-width: 0; }
+  .search-input { width: 100%; }
+  .toolbar-spacer { display: none; }
+  .toolbar > .btn-primary { display: none; }
+
+  .table-wrap {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: visible;
+  }
+  .data-table { display: block; min-width: 0; }
+  .data-table thead { display: none; }
+  .data-table tbody { display: flex; flex-direction: column; gap: 12px; }
+  .data-table tbody tr {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    padding: 12px 14px;
+  }
+  .data-table tbody tr:nth-child(even) { background: var(--bg-card); }
+  .data-table td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 4px 0;
+    border: 0;
+    font-size: 0.86rem;
+  }
+  .data-table td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
+  .data-table td.title-cell {
+    order: -3;
+    max-width: none;
+    margin-bottom: 4px;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed var(--border-light);
+    font-weight: 600;
+    font-size: 0.98rem;
+    white-space: normal;
+  }
+  .data-table td.title-cell::before { display: none; }
+  .data-table td[data-label="金额"] { order: -2; font-weight: 600; }
+  .data-table td[data-label="状态"] { order: -1; }
+  .data-table td.col-action {
+    justify-content: flex-end;
+    margin-top: 6px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border-light);
+  }
+  .data-table td.col-action::before { display: none; }
+  .data-table td[colspan] {
+    display: block;
+    padding: 8px 0;
+    text-align: center;
+  }
+  .data-table td[colspan]::before { display: none; }
+  .data-table td .category-tags { max-width: none; justify-content: flex-end; }
+  .pagination { justify-content: center; }
+}
 </style>

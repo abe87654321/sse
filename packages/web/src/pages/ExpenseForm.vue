@@ -215,6 +215,7 @@
           </button>
         </div>
 
+        <div class="items-table-wrap">
         <table class="items-table">
           <thead>
             <tr>
@@ -269,6 +270,7 @@
             </tr>
           </tfoot>
         </table>
+        </div>
       </div>
 
       <InvoiceVerificationPanel
@@ -1410,4 +1412,44 @@ async function handleSubmit() {
 }
 .table-link:hover { opacity: 0.75; }
 .pending-hint { color: var(--text-muted); font-size: 0.78rem; margin-left: 4px; }
+
+@media (max-width: 768px) {
+  .form-body { gap: 16px; }
+  .form-grid { grid-template-columns: 1fr; }
+  .form-body .card { padding: 16px; }
+  .page-header .btn-icon { width: 44px; height: 44px; }
+
+  .items-table-wrap {
+    margin: 0 -4px;
+    padding: 0 4px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .items-table { min-width: 600px; }
+  .items-table input,
+  .items-table select,
+  .ai-input-row textarea,
+  .ai-result-item select,
+  .ai-result-item input {
+    font-size: 16px;
+  }
+
+  .ai-text-row { flex-direction: column; }
+  .ai-invoice-picker,
+  .ai-invoice-picker-btn { width: 100%; }
+  .ai-invoice-menu {
+    left: 0;
+    right: auto;
+    width: 100%;
+    min-width: 0;
+  }
+  .ai-result-item { flex-wrap: wrap; }
+  .ai-result-item input[type="number"],
+  .ai-result-item input[type="date"] { flex: 1 1 120px; }
+
+  .draft-notice { flex-direction: column; align-items: stretch; }
+  .form-footer { flex-direction: column-reverse; }
+  .form-footer .btn-primary,
+  .form-footer .btn-secondary { width: 100%; }
+}
 </style>
