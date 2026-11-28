@@ -308,7 +308,13 @@ const aiInvoiceFile = ref<File | null>(null)
 const aiLoading = ref(false)
 const aiError = ref('')
 const aiParsed = ref(false)
-const aiResult = ref<Array<{ categoryName: string; amount: number; expenseDate: string; description: string }>>([])
+const aiResult = ref<Array<{
+  categoryName: string
+  amount: number
+  expenseDate: string
+  description: string
+  sourceFile?: File
+}>>([])
 const textInvoiceFiles = ref<File[]>([])
 const textInvoiceFileInput = ref<HTMLInputElement | null>(null)
 const textInvoiceDirInput = ref<HTMLInputElement | null>(null)
@@ -528,7 +534,7 @@ async function handleAIParse() {
             headers: { 'Content-Type': 'multipart/form-data' },
             timeout: AI_REQUEST_TIMEOUT,
           })
-          items.push(...(res.data.items || []))
+          items.push(...(res.data.items || []).map((item: any) => ({ ...item, sourceFile: file })))
         } catch (e: any) {
           errors.push(`${file.name}：${aiErrorMessage(e, '识别失败')}`)
         } finally {
@@ -551,7 +557,11 @@ async function handleAIParse() {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: AI_REQUEST_TIMEOUT,
       })
-      aiResult.value = res.data.items || []
+      const invoiceFile = aiInvoiceFile.value
+      aiResult.value = (res.data.items || []).map((item: any) => ({
+        ...item,
+        sourceFile: invoiceFile || undefined,
+      }))
     }
     aiParsed.value = true
   } catch (e: any) {
@@ -598,7 +608,8 @@ function applyAIResult() {
       categoryId: cat?.id || 'c0000000-0000-0000-0000-000000000008',
       amount: item.amount,
       expenseDate: item.expenseDate,
-      description: item.description
+      description: item.description,
+      ...(item.sourceFile ? { pendingInvoiceFile: item.sourceFile } : {}),
     }
   })
   const existing = form.items.filter(item => !isBlankItem(item))

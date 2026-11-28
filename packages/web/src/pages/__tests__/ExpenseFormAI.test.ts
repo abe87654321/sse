@@ -250,6 +250,48 @@ describe('ExpenseForm AI recognition feedback', () => {
     expect(wrapper.findAll('.ai-result-item')).toHaveLength(1)
   })
 
+  it('attaches the uploaded invoice file to the filled expense item', async () => {
+    mocks.post.mockResolvedValue({
+      data: { items: [{ categoryName: '餐饮', amount: 88, expenseDate: '2026-11-27', description: '午饭' }] },
+    })
+    const wrapper = mountPage()
+    await flushPromises()
+    await openAI(wrapper)
+
+    await wrapper.findAll('.ai-tab').find(tab => tab.text().includes('上传发票'))!.trigger('click')
+    await selectFiles(wrapper, '.ai-file-row input[type="file"]', [pdfFile('invoice.pdf')])
+    await wrapper.find('.btn-ai').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text().includes('填入表单'))!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.invoice-row').map(row => row.text()).join(' ')).toContain('invoice.pdf')
+  })
+
+  it('attaches each selected invoice file to its recognized item', async () => {
+    mocks.post.mockImplementation((url: string) => {
+      if (url === '/ai/parse-invoice') {
+        return Promise.resolve({
+          data: { items: [{ categoryName: '餐饮', amount: 88, expenseDate: '2026-11-27', description: '午饭' }] },
+        })
+      }
+      return Promise.resolve({ data: { items: [] } })
+    })
+    const wrapper = mountPage()
+    await flushPromises()
+    await openAI(wrapper)
+
+    await selectFiles(wrapper, '.ai-text-invoice-input', [pdfFile('a.pdf'), pdfFile('b.ofd')])
+    await wrapper.find('.btn-ai').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text().includes('填入表单'))!.trigger('click')
+    await flushPromises()
+
+    const invoiceText = wrapper.findAll('.invoice-row').map(row => row.text()).join(' ')
+    expect(invoiceText).toContain('a.pdf')
+    expect(invoiceText).toContain('b.ofd')
+  })
+
   it('keeps the recognize button disabled until text or invoice files are provided', async () => {
     const wrapper = mountPage()
     await flushPromises()
